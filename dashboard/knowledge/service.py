@@ -616,7 +616,7 @@ class KnowledgeService:
         )
         return self._ingestor
 
-    def _build_graph_index(self, namespace: str) -> Any:
+    def _build_graph_index(self, namespace: str, *, llm_model: str = "") -> Any:
         """Construct a ``PropertyGraphIndex`` for ingestion into ``namespace``.
 
         Uses the same shared stores/adapters as ``_get_graph_rag_engine`` so
@@ -626,6 +626,10 @@ class KnowledgeService:
 
         The ``kg_extractors`` list is populated with a ``GraphRAGExtractor`` so
         ``insert_nodes()`` automatically runs entity extraction.
+
+        When ``llm_model`` is provided, creates a fresh ``KnowledgeLLM`` with
+        that model instead of using the service-level default. This supports
+        per-import model overrides from ``IngestOptions.llm_model``.
         """
         try:
             from llama_index.core import PropertyGraphIndex, StorageContext  # noqa: WPS433
@@ -646,7 +650,11 @@ class KnowledgeService:
                 knowledge_embedder=self._get_embedder(),
             )
 
-            llm = self._get_llm()
+            if llm_model:
+                from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
+                llm = KnowledgeLLM(model=llm_model)
+            else:
+                llm = self._get_llm()
 
             # Resolve namespace language for prompt selection.
             meta = self._nm.get(namespace)

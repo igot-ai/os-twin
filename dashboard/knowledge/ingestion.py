@@ -79,14 +79,16 @@ logger = logging.getLogger(__name__)
 class IngestOptions(BaseModel):
     """Tunable knobs for a single ingestion run."""
 
-    chunk_size: int = 1024
-    chunk_overlap: int = 200
+    chunk_size: int = 2048
+    chunk_overlap: int = 512
     max_file_size_mb: int = 50
-    force: bool = False  # re-ingest unchanged files (deletes existing chunks first)
-    extract_entities: bool = True  # set False to skip the LLM entirely
+    force: bool = False
+    extract_entities: bool = True
     language: str = "English"
     domain: str = ""
+    llm_model: str = ""
     vision_ocr: bool = True
+    vision_ocr_model: str = ""
     sliding_window_size: int = SLIDING_WINDOW_SIZE
     sliding_window_overlap: int = SLIDING_WINDOW_OVERLAP
     vision_ocr_dpi: int = 144
@@ -317,6 +319,9 @@ class Ingestor:
         # constructions.
         self._markitdown: Any = None
         self._markitdown_lock = threading.Lock()
+        self._vision_ocr_model: str = ""
+        self._vision_ocr_client: Any = None
+        self._llm_model_override: str = ""
 
     # ---- Lazy accessors ------------------------------------------------
 
@@ -331,7 +336,7 @@ class Ingestor:
         self._embedder = KnowledgeEmbedder()
         return self._embedder
 
-    def _get_llm(self) -> Any:
+    def _get_llm(self, model: str | None = None) -> Any:
         if self._llm is not None:
             return self._llm
         if self._llm_override is not None:
@@ -339,29 +344,68 @@ class Ingestor:
             return self._llm
         from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
 
-        self._llm = KnowledgeLLM()
+        self._llm = KnowledgeLLM(model=model or None)
         return self._llm
+
+    def _apply_llm_model_override(self, model: str) -> None:
+        """Reset cached LLM and graph indexes so ``model`` is used for entity extraction.
+
+        When the caller specifies ``IngestOptions.llm_model``, the service-level
+        ``KnowledgeLLM`` singleton may be using a different model. This method
+        stores the override model and invalidates any cached graph indexes so
+        they pick up the new LLM on next access via :meth:`_get_graph_index`.
+        """
+        self._llm_model_override = model
+        with self._graph_index_lock:
+            self._graph_indexes.clear()
 
     def _get_markitdown_converter(self, options: IngestOptions | None = None) -> Any:
         """Lazy-construct the per-Ingestor MarkItDown client.
 
-        Delegates to :class:`MarkitdownReader._get_markitdown` so the
-        provider-aware vision configuration logic lives in exactly one place.
+        Uses :func:`dashboard.llm_client.create_openai_sync_client` to build
+        an OpenAI-compatible sync client from the configured vision OCR model.
+        This single client serves both MarkItDown's ``ImageConverter`` and
+        :class:`VisionSlidingWindowConverter._vision_ocr` Path 2.
+
         When ``options.vision_ocr`` is True (default), registers a
         :class:`VisionSlidingWindowConverter` at higher priority than the
         built-in PdfConverter so PDFs are routed through vision LLM OCR
         when an LLM client is available.
         """
-        if self._markitdown is not None:
+        vision_model = ""
+        if options:
+            vision_model = options.vision_ocr_model or options.llm_model
+
+        if self._markitdown is not None and self._vision_ocr_model == vision_model:
             return self._markitdown
+
         with self._markitdown_lock:
-            if self._markitdown is not None:
+            if self._markitdown is not None and self._vision_ocr_model == vision_model:
                 return self._markitdown
+
             from dashboard.knowledge.graph.parsers.markitdown_reader import (  # noqa: WPS433
                 MarkitdownReader,
             )
 
             md = MarkitdownReader()._get_markitdown()
+
+            vision_client = None
+            if vision_model:
+                try:
+                    from dashboard.llm_client import create_openai_sync_client  # noqa: WPS433
+                    vision_client = create_openai_sync_client(model=vision_model)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to create vision OCR client for %s: %s",
+                        vision_model, exc,
+                    )
+
+            if vision_client is not None:
+                md = type(md)(
+                    llm_client=vision_client,
+                    llm_model=vision_model,
+                )
+                self._vision_ocr_client = vision_client
 
             if options is None or options.vision_ocr:
                 ws = options.sliding_window_size if options else SLIDING_WINDOW_SIZE
@@ -375,6 +419,7 @@ class Ingestor:
                 md.register_converter(converter, priority=-1.0)
 
             self._markitdown = md
+            self._vision_ocr_model = vision_model
             return self._markitdown
 
     def _get_graph_index(self, namespace: str) -> Any:
@@ -384,13 +429,19 @@ class Ingestor:
         :class:`KnowledgeService`. Returns ``None`` when no factory is
         configured (standalone Ingestor mode — should not happen in
         production since the service always injects one).
+
+        When ``_llm_model_override`` is set (via ``IngestOptions.llm_model``),
+        passes it to the factory so the graph extractor uses the requested model.
         """
         if self._graph_index_factory is None:
             return None
         with self._graph_index_lock:
             idx = self._graph_indexes.get(namespace)
             if idx is None:
-                idx = self._graph_index_factory(namespace)
+                factory_kwargs: dict[str, Any] = {}
+                if getattr(self, "_llm_model_override", None):
+                    factory_kwargs["llm_model"] = self._llm_model_override
+                idx = self._graph_index_factory(namespace, **factory_kwargs)
                 self._graph_indexes[namespace] = idx
             return idx
 
@@ -492,7 +543,12 @@ class Ingestor:
         t_markitdown_start = time.monotonic()
         try:
             converter = self._get_markitdown_converter(options)
-            result = converter.convert(str(path))
+            convert_kwargs: dict[str, Any] = {}
+            if self._vision_ocr_client is not None:
+                convert_kwargs["llm_client"] = self._vision_ocr_client
+            if self._vision_ocr_model:
+                convert_kwargs["llm_model"] = self._vision_ocr_model
+            result = converter.convert(str(path), **convert_kwargs)
             text = (
                 getattr(result, "text_content", None)
                 or getattr(result, "text", None)
@@ -783,6 +839,11 @@ class Ingestor:
         options = options or IngestOptions()
         emit = emit or (lambda ev: None)
         cancel_check = cancel_check or (lambda: False)
+
+        # When the caller specifies an LLM model override, ensure the
+        # graph-index and KnowledgeLLM use it for entity extraction.
+        if options.llm_model:
+            self._apply_llm_model_override(options.llm_model)
 
         started_at = _utcnow()
         run_t0 = time.monotonic()

@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { apiGet } from '@/lib/api-client';
 import { JobStatusResponse } from '@/hooks/use-knowledge-import';
+import { useSettings } from '@/hooks/use-settings';
+import { useConfiguredModels } from '@/hooks/use-configured-models';
+import { ModelSelect } from '@/components/settings/ModelSelect';
 
 /* ── Inline Folder Browser ─────────────────────────────────────────── */
 
@@ -361,26 +364,43 @@ export default function ImportPanel({
   onRefresh,
 }: ImportPanelProps) {
   const [folderPath, setFolderPath] = useState('');
-  const [chunkSize, setChunkSize] = useState(512);
-  const [overlap, setOverlap] = useState(50);
+  const chunkSize = 2048;
+  const overlap = 512;
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [llmModel, setLlmModel] = useState('');
+  const [visionOcr, setVisionOcr] = useState(true);
+  const [visionOcrModel, setVisionOcrModel] = useState('gemini-2.0-flash');
+  const [showModelSettings, setShowModelSettings] = useState(false);
+
+  const { settings } = useSettings();
+  const configuredLlmModel = settings?.knowledge?.knowledge_llm_model ?? '';
+  const { allModels, providers } = useConfiguredModels();
+  const chatModels = useMemo(
+    () => allModels.filter((m) => !m.id.toLowerCase().includes('embed')),
+    [allModels],
+  );
 
   const handleImport = useCallback(async () => {
     if (!folderPath.trim()) return;
     
     setIsSubmitting(true);
     try {
-      await onStartImport(folderPath.trim(), {
+      const options: Record<string, unknown> = {
         chunk_size: chunkSize,
         overlap,
-      });
+        vision_ocr: visionOcr,
+        vision_ocr_model: visionOcr ? visionOcrModel : '',
+      };
+      if (llmModel.trim()) {
+        options.llm_model = llmModel.trim();
+      }
+      await onStartImport(folderPath.trim(), options);
       setFolderPath('');
     } finally {
       setIsSubmitting(false);
     }
-  }, [folderPath, chunkSize, overlap, onStartImport]);
+  }, [folderPath, chunkSize, overlap, visionOcr, visionOcrModel, llmModel, onStartImport]);
 
   const handleBrowseSelect = useCallback((path: string) => {
     setFolderPath(path);
@@ -496,60 +516,151 @@ export default function ImportPanel({
             </div>
           )}
 
-          {/* Options toggle */}
+          {/* Model Settings toggle */}
           <button
-            onClick={() => setShowOptions(!showOptions)}
+            onClick={() => setShowModelSettings(!showModelSettings)}
             className="flex items-center gap-1 text-xs font-medium transition-colors"
             style={{ color: 'var(--color-text-muted)' }}
           >
             <span className="material-symbols-outlined text-[16px]">
-              {showOptions ? 'expand_less' : 'expand_more'}
+              {showModelSettings ? 'expand_less' : 'expand_more'}
             </span>
-            Import Options
+            Advanced Settings
           </button>
 
-          {/* Options panel */}
-          {showOptions && (
+          {/* Model Settings panel */}
+          {showModelSettings && (
             <div 
-              className="p-3 rounded-lg space-y-3"
-              style={{ background: 'var(--color-background)' }}
+              className="p-4 rounded-lg space-y-5 border"
+              style={{ background: 'var(--color-background)', borderColor: 'var(--color-border)' }}
             >
-              <div>
-                <label 
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  Chunk Size: {chunkSize}
-                </label>
-                <input
-                  type="range"
-                  min={128}
-                  max={2048}
-                  step={128}
-                  value={chunkSize}
-                  onChange={(e) => setChunkSize(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-              <div>
-                <label 
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  Overlap: {overlap}
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={256}
-                  step={16}
-                  value={overlap}
-                  onChange={(e) => setOverlap(Number(e.target.value))}
-                  className="w-full"
-                />
+              <div className="space-y-4">
+                <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Processing Models</h4>
+                {/* Entity Extraction Model */}
+                <div>
+                  <label 
+                    className="block text-xs font-medium mb-1"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    <span className="flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">hub</span>
+                      Entity Extraction Model
+                    </span>
+                  </label>
+                  {chatModels.length > 0 ? (
+                    <ModelSelect
+                      value={llmModel}
+                      onChange={setLlmModel}
+                      models={chatModels}
+                      providers={providers}
+                      placeholder={configuredLlmModel || 'Use server default'}
+                      showTier={true}
+                      showContext={true}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      placeholder={configuredLlmModel || 'e.g. gpt-4o, claude-sonnet-4-20250514'}
+                      className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
+                      style={{ 
+                        background: 'var(--color-surface)', 
+                        borderColor: 'var(--color-border)',
+                        color: 'var(--color-text-main)'
+                      }}
+                    />
+                  )}
+                  <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+                    {configuredLlmModel 
+                      ? `Default from settings: ${configuredLlmModel}. Leave blank to use default.`
+                      : 'Leave blank to use the default model from settings.'}
+                  </p>
+                </div>
+
+                {/* Vision OCR */}
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={() => setVisionOcr(!visionOcr)}
+                      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 mt-0.5"
+                      style={{ background: visionOcr ? 'var(--color-primary)' : 'var(--color-border)' }}
+                      role="switch"
+                      aria-checked={visionOcr}
+                    >
+                      <span
+                        className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+                        style={{ transform: visionOcr ? 'translateX(18px)' : 'translateX(2px)' }}
+                      />
+                    </button>
+                    <div>
+                      <label 
+                        className="block text-xs font-medium"
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px]">document_scanner</span>
+                          Vision OCR
+                        </span>
+                      </label>
+                      <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+                        Extract text from PDF/DOCX/PPTX pages via vision model
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Vision OCR Model */}
+                  {visionOcr && (
+                    <div className="ml-12 pl-3 border-l-2" style={{ borderColor: 'var(--color-border)' }}>
+                      <label 
+                        className="block text-xs font-medium mb-1"
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px]">visibility</span>
+                          OCR Model
+                          <span 
+                            className="px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                            style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+                          >
+                            Gemini Flash recommended
+                          </span>
+                        </span>
+                      </label>
+                      {chatModels.length > 0 ? (
+                        <ModelSelect
+                          value={visionOcrModel}
+                          onChange={setVisionOcrModel}
+                          models={chatModels}
+                          providers={providers}
+                          placeholder="gemini-2.0-flash"
+                          showTier={true}
+                          showContext={true}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={visionOcrModel}
+                          onChange={(e) => setVisionOcrModel(e.target.value)}
+                          placeholder="gemini-2.0-flash"
+                          className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
+                          style={{ 
+                            background: 'var(--color-surface)', 
+                            borderColor: 'var(--color-border)',
+                            color: 'var(--color-text-main)'
+                          }}
+                        />
+                      )}
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+                        Gemini Flash offers the best speed/cost ratio for document OCR. Also supports gpt-4o, claude-sonnet-4-20250514, etc.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
+
         </div>
 
         {/* Active job warning */}

@@ -71,13 +71,12 @@ class MarkitdownReader(DocParser):
     def _get_markitdown(self) -> Any:
         """Lazy-construct a MarkItDown client with provider-aware LLM support.
 
-        Uses :func:`dashboard.llm_client.create_client` for provider
-        detection and ``base_url`` resolution.  All client types returned
-        by ``create_client`` expose a ``base_url`` attribute.
-
-        MarkItDown's ``ImageConverter`` uses the **sync** OpenAI SDK
-        interface, so we build a sync ``openai.OpenAI`` client using
-        the ``base_url`` that ``create_client`` resolved.
+        Uses :func:`dashboard.llm_client.create_openai_sync_client` to build
+        an OpenAI-compatible sync client from the configured LLM model.
+        This works with all providers (OpenAI, Google/Gemini, Ollama, etc.)
+        because it resolves the provider-specific ``base_url`` and ``api_key``
+        and wraps them in the standard ``openai.OpenAI`` SDK interface that
+        MarkItDown's ``ImageConverter`` expects.
 
         When no LLM model or API key is configured, returns a plain
         ``MarkItDown()`` — image converters fall back to alt-text only.
@@ -90,42 +89,17 @@ class MarkitdownReader(DocParser):
             return MarkItDown()
 
         try:
-            from dashboard.llm_client import (  # noqa: WPS433
-                PROVIDER_API_KEYS,
-                _detect_provider_from_model,
-                create_client,
-            )
+            from dashboard.llm_client import create_openai_sync_client  # noqa: WPS433
 
-            # Resolve the API key from the provider-specific env var.
-            provider = _detect_provider_from_model(LLM_MODEL)
-            env_name = PROVIDER_API_KEYS.get(provider)
-            api_key = os.environ.get(env_name) if env_name else None
+            sync_client = create_openai_sync_client(model=LLM_MODEL)
 
-            if not api_key:
+            if sync_client is None:
                 logger.debug(
-                    "No API key for provider %r (%s); MarkItDown vision disabled.",
-                    provider,
-                    env_name,
-                )
-                return MarkItDown()
-
-            # create_client resolves provider + base_url for us.
-            # All client types (OpenAIClient, GoogleClient) expose a
-            # ``base_url`` attribute suitable for building a sync
-            # OpenAI SDK client that MarkItDown's ImageConverter needs.
-            llm_client = create_client(model=LLM_MODEL, api_key=api_key)
-            base_url = getattr(llm_client, "base_url", None)
-
-            if not base_url:
-                logger.debug(
-                    "create_client(%s) has no base_url; MarkItDown vision disabled.",
+                    "No API key resolved for %s; MarkItDown vision disabled.",
                     LLM_MODEL,
                 )
                 return MarkItDown()
 
-            from openai import OpenAI  # noqa: WPS433
-
-            sync_client = OpenAI(api_key=api_key, base_url=base_url)
             return MarkItDown(llm_client=sync_client, llm_model=LLM_MODEL)
         except Exception as exc:  # noqa: BLE001
             logger.warning(

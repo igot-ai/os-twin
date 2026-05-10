@@ -45,7 +45,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
-
+from markitdown import DocumentConverter
 from dashboard.knowledge.config import (
     SLIDING_WINDOW_OVERLAP,
     SLIDING_WINDOW_SIZE,
@@ -249,7 +249,7 @@ class _ConverterResult:
         return self.markdown
 
 
-class VisionSlidingWindowConverter:
+class VisionSlidingWindowConverter(DocumentConverter):
     """PDF / DOCX / PPTX → markdown via sliding-window vision OCR.
 
     Renders document pages to images via PyMuPDF, groups them into sliding
@@ -293,9 +293,25 @@ class VisionSlidingWindowConverter:
         if extension not in self.ACCEPTED_EXTENSIONS and not any(
             mimetype.startswith(p) for p in self.ACCEPTED_MIME_PREFIXES
         ):
+            logger.debug(
+                "VisionSlidingWindowConverter.accepts: declined %s (extension/mimetype not matched)",
+                extension,
+            )
             return False
 
         llm_client = kwargs.get("llm_client")
+        if llm_client is not None:
+            logger.debug(
+                "VisionSlidingWindowConverter.accepts: accepted %s (llm_client=%s, llm_model=%s)",
+                extension,
+                type(llm_client).__name__,
+                kwargs.get("llm_model", "<none>"),
+            )
+        else:
+            logger.debug(
+                "VisionSlidingWindowConverter.accepts: declined %s (no llm_client in kwargs)",
+                extension,
+            )
         return llm_client is not None
 
     def convert(self, file_stream: io.BytesIO, stream_info: Any, **kwargs: Any) -> Any:
@@ -313,6 +329,15 @@ class VisionSlidingWindowConverter:
 
         extension = (getattr(stream_info, "extension", None) or "").lower()
         raw_bytes = file_stream.read()
+
+        logger.debug(
+            "VisionSlidingWindowConverter.convert: starting %s, "
+            "llm_client=%s, llm_model=%s, %d bytes",
+            extension,
+            type(llm_client).__name__ if llm_client else "None",
+            llm_model or "<none>",
+            len(raw_bytes),
+        )
 
         # Convert DOCX/PPTX to PDF first, then open with PyMuPDF.
         if extension in (".docx", ".pptx"):
@@ -379,6 +404,15 @@ class VisionSlidingWindowConverter:
                 markdown_parts.append(f"<!-- pages {page_range} -->\n{content}")
 
         doc.close()
+        total_chars = sum(len(p) for p in markdown_parts)
+        logger.debug(
+            "VisionSlidingWindowConverter.convert: completed %s, %d pages, %d windows, %d chars total, llm_model=%s",
+            extension,
+            total_pages,
+            len(windows),
+            total_chars,
+            llm_model or "<none>",
+        )
         return _ConverterResult(markdown="\n\n".join(markdown_parts))
 
     def _combine_page_images(
@@ -649,6 +683,7 @@ class VisionSlidingWindowConverter:
         import base64
 
         if llm_client is None:
+            logger.debug("_vision_ocr: skipped (no llm_client)")
             return ""
 
         if not prompt or not prompt.strip():
@@ -672,6 +707,12 @@ class VisionSlidingWindowConverter:
         from dashboard.llm_client import ChatMessage as _ChatMsg, LLMClient as _LLMClient
 
         if isinstance(llm_client, _LLMClient):
+            logger.debug(
+                "_vision_ocr: Path 1 (project LLMClient), model=%s, provider=%s, image=%d bytes",
+                llm_model,
+                getattr(llm_client, "provider", "<unknown>"),
+                len(b64),
+            )
             try:
                 from dashboard.llm_client import run_sync as _run_sync
 
@@ -680,6 +721,10 @@ class VisionSlidingWindowConverter:
                     _ChatMsg(role="user", content=prompt, images=[data_uri]),
                 ]
                 result = _run_sync(llm_client.chat(messages))
+                logger.debug(
+                    "_vision_ocr: Path 1 completed, %d chars returned",
+                    len(result.content or ""),
+                )
                 return result.content or ""
             except Exception as exc:
                 logger.error("Vision LLM call (project client) failed: %s", exc)
@@ -687,6 +732,11 @@ class VisionSlidingWindowConverter:
 
         # --- Path 2: OpenAI sync SDK (openai.OpenAI) ---
         if hasattr(llm_client, "chat") and hasattr(llm_client.chat, "completions"):
+            model = llm_model or "gpt-4o"
+            logger.debug(
+                "_vision_ocr: Path 2 (OpenAI sync SDK), model=%s",
+                model,
+            )
             messages = [
                 {
                     "role": "user",
@@ -697,16 +747,24 @@ class VisionSlidingWindowConverter:
                 }
             ]
             try:
-                model = llm_model or "gpt-4o"
                 response = llm_client.chat.completions.create(
                     model=model, messages=messages
                 )
-                return response.choices[0].message.content or ""
+                content = response.choices[0].message.content or ""
+                logger.debug(
+                    "_vision_ocr: Path 2 completed, %d chars returned",
+                    len(content),
+                )
+                return content
             except Exception as exc:
                 logger.error("Vision LLM call (OpenAI SDK) failed: %s", exc)
                 return ""
 
         # --- Path 3: Unknown client — try generic chat with images ---
+        logger.debug(
+            "_vision_ocr: Path 3 (generic client), client_type=%s",
+            type(llm_client).__name__,
+        )
         try:
             messages = [
                 _ChatMsg(role="user", content=prompt, images=[data_uri]),

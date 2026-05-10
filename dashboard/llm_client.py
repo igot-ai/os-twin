@@ -7,6 +7,7 @@ Uses provider_urls.json for base URLs.
 
 from __future__ import annotations
 
+import os
 import asyncio
 import base64
 import json
@@ -362,15 +363,14 @@ class GoogleClient(LLMClient):
     ):
         super().__init__(model, config, provider=provider)
         from google.genai import Client
-        import os as _os
 
         # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
         # The genai SDK expects only the bare model ID (last segment after "/").
         self.model_id = model.split("/")[-1]
 
         if vertexai:
-            project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
-            location = _os.environ.get("VERTEX_LOCATION")
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = os.environ.get("VERTEX_LOCATION")
             self._client = Client(vertexai=True, project=project, location=location)
         else:
             self._client = Client(api_key=api_key)
@@ -826,10 +826,9 @@ def _resolve_transport_api_key(provider: Optional[str]) -> Optional[str]:
     if not provider:
         return None
 
-    import os as _os
     env_name = PROVIDER_API_KEYS.get(provider)
     if env_name:
-        val = _os.environ.get(env_name)
+        val = os.environ.get(env_name)
         if val:
             return val
 
@@ -852,8 +851,6 @@ def create_client(
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
 ) -> LLMClient:
-    import os as _os
-
     effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
 
     try:
@@ -868,15 +865,15 @@ def create_client(
         base_url = _get_base_url(effective_provider)
         is_vertex = effective_provider == "google-vertex"
         if is_vertex and base_url:
-            region = _os.environ.get("VERTEX_LOCATION", "global")
-            project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+            region = os.environ.get("VERTEX_LOCATION", "global")
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        resolved_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         return GoogleClient(model=clean_model, api_key=resolved_key, base_url=base_url, config=config, vertexai=is_vertex, provider=effective_provider)
 
     if effective_provider == "ollama":
         cfg = providers.ollama if providers else None
-        base_url = (cfg.base_url if cfg and cfg.base_url else _os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
         return OllamaClient(model=model, base_url=base_url, config=config)
 
     base_url = _get_base_url(effective_provider)
@@ -916,40 +913,96 @@ def run_sync(coro):
         return pool.submit(_runner).result()
 
 
-# ---------------------------------------------------------------------------
-# Embedding client abstraction
-# ---------------------------------------------------------------------------
+def create_openai_sync_client(
+    model: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: float = REQUEST_TIMEOUT,
+) -> Optional["OpenAI"]:
+    """Create a sync OpenAI SDK client for any provider.
 
-# Known native model dimensions — avoids a test-embedding probe on first use.
-_KNOWN_EMBEDDING_DIMENSIONS: dict[str, int] = {
-    "all-MiniLM-L6-v2": 384,
-    "all-MiniLM-L12-v2": 384,
-    "all-mpnet-base-v2": 1024,
-    "paraphrase-MiniLM-L6-v2": 384,
-    "paraphrase-multilingual-MiniLM-L12-v2": 384,
-    "BAAI/bge-base-en-v1.5": 1024,
-    "BAAI/bge-small-en-v1.5": 384,
-    "BAAI/bge-large-en-v1.5": 1024,
-    "gemini-embedding-001": 1024,
-    "text-embedding-004": 1024,
-    "text-embedding-005": 1024,
-    "text-embedding-3-small": 1536,
-    "text-embedding-3-large": 3072,
-    # Ollama embedding models
-    "leoipulsar/harrier-0.6b": 1024,
-    "embeddinggemma": 1024,
-    "qwen3-embedding:0.6b": 896,
-}
+    Uses the same ``resolve_provider_and_model`` pipeline as
+    :func:`create_client` so provider prefixes (e.g. ``"google/gemini-2.0-flash"``)
+    and aliases are resolved correctly.  Returns a ``openai.OpenAI`` sync
+    client configured with the resolved ``base_url`` and ``api_key``,
+    making it compatible with MarkItDown's ``ImageConverter`` and any
+    other library that expects the standard OpenAI SDK interface.
+
+    For Google/Gemini models, uses Gemini's OpenAI-compatible endpoint
+    (``https://generativelanguage.googleapis.com/v1beta/openai/``).
+    For Ollama, uses the Ollama OpenAI-compatible endpoint.
+
+    Returns ``None`` when no API key can be resolved (graceful degradation).
+    """
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
+
+    resolved_key = api_key
+
+    if effective_provider in ("google", "google-vertex"):
+        base_url = _get_base_url(effective_provider) or GoogleClient._GEMINI_OPENAI_BASE
+        if not resolved_key:
+            resolved_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    elif effective_provider == "ollama":
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+            resolver = get_settings_resolver()
+            master_settings = resolver.get_master_settings()
+            cfg = master_settings.providers.ollama if master_settings else None
+            base_url = cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        except Exception:
+            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        if not resolved_key:
+            resolved_key = "ollama"
+    else:
+        base_url = _get_base_url(effective_provider)
+        if not resolved_key:
+            resolved_key = _resolve_transport_api_key(effective_provider)
+
+    if not resolved_key:
+        return None
+
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=resolved_key, base_url=base_url, timeout=timeout)
+    except Exception as exc:
+        logger.warning("Failed to create OpenAI sync client for %s: %s", model, exc)
+        return None
+
 
 # Single source of truth for embedding dimension across the entire system.
 # Fixed at startup from OSTWIN_EMBEDDING_DIM env var; cannot be changed
 # dynamically via settings.  All embedding clients, vector stores, and
 # retrievers (memory + knowledge) MUST use this value to avoid dimension
 # conflicts in shared collections.
-import os as _os_for_dim
 DEFAULT_EMBEDDING_DIMENSION: int = int(
-    _os_for_dim.environ.get("OSTWIN_EMBEDDING_DIM", "1024")
+    os.environ.get("OSTWIN_EMBEDDING_DIM", "1024")
 )
+
+# ---------------------------------------------------------------------------
+# Embedding client abstraction
+# ---------------------------------------------------------------------------
+
+# Known native model dimensions — avoids a test-embedding probe on first use.
+_KNOWN_EMBEDDING_DIMENSIONS: dict[str, int] = {
+    "all-MiniLM-L6-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "all-MiniLM-L12-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "all-mpnet-base-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "paraphrase-MiniLM-L6-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "paraphrase-multilingual-MiniLM-L12-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-base-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-small-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-large-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "gemini-embedding-001": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-004": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-005": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-3-small": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-3-large": DEFAULT_EMBEDDING_DIMENSION,
+    # Ollama embedding models
+    "leoipulsar/harrier-0.6b": DEFAULT_EMBEDDING_DIMENSION,
+    "embeddinggemma": DEFAULT_EMBEDDING_DIMENSION,
+    "qwen3-embedding:0.6b": DEFAULT_EMBEDDING_DIMENSION,
+    "qwen3-embedding:4b": DEFAULT_EMBEDDING_DIMENSION,
+}
 
 
 class EmbeddingClient(ABC):
@@ -1097,16 +1150,15 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
         self._api_key = api_key
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        import os as _os
         import httpx
 
         if not texts:
             return []
 
-        base_url = self._base_url or _os.environ.get(
+        base_url = self._base_url or os.environ.get(
             "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
         )
-        api_key = self._api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        api_key = self._api_key or os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
 
         try:
             with httpx.Client() as client:
@@ -1146,15 +1198,14 @@ class GeminiEmbeddingClient(EmbeddingClient):
         vertexai: bool = False,
     ):
         super().__init__(model, dimension)
-        import os as _os
         from google.genai import Client
 
         if vertexai:
-            project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
-            location = _os.environ.get("VERTEX_LOCATION")
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = os.environ.get("VERTEX_LOCATION")
             self._client = Client(vertexai=True, project=project, location=location)
         else:
-            key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+            key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
             self._client = Client(api_key=key)
         self._base_url = base_url
 
@@ -1220,14 +1271,23 @@ _embedding_cache: dict[str, Any] = {}
 _embedding_cache_lock = threading.Lock()
 
 
-def _detect_embedding_provider(model: str) -> str:
-    """Auto-detect embedding provider from model name."""
+def _detect_embedding_provider_from_model(model: str) -> str:
+    """Auto-detect embedding provider from a bare model name (no provider/ prefix).
+
+    Mirrors the logic in ``_detect_provider_from_model`` but returns embedding-
+    specific provider identifiers (e.g. ``"ollama"`` instead of ``"openai"``).
+    """
     if not model:
         return "sentence-transformers"
     model_lower = model.lower()
     if "gemini" in model_lower or "text-embedding" in model_lower:
+        if "vertex" in model_lower:
+            return "google-vertex"
         return "google"
-    # Default to ollama for local model names
+    if any(x in model_lower for x in ["gpt-", "text-embedding-3"]):
+        return "openai-compatible"
+    if "bge-" in model_lower or "minilm" in model_lower or model_lower.startswith("all-"):
+        return "sentence-transformers"
     return "ollama"
 
 
@@ -1242,9 +1302,16 @@ def create_embedding_client(
 ) -> EmbeddingClient:
     """Factory: create (or retrieve cached) embedding client.
 
+    Uses the same ``resolve_provider_and_model`` pipeline as ``create_client``
+    so that ``provider/model`` prefixes (e.g. ``"google-vertex/gemini-embedding-001"``)
+    are parsed, aliases normalised, and the provider prefix stripped from the
+    model name before construction.
+
     Args:
-        model: Embedding model identifier.
-        provider: Backend: ``"ollama"``, ``"google"``, ``"openai-compatible"``.
+        model: Embedding model identifier.  May include a ``provider/`` prefix
+            (e.g. ``"google-vertex/gemini-embedding-001"``).
+        provider: Backend: ``"ollama"``, ``"google"``, ``"google-vertex"``,
+            ``"openai-compatible"``, ``"sentence-transformers"``.
             Auto-detected from model name when ``None``.
         api_key: API key (provider-specific).
         base_url: Override base URL for the provider.
@@ -1257,14 +1324,47 @@ def create_embedding_client(
     Returns:
         An ``EmbeddingClient`` instance.
     """
-    if provider is None:
-        provider = _detect_embedding_provider(model)
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
+
+    # model_provider (from "provider/model" prefix) is the strongest signal —
+    # the user explicitly chose this provider for this model.  Fall back to
+    # effective_provider only when no prefix was present.
+    embed_provider = model_provider if model_provider is not None else effective_provider
+
+    _CHAT_TO_EMBED_PROVIDER: dict[str, str] = {
+        "openai": "openai-compatible",
+        "anthropic": "openai-compatible",
+        "deepseek": "openai-compatible",
+        "mistral": "openai-compatible",
+        "groq": "openai-compatible",
+        "cerebras": "openai-compatible",
+        "perplexity": "openai-compatible",
+        "together": "openai-compatible",
+        "togetherai": "openai-compatible",
+        "fireworks": "openai-compatible",
+        "xai": "openai-compatible",
+        "cohere": "openai-compatible",
+        "alibaba": "openai-compatible",
+    }
+
+    if embed_provider in _CHAT_TO_EMBED_PROVIDER:
+        embed_provider = _CHAT_TO_EMBED_PROVIDER[embed_provider]
+    elif embed_provider == "ollama":
+        pass
+    elif embed_provider in ("google", "google-vertex"):
+        pass
+    elif embed_provider == "openai-compatible":
+        pass
+    elif embed_provider == "sentence-transformers":
+        pass
+    else:
+        embed_provider = _detect_embedding_provider_from_model(clean_model)
 
     # Use known dimension if not explicitly set
     if dimension is None:
-        dimension = _KNOWN_EMBEDDING_DIMENSIONS.get(model)
+        dimension = _KNOWN_EMBEDDING_DIMENSIONS.get(clean_model)
 
-    cache_key = f"{provider}:{model}:{dimension}"
+    cache_key = f"{embed_provider}:{clean_model}:{dimension}"
 
     if shared:
         with _embedding_cache_lock:
@@ -1272,7 +1372,6 @@ def create_embedding_client(
             if cached is not None:
                 return cached
 
-    # Resolve settings for provider-specific config
     try:
         from dashboard.lib.settings.resolver import get_settings_resolver
         resolver = get_settings_resolver()
@@ -1281,53 +1380,51 @@ def create_embedding_client(
     except Exception:
         providers_cfg = None
 
-    import os as _os
-
-    if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
-        is_vertex = provider == "google-vertex"
+    if model_provider in ("google", "google-genai", "google_gemini", "google-vertex"):
+        is_vertex = embed_provider == "google-vertex"
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         client = GeminiEmbeddingClient(
-            model=model,
-            api_key=api_key,
+            model=clean_model,
+            api_key=resolved_key,
             base_url=base_url,
             dimension=dimension,
             vertexai=is_vertex,
         )
-    elif provider == "openai-compatible":
+    elif embed_provider == "openai-compatible" and embed_provider != model_provider:
         cfg = providers_cfg.openai_compatible if providers_cfg else None
         resolved_base = base_url or (
-            cfg.base_url if cfg and cfg.base_url else _os.environ.get(
+            cfg.base_url if cfg and cfg.base_url else os.environ.get(
                 "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
             )
         )
-        resolved_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        resolved_key = api_key or _resolve_transport_api_key(model_provider)
         client = OpenAICompatibleEmbeddingClient(
-            model=model,
+            model=clean_model,
             base_url=resolved_base,
             api_key=resolved_key,
             dimension=dimension,
         )
-    elif provider == "sentence-transformers":
+    elif embed_provider == "sentence-transformers":
         client = SentenceTransformersEmbeddingClient(
-            model=model,
+            model=clean_model,
             dimension=dimension,
         )
-    elif provider == "ollama":
+    elif embed_provider == "ollama" or provider == "ollama":
         cfg = providers_cfg.ollama if providers_cfg else None
         resolved_base = base_url or (
-            cfg.base_url if cfg and cfg.base_url else _os.environ.get(
+            cfg.base_url if cfg and cfg.base_url else os.environ.get(
                 "OLLAMA_BASE_URL", "http://localhost:11434"
             )
         )
         client = OllamaEmbeddingClient(
-            model=model,
+            model=clean_model,
             base_url=resolved_base,
             dimension=dimension,
         )
     else:
-        # Fallback to ollama
-        logger.warning("Unknown embedding provider %r; falling back to ollama", provider)
+        logger.warning("Unknown embedding provider %r; falling back to ollama", embed_provider)
         client = OllamaEmbeddingClient(
-            model=model,
+            model=clean_model,
             base_url=base_url,
             dimension=dimension,
         )
