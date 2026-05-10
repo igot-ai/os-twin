@@ -32,7 +32,7 @@
     "image": "https://api.bfl.ai/v1/{modelId}",
     "poll": "https://api.bfl.ai/v1/poll?id={requestId}"
   },
-  "bytedance": {
+  "byteplus": {
     "base": "https://ark.ap-southeast.bytepluses.com/api/v3",
     "tasks": "https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks"
   },
@@ -129,6 +129,11 @@
     "chat": "https://api.mistral.ai/v1/chat/completions",
     "embeddings": "https://api.mistral.ai/v1/embeddings"
   },
+  "zai": {
+    "base": "https://api.z.ai/api/paas/v4/",
+    "chat": "https://api.z.ai/api/paas/v4/chat/completions",
+    "embeddings": "https://api.z.ai/api/paas/v4/embeddings"
+  },
   "moonshotai": {
     "base": "https://api.moonshot.ai/v1",
     "chat": "https://api.moonshot.ai/v1/chat/completions"
@@ -170,6 +175,9 @@
   },
   "vercel": {
     "base": "https://api.v0.dev/v1"
+  },
+  "poe": {
+    "base": "https://api.poe.com/v1"
   },
   "voyage": {
     "base": "https://api.voyageai.com/v1",
