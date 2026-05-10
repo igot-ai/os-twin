@@ -23,6 +23,44 @@ export const LABEL_COLORS: Record<string, string> = {
   text_chunk: '#94a3b8',
 };
 
+export type NodeShapeType = 'sphere' | 'octahedron' | 'box' | 'tetrahedron' | 'dodecahedron' | 'icosahedron';
+
+export const SHAPE_TYPES: NodeShapeType[] = ['sphere', 'octahedron', 'box', 'tetrahedron', 'dodecahedron', 'icosahedron'];
+
+export const LABEL_SHAPES: Record<string, NodeShapeType> = {
+  entity: 'icosahedron',
+  person: 'octahedron',
+  organization: 'box',
+  location: 'tetrahedron',
+  event: 'dodecahedron',
+  concept: 'icosahedron',
+  document: 'box',
+  date: 'tetrahedron',
+  product: 'dodecahedron',
+  technology: 'octahedron',
+  country: 'octahedron',
+  city: 'tetrahedron',
+  money: 'dodecahedron',
+  law: 'box',
+  media: 'icosahedron',
+  group: 'octahedron',
+  text_chunk: 'sphere',
+};
+
+export function getShapeType(label: string): number {
+  const key = label.toLowerCase();
+  const shape = LABEL_SHAPES[key] ?? guessShape(label);
+  return SHAPE_TYPES.indexOf(shape);
+}
+
+function guessShape(label: string): NodeShapeType {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) {
+    hash = label.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return SHAPE_TYPES[Math.abs(hash) % SHAPE_TYPES.length];
+}
+
 /**
  * Generate a deterministic HSL color from a string.
  * Uses a simple hash to distribute hues evenly, ensuring

@@ -778,6 +778,198 @@ async def get_namespace_graph(
 
 
 # ---------------------------------------------------------------------------
+# Supernova Explorer Endpoints
+# ---------------------------------------------------------------------------
+
+
+class ExplorerExpandRequest(BaseModel):
+    """Request body for POST /api/knowledge/namespaces/{namespace}/explorer/expand."""
+
+    node_ids: list[str] = Field(
+        ...,
+        description="Node IDs to expand from",
+        min_length=1,
+        max_length=100,
+    )
+    depth: int = Field(
+        default=1,
+        description="Number of hops to expand (1-3)",
+        ge=1,
+        le=3,
+    )
+
+
+class ExplorerSearchRequest(BaseModel):
+    """Request body for POST /api/knowledge/namespaces/{namespace}/explorer/search."""
+
+    query: str = Field(
+        ...,
+        description="Natural language search query",
+        min_length=1,
+        max_length=2000,
+    )
+    limit: int = Field(
+        default=20,
+        description="Max seed results from vector search",
+        ge=1,
+        le=100,
+    )
+
+
+class ExplorerPathRequest(BaseModel):
+    """Request body for POST /api/knowledge/namespaces/{namespace}/explorer/path."""
+
+    source_id: str = Field(..., description="Starting node ID")
+    target_id: str = Field(..., description="Ending node ID")
+
+
+@router.get(
+    "/namespaces/{namespace}/explorer/summary",
+    summary="Get graph topology summary",
+)
+async def explorer_summary(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Return lightweight topology stats for the namespace graph.
+
+    Includes entity/chunk/relation counts, label distribution, and degree
+    statistics. No node data is returned — this is a cheap overview.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(service.explorer_summary, namespace)
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.get(
+    "/namespaces/{namespace}/explorer/seed",
+    summary="Get initial graph seed (top PageRank + 1-hop)",
+)
+async def explorer_seed(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+    top_k: int = Query(default=50, ge=1, le=200, description="Number of top PageRank nodes to seed"),
+) -> dict:
+    """Load the initial "sky" — top-K PageRank nodes + their 1-hop neighborhood.
+
+    This is the entry point for the Supernova explorer. Returns enough
+    data to render the initial graph view, then the client can expand
+    on demand.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(service.explorer_seed, namespace, top_k=top_k)
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/explorer/expand",
+    summary="Expand graph from given node IDs",
+)
+async def explorer_expand(
+    namespace: str,
+    request: ExplorerExpandRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Expand from a set of node IDs outward by N hops.
+
+    The client sends the IDs of nodes it wants to explore around,
+    and the server returns all nodes and edges within the specified
+    hop distance.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(
+            service.explorer_expand,
+            namespace,
+            node_ids=request.node_ids,
+            depth=request.depth,
+        )
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/explorer/search",
+    summary="Vector search + graph expansion",
+)
+async def explorer_search(
+    namespace: str,
+    request: ExplorerSearchRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Vector-similarity search over node embeddings + 1-hop context.
+
+    Uses KuzuDB's vector index to find semantically similar entities,
+    then expands 1-hop for visual context.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(
+            service.explorer_search,
+            namespace,
+            query=request.query,
+            limit=request.limit,
+        )
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/explorer/path",
+    summary="Find shortest path between two nodes",
+)
+async def explorer_path(
+    namespace: str,
+    request: ExplorerPathRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Find the shortest weighted path between two nodes.
+
+    Uses NetworkX shortest_path with relationship-type weighting.
+    Returns the path as a sequence of node IDs plus the connecting edges.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(
+            service.explorer_path,
+            namespace,
+            source_id=request.source_id,
+            target_id=request.target_id,
+        )
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.get(
+    "/namespaces/{namespace}/explorer/node/{node_id}",
+    summary="Get full detail for a single node",
+)
+async def explorer_node_detail(
+    namespace: str,
+    node_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Full detail for a single node: properties, incident edges, degree stats.
+
+    Returns the node data, all incoming and outgoing edges with peer
+    node information, and computed degree statistics.
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(
+            service.explorer_node_detail,
+            namespace,
+            node_id=node_id,
+        )
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+# ---------------------------------------------------------------------------
 # Metrics and Health Endpoints (EPIC-005)
 # ---------------------------------------------------------------------------
 

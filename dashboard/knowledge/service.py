@@ -352,6 +352,47 @@ class KnowledgeService:
         engine = self._get_query_engine(namespace)
         return engine.get_graph(limit=limit)
 
+    # ---- Supernova Explorer APIs ----------------------------------------
+
+    def _get_explorer(self, namespace: str):
+        """Lazy-construct a :class:`KnowledgeExplorer` for *namespace*.
+
+        Uses the same cached Kuzu graph handle as the rest of the service.
+        """
+        from dashboard.knowledge.graph.explorer import KnowledgeExplorer  # noqa: WPS433
+        kg = self.get_kuzu_graph(namespace)
+        return KnowledgeExplorer(kg)
+
+    def explorer_summary(self, namespace: str) -> dict:
+        """Return lightweight topology stats for the namespace graph."""
+        explorer = self._get_explorer(namespace)
+        return explorer.summary()
+
+    def explorer_seed(self, namespace: str, top_k: int = 50) -> dict:
+        """Return the initial "sky" — top PageRank nodes + 1-hop neighborhood."""
+        explorer = self._get_explorer(namespace)
+        return explorer.seed(top_k=top_k)
+
+    def explorer_expand(self, namespace: str, node_ids: list[str], depth: int = 1) -> dict:
+        """Expand from a set of node IDs outward by N hops."""
+        explorer = self._get_explorer(namespace)
+        return explorer.expand(node_ids=node_ids, depth=depth)
+
+    def explorer_search(self, namespace: str, query: str, limit: int = 20) -> dict:
+        """Vector-similarity search over node embeddings + 1-hop context."""
+        explorer = self._get_explorer(namespace)
+        return explorer.search(query=query, limit=limit)
+
+    def explorer_path(self, namespace: str, source_id: str, target_id: str) -> dict:
+        """Find the shortest weighted path between two nodes."""
+        explorer = self._get_explorer(namespace)
+        return explorer.path(source_id=source_id, target_id=target_id)
+
+    def explorer_node_detail(self, namespace: str, node_id: str) -> dict:
+        """Full detail for a single node including incident edges and scores."""
+        explorer = self._get_explorer(namespace)
+        return explorer.node_detail(node_id=node_id)
+
     def _get_graph_rag_engine(self, namespace: str) -> Any:
         """Cached per-namespace :class:`GraphRAGQueryEngine`.
 
