@@ -77,16 +77,117 @@ def simple_tokenize(text):
 
 
 # --- Global embedding dimension -------------------------------------------
-EMBEDDING_DIMENSION: int = 768
+from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
 
-# Known dimensions (for zvec collection creation before first embed call)
+# Native model dimensions (before truncation) — used as a fast path
+# to avoid test-embedding calls (F9).
 _KNOWN_DIMENSIONS: Dict[str, int] = {
     "all-MiniLM-L6-v2": 384,
-    "all-mpnet-base-v2": 768,
-    "gemini-embedding-001": 768,
-    "text-embedding-004": 768,
-    "text-embedding-005": 768,
+    "all-MiniLM-L12-v2": 384,
+    "all-mpnet-base-v2": 1024,
+    "paraphrase-MiniLM-L6-v2": 384,
+    "paraphrase-multilingual-MiniLM-L12-v2": 384,
+    "gemini-embedding-001": 1024,
+    "gemini/gemini-embedding-001": 1024,
+    "text-embedding-004": 1024,
+    "leoipulsar/harrier-0.6b": 1024,
+    "embeddinggemma": 1024,
+    "qwen3-embedding:0.6b": 896,
+    "text-embedding-005": 1024,
 }
+
+
+class CentralizedEmbeddingFunction:
+    """Embedding function backed by ``dashboard.llm_client.create_embedding_client``.
+
+    Implements the ``EmbeddingFunction`` protocol (``__call__(input) -> list[list[float]]``).
+    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` for
+    cross-backend consistency with existing zvec/chroma collections.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "leoipulsar/harrier-0.6b",
+        embedding_backend: str = "ollama",
+    ):
+        self._model_name = model_name
+        self._embedding_backend = embedding_backend
+        self._client: Any = None
+
+    def _get_client(self) -> Any:
+        if self._client is not None:
+            return self._client
+        from dashboard.llm_client import create_embedding_client
+
+        current_dim = int(os.environ.get("OSTWIN_EMBEDDING_DIM", "1024"))
+
+        provider = self._embedding_backend
+        if provider == "gemini":
+            provider = "google"
+
+        self._client = create_embedding_client(
+            model=self._model_name,
+            provider=provider,
+            dimension=current_dim,
+        )
+        return self._client
+
+    def invalidate(self):
+        self._client = None
+
+    def __call__(self, input: Documents) -> Embeddings:
+        if not input:
+            return []
+        return self._get_client().embed(input)
+
+    @property
+    def dimension(self) -> int:
+        return int(os.environ.get("OSTWIN_EMBEDDING_DIM", "1024"))
+
+
+_embedding_cache: Dict[tuple, Any] = {}
+_embedding_cache_lock = threading.Lock()
+
+
+def _create_embedding_function(
+    embedding_backend: str,
+    model_name: str,
+    *,
+    shared: bool = True,
+    fresh: bool = False,
+):
+    """Create or retrieve a cached embedding function.
+
+    Delegates to ``CentralizedEmbeddingFunction`` which wraps the
+    centralized ``dashboard.llm_client.EmbeddingClient``.
+    """
+    cache_key = (embedding_backend, model_name)
+
+    if fresh and shared:
+        with _embedding_cache_lock:
+            old = _embedding_cache.pop(cache_key, None)
+            if old is not None and hasattr(old, "invalidate"):
+                old.invalidate()
+
+    if shared:
+        with _embedding_cache_lock:
+            cached = _embedding_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    fn = CentralizedEmbeddingFunction(
+        model_name=model_name,
+        embedding_backend=embedding_backend,
+    )
+
+    if shared:
+        with _embedding_cache_lock:
+            existing = _embedding_cache.get(cache_key)
+            if existing is not None:
+                return existing
+            _embedding_cache[cache_key] = fn
+
+    return fn
 
 
 def _parse_json_field(metadata: Dict, field: str) -> list:
