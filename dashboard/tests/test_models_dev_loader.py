@@ -28,6 +28,10 @@ from dashboard.lib.settings.models_dev_loader import (
     invalidate_cache,
     _format_context_window,
     _classify_tier,
+    get_context_limit,
+    count_tokens,
+    truncate_messages,
+    truncate_messages_for_model,
 )
 
 
@@ -400,3 +404,179 @@ def test_configured_models_has_required_keys(fake_raw_catalog):
     assert m["cost"]["input"] == 2
     assert m["limit"]["context"] == 1048576
     assert m["source"] == "models.dev"
+
+
+# ── count_tokens ──────────────────────────────────────────────────────
+
+
+class TestCountTokens:
+    def test_empty_messages(self):
+        assert count_tokens([]) == 2
+
+    def test_single_message(self):
+        msgs = [{"role": "user", "content": "Hello world"}]
+        n = count_tokens(msgs)
+        assert n > 0
+
+    def test_fallback_no_tiktoken(self):
+        with patch.dict("sys.modules", {"tiktoken": None}):
+            msgs = [{"role": "user", "content": "a" * 100}]
+            n = count_tokens(msgs)
+            assert n == 100 // 4
+
+
+# ── get_context_limit ─────────────────────────────────────────────────
+
+
+class TestGetContextLimit:
+    def setup_method(self):
+        get_context_limit.cache_clear()
+
+    def teardown_method(self):
+        get_context_limit.cache_clear()
+
+    def test_returns_catalog_limits(self, fake_raw_catalog):
+        providers = {"openai": {"type": "api", "source": "auth.json", "has_key": True}}
+        with patch("dashboard.lib.settings.models_dev_loader.OPENCODE_CONFIG_PATH", Path("/nonexistent")):
+            result = _build_configured_models(fake_raw_catalog, providers)
+
+        with patch("dashboard.lib.settings.models_dev_loader._cached_models", result):
+            get_context_limit.cache_clear()
+            ctx, out = get_context_limit("openai", "gpt-4.1")
+        assert ctx == 1048576
+
+    def test_returns_zero_for_unknown(self):
+        get_context_limit.cache_clear()
+        ctx, out = get_context_limit("nonexistent", "no-model")
+        assert ctx == 0
+        assert out == 0
+
+    def test_slash_split_model_id(self, fake_raw_catalog):
+        providers = {"openai": {"type": "api", "source": "auth.json", "has_key": True}}
+        with patch("dashboard.lib.settings.models_dev_loader.OPENCODE_CONFIG_PATH", Path("/nonexistent")):
+            result = _build_configured_models(fake_raw_catalog, providers)
+
+        with patch("dashboard.lib.settings.models_dev_loader._cached_models", result):
+            get_context_limit.cache_clear()
+            ctx, out = get_context_limit("unknown", "openai/gpt-4.1")
+        assert ctx == 1048576
+
+    def test_ollama_provider_calls_show(self):
+        with patch("dashboard.lib.settings.models_dev_loader.show_ollama_model", return_value={"context_length": 32768}):
+            get_context_limit.cache_clear()
+            ctx, out = get_context_limit("ollama", "gemma3:1b")
+        assert ctx == 32768
+        assert out == 2048
+
+    def test_ollama_fallback_default(self):
+        with patch("dashboard.lib.settings.models_dev_loader.show_ollama_model", return_value={}):
+            get_context_limit.cache_clear()
+            ctx, out = get_context_limit("ollama", "unknown-model")
+        assert ctx == 32768
+
+
+# ── truncate_messages ─────────────────────────────────────────────────
+
+
+class TestTruncateMessages:
+    def test_no_truncation_when_under_limit(self):
+        msgs = [{"role": "user", "content": "short"}]
+        result = truncate_messages(msgs, context_limit=10000)
+        assert result == msgs
+
+    def test_truncates_content_not_messages(self):
+        long_content = "x" * 5000
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": long_content},
+        ]
+        result = truncate_messages(msgs, context_limit=200, model="gpt-4o")
+        assert len(result) == 2
+        assert result[0]["content"] == "You are helpful."
+        assert len(result[1]["content"]) < len(long_content)
+
+    def test_preserves_system_message(self):
+        long_content = "x" * 5000
+        msgs = [
+            {"role": "system", "content": long_content},
+            {"role": "user", "content": "hi"},
+        ]
+        result = truncate_messages(msgs, context_limit=200, model="gpt-4o")
+        assert len(result) == 2
+        assert result[1]["content"] == "hi"
+
+    def test_zero_context_limit_returns_unchanged(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        result = truncate_messages(msgs, context_limit=0)
+        assert result == msgs
+
+    def test_trims_last_non_system_first(self):
+        msgs = [
+            {"role": "user", "content": "first"},
+            {"role": "user", "content": "x" * 5000},
+        ]
+        result = truncate_messages(msgs, context_limit=200, model="gpt-4o")
+        assert result[0]["content"] == "first"
+        assert len(result[1]["content"]) < 5000
+
+    def test_does_not_remove_messages(self):
+        msgs = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "a" * 3000},
+            {"role": "assistant", "content": "b" * 3000},
+        ]
+        result = truncate_messages(msgs, context_limit=200, model="gpt-4o")
+        assert len(result) == 3
+
+
+# ── truncate_messages_for_model ────────────────────────────────────────
+
+
+class TestTruncateMessagesForModel:
+    def setup_method(self):
+        get_context_limit.cache_clear()
+
+    def teardown_method(self):
+        get_context_limit.cache_clear()
+
+    def test_returns_unchanged_when_no_context_limit(self):
+        with patch("dashboard.lib.settings.models_dev_loader.get_context_limit", return_value=(0, 0)):
+            msgs = [{"role": "user", "content": "hello"}]
+            result = truncate_messages_for_model(msgs, "unknown", "no-model")
+        assert result == msgs
+
+    def test_strips_provider_prefix_from_model(self, fake_raw_catalog):
+        providers = {"openai": {"type": "api", "source": "auth.json", "has_key": True}}
+        with patch("dashboard.lib.settings.models_dev_loader.OPENCODE_CONFIG_PATH", Path("/nonexistent")):
+            catalog = _build_configured_models(fake_raw_catalog, providers)
+
+        with patch("dashboard.lib.settings.models_dev_loader._cached_models", catalog):
+            get_context_limit.cache_clear()
+            long_msg = [{"role": "user", "content": "x" * 50000}]
+            result = truncate_messages_for_model(long_msg, "openai", "openai/gpt-4.1")
+        assert len(result) == 1
+        assert len(result[0]["content"]) < 50000
+
+    def test_ollama_fallback(self):
+        with patch("dashboard.lib.settings.models_dev_loader.get_context_limit", return_value=(0, 0)):
+            with patch("dashboard.lib.settings.models_dev_loader.show_ollama_model", return_value={"context_length": 256}):
+                msgs = [{"role": "user", "content": "x" * 5000}]
+                result = truncate_messages_for_model(msgs, "ollama", "gemma3:1b")
+        assert len(result) == 1
+        assert len(result[0]["content"]) < 5000
+
+    def test_truncation_respects_buffer(self, fake_raw_catalog):
+        providers = {"openai": {"type": "api", "source": "auth.json", "has_key": True}}
+        with patch("dashboard.lib.settings.models_dev_loader.OPENCODE_CONFIG_PATH", Path("/nonexistent")):
+            catalog = _build_configured_models(fake_raw_catalog, providers)
+
+        with patch("dashboard.lib.settings.models_dev_loader._cached_models", catalog):
+            get_context_limit.cache_clear()
+            ctx, _ = get_context_limit("openai", "o3")
+            target = int(ctx * 0.9)
+            msgs = [{"role": "user", "content": "x" * (ctx * 10)}]
+            result = truncate_messages_for_model(msgs, "openai", "o3")
+            final_tokens = count_tokens(
+                [{"role": m["role"], "content": m["content"]} for m in result], "o3"
+            )
+            assert final_tokens <= target + 10

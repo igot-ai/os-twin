@@ -104,6 +104,9 @@ _console_handler.setFormatter(
 # triggered default logging configuration before this line.
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
+# Silence noisy httpx/httpcore request logging (connection pools, redirects, etc.)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 if _file_handler not in _root.handlers:
     _root.addHandler(_file_handler)
 if _console_handler not in _root.handlers:

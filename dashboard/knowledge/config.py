@@ -159,6 +159,22 @@ IMAGE_EXTENSIONS = {
 # Single source of truth for "what gets walked during ingestion" (ADR-17).
 SUPPORTED_DOCUMENT_EXTENSIONS = _BASE_DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS
 
+# --- Sliding-window defaults -------------------------------------------------
+#
+# Used by :class:`SlidingWindowChunker` and
+# :class:`VisionSlidingWindowConverter` for page-grouped chunking of
+# large documents (PDF, DOCX, etc.).  A "page" is a paragraph-bounded
+# segment of approximately ``chunk_size`` characters; ``window_size``
+# pages are grouped per window with ``overlap`` pages shared between
+# consecutive windows.
+
+SLIDING_WINDOW_SIZE: int = int(
+    os.environ.get("OSTWIN_KNOWLEDGE_SLIDING_WINDOW_SIZE", "3")
+)
+SLIDING_WINDOW_OVERLAP: int = int(
+    os.environ.get("OSTWIN_KNOWLEDGE_SLIDING_WINDOW_OVERLAP", "1")
+)
+
 # --- Misc -------------------------------------------------------------------
 
 # Garbage-collection ledger file (kept for compat with storage.delete_vector_store)

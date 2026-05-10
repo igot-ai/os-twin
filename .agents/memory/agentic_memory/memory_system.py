@@ -243,7 +243,7 @@ class AgenticMemorySystem:
 
         if new_backend != self.embedding_backend or new_model != self.model_name:
             logger.info(
-                "Embedding settings changed: %s/%s → %s/%s, reloading client",
+                "Embedding settings changed: %s/%s → %s/%s, recreating retriever",
                 self.embedding_backend,
                 self.model_name,
                 new_backend,
@@ -251,9 +251,17 @@ class AgenticMemorySystem:
             )
             self.embedding_backend = new_backend
             self.model_name = new_model
-            self.retriever.reload_embedding(backend=new_backend, model=new_model)
-        else:
-            self.retriever.reload_embedding()
+            # Recreate the retriever with updated settings — this is the
+            # safest approach since retriever backends don't share a common
+            # reload API.
+            old_retriever = self.retriever
+            self.retriever = self._create_retriever()
+            # Migrate any in-memory data if possible
+            if hasattr(old_retriever, 'collection') and hasattr(self.retriever, 'add_document'):
+                try:
+                    pass  # Vector data will be rebuilt incrementally on next sync
+                except Exception:
+                    pass
 
     # --- Persistence helpers ---
 

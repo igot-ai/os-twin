@@ -1,4 +1,5 @@
-"""Multi-provider LLM wrapper for knowledge extraction, query planning, and answer aggregation.
+"""Multi-provider LLM wrapper for knowledge extraction, query planning, answer aggregation,
+and vision OCR.
 
 Designed for graceful degradation: when no model or API key is configured, every method
 returns a sensible empty / fallback value so callers don't have to special-case
@@ -13,6 +14,12 @@ Providers are auto-detected from the model name or can be set explicitly via
 
 EPIC-003 Hardening: LLM calls honour OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
 On timeout, log WARNING and return graceful empty result.
+
+Vision OCR (added for sliding-window PDF extraction):
+The :meth:`vision_ocr` method sends a base64-encoded image to the configured
+LLM with a data-URI, using ``ChatMessage.images``. Works with all providers
+that support multimodal input — OpenAI (gpt-4o), Google/Gemini (including
+Vertex AI), and Ollama (llama3.2-vision etc.).
 """
 
 from __future__ import annotations
@@ -256,3 +263,88 @@ class KnowledgeLLM(BaseLLMWrapper):
         if not raw:
             return "\n\n".join(snippets)
         return raw.strip()
+
+    def vision_ocr(
+        self,
+        image_data_uri: str,
+        prompt: str | None = None,
+        max_tokens: int = 4096,
+    ) -> str:
+        """Extract text from an image using the configured vision-capable LLM.
+
+        Sends a base64-encoded image (as a data-URI) to the LLM via
+        ``ChatMessage.images``. Works with all providers that support
+        multimodal input: OpenAI (gpt-4o), Google/Gemini (including
+        Vertex AI), and Ollama (llama3.2-vision etc.).
+
+        Parameters
+        ----------
+        image_data_uri:
+            A ``data:image/...;base64,...`` URI containing the image.
+        prompt:
+            Optional extraction prompt. When None, uses a default
+            document OCR prompt that preserves structure and tables.
+        max_tokens:
+            Maximum tokens for the LLM response.
+
+        Returns
+        -------
+        str
+            Extracted markdown text. Empty string on failure or when
+            the LLM is unavailable.
+        """
+        if not self.is_available():
+            return ""
+
+        if not prompt or not prompt.strip():
+            prompt = (
+                "Extract all text content from this document page image. "
+                "Preserve the structure, tables, and formatting as markdown. "
+                "Include any headers, footers, and captions."
+            )
+
+        from dashboard.llm_client import ChatMessage, run_sync
+
+        client = self._get_client(max_tokens=max_tokens)
+
+        messages = [
+            ChatMessage(
+                role="system",
+                content="You are a document OCR assistant. Extract text from images as structured markdown.",
+            ),
+            ChatMessage(
+                role="user",
+                content=prompt,
+                images=[image_data_uri],
+            ),
+        ]
+
+        try:
+            result = run_sync(client.chat(messages))
+            content = result.content or ""
+            metrics = get_metrics_registry()
+            metrics.counter("llm_vision_ocr_total").inc()
+            return content
+        except Exception as exc:
+            logger.error(
+                "vision_ocr call failed (model=%s, provider=%s): %s",
+                self.model,
+                self.provider,
+                exc,
+            )
+            metrics = get_metrics_registry()
+            metrics.counter("llm_vision_ocr_errors").inc()
+            return ""
+
+    def create_vision_client(self) -> Any:
+        """Create an LLMClient suitable for vision calls.
+
+        Returns the ``dashboard.llm_client.LLMClient`` instance
+        configured with the current model and provider. Callers can
+        use this with ``ChatMessage.images`` for custom vision flows.
+
+        Returns None when no model is available.
+        """
+        if not self.is_available():
+            return None
+        return self._get_client(max_tokens=4096)

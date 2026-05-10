@@ -84,7 +84,7 @@ class ChatMessage:
 
 @dataclass
 class LLMConfig:
-    max_tokens: int = 4096
+    max_tokens: int = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     stop: Optional[list[str]] = None
@@ -98,9 +98,10 @@ class LLMError(Exception):
 
 
 class LLMClient(ABC):
-    def __init__(self, model: str, config: Optional[LLMConfig] = None):
+    def __init__(self, model: str, config: Optional[LLMConfig] = None, provider: Optional[str] = None):
         self.model = model
         self.config = config or LLMConfig()
+        self.provider = provider
 
     @abstractmethod
     async def chat(
@@ -121,6 +122,40 @@ class LLMClient(ABC):
         response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
         pass
+
+    def _truncate_messages(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+        """Truncate message content to fit within the model's context window.
+
+        Delegates all context-limit lookup and content trimming to
+        :func:`models_dev_loader.truncate_messages_for_model`.  This method
+        only handles ChatMessage ↔ dict conversion.
+        """
+        try:
+            from dashboard.lib.settings.models_dev_loader import truncate_messages_for_model
+
+            provider = self.provider or ""
+            dicts = [{"role": m.role, "content": m.content or ""} for m in messages]
+            truncated = truncate_messages_for_model(dicts, provider, self.model)
+
+            result = []
+            for orig, trunc in zip(messages, truncated):
+                new_content = trunc.get("content", orig.content)
+                if new_content != (orig.content or ""):
+                    result.append(ChatMessage(
+                        role=orig.role,
+                        content=new_content,
+                        tool_calls=orig.tool_calls,
+                        tool_call_id=orig.tool_call_id,
+                        name=orig.name,
+                        thought_signature=orig.thought_signature,
+                        images=orig.images,
+                    ))
+                else:
+                    result.append(orig)
+            return result
+        except Exception as exc:
+            logger.debug("Message truncation skipped: %s", exc)
+            return messages
 
     async def _retry_with_backoff(self, coro, *args, **kwargs):
         last_error = None
@@ -151,8 +186,9 @@ class OpenAIClient(LLMClient):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
+        provider: Optional[str] = None,
     ):
-        super().__init__(model, config)
+        super().__init__(model, config, provider=provider)
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=REQUEST_TIMEOUT)
@@ -207,6 +243,8 @@ class OpenAIClient(LLMClient):
         tool_choice: Optional[str] = None,
         response_format: Optional[dict] = None,
     ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
         async def _make_request():
             kwargs: dict = {
                 "model": self.model,
@@ -256,6 +294,7 @@ class OpenAIClient(LLMClient):
         tool_choice: Optional[str] = None,
         response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
         kwargs: dict = {
             "model": self.model,
             "messages": self._convert_messages(messages),
@@ -306,6 +345,7 @@ class OpenAIClient(LLMClient):
             raise LLMError(f"OpenAI streaming error: {e}", provider="openai", original_error=e)
 
 
+
 class GoogleClient(LLMClient):
     # Gemini AI (consumer) OpenAI-compatible endpoint.
     # Vertex AI uses a separate region-scoped URL resolved by create_client.
@@ -318,8 +358,9 @@ class GoogleClient(LLMClient):
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
         vertexai: bool = False,
+        provider: Optional[str] = None,
     ):
-        super().__init__(model, config)
+        super().__init__(model, config, provider=provider)
         from google.genai import Client
         import os as _os
 
@@ -396,6 +437,8 @@ class GoogleClient(LLMClient):
         tool_choice: Optional[str] = None,
         response_format: Optional[dict] = None,
     ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
         async def _make_request():
             from google.genai import types
 
@@ -450,6 +493,7 @@ class GoogleClient(LLMClient):
         tool_choice: Optional[str] = None,
         response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
         from google.genai import types
 
         converted = self._convert_messages(messages)
@@ -493,10 +537,9 @@ class OllamaClient(LLMClient):
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
     ):
-        super().__init__(model, config)
+        super().__init__(model, config, provider="ollama")
         from ollama import AsyncClient
-        
-        # Ollama supports host directly in AsyncClient
+
         self._client = AsyncClient(host=base_url)
         self.base_url = base_url
 
@@ -565,13 +608,16 @@ class OllamaClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
         async def _make_request():
             kwargs: dict = {
                 "model": self.model,
                 "messages": self._convert_messages(messages),
             }
-            
+
             options = {}
             if self.config.temperature is not None:
                 options["temperature"] = self.config.temperature
@@ -621,6 +667,7 @@ class OllamaClient(LLMClient):
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
     ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
         kwargs: dict = {
             "model": self.model,
             "messages": self._convert_messages(messages),
@@ -681,6 +728,18 @@ PROVIDER_API_KEYS = {
 }
 
 
+_TRANSPORT_PROVIDERS = frozenset({"openai-compatible", "ollama"})
+
+_PROVIDER_ALIASES: dict[str, str] = {
+    "google-genai": "google",
+    "google_gemini": "google",
+}
+
+
+def _normalize_provider(provider: str) -> str:
+    return _PROVIDER_ALIASES.get(provider, provider)
+
+
 def _detect_provider_from_model(model: str) -> str:
     model_lower = model.lower()
     if any(x in model_lower for x in ["gpt-", "o1-", "o3-", "o4-", "chatgpt"]):
@@ -709,6 +768,84 @@ def _detect_provider_from_model(model: str) -> str:
     return "openai"
 
 
+def resolve_provider_and_model(
+    model: str,
+    provider: Optional[str] = None,
+) -> tuple[str, str, Optional[str]]:
+    """Single source of truth for resolving provider and model.
+
+    Parses ``provider/model`` format, normalises provider aliases, and
+    returns a triple of ``(effective_provider, clean_model, model_provider)``.
+
+    * ``effective_provider`` — the *transport* that routes the request
+      (e.g. ``"openai-compatible"``, ``"ollama"``, or a native provider
+      like ``"google-vertex"``).
+    * ``clean_model`` — the bare model identifier with any ``provider/``
+      prefix always stripped.  When the effective provider is a transport
+      (openai-compatible, ollama), the original ``model`` string (with
+      prefix intact) is passed directly to the client constructor instead.
+    * ``model_provider`` — the provider embedded in the model string
+      (e.g. ``"google-vertex"`` from ``"google-vertex/gemini-3.1-flash"``).
+      ``None`` when the model string has no ``provider/`` prefix.
+
+    Resolution order:
+      1. If *provider* is given and is a transport provider, keep it as
+         the effective provider.  Parse any ``provider/`` prefix from the
+         model to populate ``model_provider`` but **do not** strip it from
+         ``clean_model`` (the transport server needs it).
+      2. If the model starts with ``provider/`` and *provider* is not given,
+         extract the prefix as both the effective provider and
+         ``model_provider``, and strip it from ``clean_model``.
+      3. If neither (1) nor (2) applies, auto-detect the provider from the
+         model name.
+    """
+    model_provider: Optional[str] = None
+    rest: str = model
+
+    if "/" in model:
+        prefix, rest = model.split("/", 1)
+        if prefix:
+            model_provider = _normalize_provider(prefix)
+
+    if provider is not None:
+        effective = _normalize_provider(provider)
+    elif model_provider is not None:
+        effective = model_provider
+    else:
+        effective = _detect_provider_from_model(model)
+
+    if model_provider is not None:
+        clean_model = rest
+    else:
+        clean_model = model
+
+    return effective, clean_model, model_provider
+
+
+def _resolve_transport_api_key(provider: Optional[str]) -> Optional[str]:
+    if not provider:
+        return None
+
+    import os as _os
+    env_name = PROVIDER_API_KEYS.get(provider)
+    if env_name:
+        val = _os.environ.get(env_name)
+        if val:
+            return val
+
+    auth_path = Path.home() / ".local" / "share" / "opencode" / "auth.json"
+    if auth_path.exists():
+        try:
+            auth_data = json.loads(auth_path.read_text())
+            entry = auth_data.get(provider)
+            if isinstance(entry, dict) and entry.get("type") == "api":
+                return entry.get("key")
+        except Exception as e:
+            logger.warning("[OPENCODE_MODELS] auth.json read failed: %s", e)
+
+    return None
+
+
 def create_client(
     model: str,
     provider: Optional[str] = None,
@@ -717,10 +854,8 @@ def create_client(
 ) -> LLMClient:
     import os as _os
 
-    if provider is None:
-        provider = _detect_provider_from_model(model)
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
 
-    # Resolve custom configurations from settings if available
     try:
         from dashboard.lib.settings.resolver import get_settings_resolver
         resolver = get_settings_resolver()
@@ -729,29 +864,24 @@ def create_client(
     except Exception:
         providers = None
 
-    if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
-        base_url = _get_base_url(provider)
-        is_vertex = provider == "google-vertex"
+    if effective_provider in ("google", "google-vertex"):
+        base_url = _get_base_url(effective_provider)
+        is_vertex = effective_provider == "google-vertex"
         if is_vertex and base_url:
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        api_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
-        return GoogleClient(model=model, api_key=api_key, base_url=base_url, config=config, vertexai=is_vertex)
+        resolved_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        return GoogleClient(model=clean_model, api_key=resolved_key, base_url=base_url, config=config, vertexai=is_vertex, provider=effective_provider)
 
-    if provider == "openai-compatible":
-        cfg = providers.openai_compatible if providers else None
-        base_url = (cfg.base_url if cfg and cfg.base_url else _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"))
-        api_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
-        return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
-
-    if provider == "ollama":
+    if effective_provider == "ollama":
         cfg = providers.ollama if providers else None
         base_url = (cfg.base_url if cfg and cfg.base_url else _os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
         return OllamaClient(model=model, base_url=base_url, config=config)
 
-    base_url = _get_base_url(provider)
-    return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
+    base_url = _get_base_url(effective_provider)
+    resolved_key = api_key or _resolve_transport_api_key(effective_provider)
+    return OpenAIClient(model=model, api_key=resolved_key, base_url=base_url, config=config, provider=effective_provider)
 
 
 # ---------------------------------------------------------------------------
