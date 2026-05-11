@@ -18,7 +18,7 @@ interface ContextualCardProps {
   docked?: boolean;
 }
 
-const SKIP_PROPERTY_KEYS = ['x', 'y', 'z', 'embedding', 'text'];
+const SKIP_PROPERTY_KEYS = ['x', 'y', 'z', 'embedding', 'text', '_node_content', '_node_type', 'document_id', 'doc_id', 'ref_doc_id'];
 
 export default function ContextualCard({
   node,
@@ -102,9 +102,22 @@ export default function ContextualCard({
 
   const color = getNodeColor(node.label);
   const propertyKeys = node.properties ? Object.keys(node.properties) : [];
-  const textContent = node.label === 'text_chunk' && node.properties?.text
-    ? node.properties.text as string
-    : null;
+  
+  // Extract text content from either 'text' property or parsed '_node_content'
+  const textContent = useMemo(() => {
+    if (!node.properties) return null;
+    if (node.properties.text) return node.properties.text as string;
+    if (node.properties._node_content && typeof node.properties._node_content === 'string') {
+      try {
+        const parsed = JSON.parse(node.properties._node_content);
+        if (parsed.text) return parsed.text as string;
+      } catch {
+        // ignore JSON parse errors
+      }
+    }
+    return null;
+  }, [node]);
+
   const filteredPropertyKeys = propertyKeys.filter(k => !SKIP_PROPERTY_KEYS.includes(k));
 
   const renderValue = (val: unknown): string => {
@@ -203,13 +216,16 @@ export default function ContextualCard({
           )}
         </div>
 
-        {/* text_chunk content — special rendering */}
+        {/* text_chunk or document content — special rendering */}
         {textContent && (
-          <div className="px-3 pb-2">
+          <div className="px-3 pb-2 border-b border-white/5 mb-2">
+            <div className={`mb-1.5 font-semibold ${FONT.caption} uppercase tracking-wider flex items-center gap-1.5`} style={{ color: 'var(--color-text-muted)' }}>
+              <Icon name="description" size={14} />
+              {node.properties?.filename ? (node.properties.filename as string) : 'Document Content'}
+            </div>
             <div
-              className={`rounded-lg border p-2.5 ${FONT.body} leading-relaxed`}
+              className={`rounded-lg bg-black/10 border p-2.5 ${FONT.body} leading-relaxed`}
               style={{
-                background: 'var(--color-background)',
                 borderColor: 'var(--color-border)',
                 color: 'var(--color-text-main)',
                 maxHeight: textExpanded ? '320px' : '120px',
@@ -223,11 +239,17 @@ export default function ContextualCard({
             {textContent.length > 500 && (
               <button
                 onClick={() => setTextExpanded(!textExpanded)}
-                className={`mt-1 ${FONT.label} font-medium`}
+                className={`mt-1 flex items-center gap-1 ${FONT.label} font-medium hover:underline`}
                 style={{ color: 'var(--color-primary)' }}
               >
                 {textExpanded ? 'Show less' : `Show more (${textContent.length} chars)`}
               </button>
+            )}
+            {!!node.properties?.file_path && (
+              <div className={`mt-2 text-[10px] truncate`} style={{ color: 'var(--color-text-faint)' }} title={node.properties.file_path as string}>
+                <span className="font-mono bg-white/5 px-1 py-0.5 rounded mr-1">PATH</span>
+                {node.properties.file_path as string}
+              </div>
             )}
           </div>
         )}

@@ -10,7 +10,9 @@ export default function BottomRail() {
   const ctx = useNexusContext();
   const { graph, actions } = ctx;
 
+  const [showNodeMenu, setShowNodeMenu] = useState(false);
   const [showEdgeMenu, setShowEdgeMenu] = useState(false);
+  const nodeMenuRef = useRef<HTMLDivElement>(null);
   const edgeMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,12 +20,15 @@ export default function BottomRail() {
       if (edgeMenuRef.current && !edgeMenuRef.current.contains(e.target as Node)) {
         setShowEdgeMenu(false);
       }
+      if (nodeMenuRef.current && !nodeMenuRef.current.contains(e.target as Node)) {
+        setShowNodeMenu(false);
+      }
     };
-    if (showEdgeMenu) {
+    if (showEdgeMenu || showNodeMenu) {
       document.addEventListener('mousedown', handleClick);
     }
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [showEdgeMenu]);
+  }, [showEdgeMenu, showNodeMenu]);
 
   const labelCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -76,42 +81,74 @@ export default function BottomRail() {
         backdropFilter: 'var(--surface-overlay-blur)',
       }}
     >
-      {/* Left: node type filters */}
-      {labels.length > 1 && (
-        <div className="flex items-center gap-1 overflow-hidden min-w-0 flex-1">
-          {labels.slice(0, 12).map(label => {
-            const isHighlighted = graph.highlightedLabels.has(label);
-            const color = getNodeColor(label);
-            const count = labelCounts.get(label) ?? 0;
-            return (
-              <button
-                key={label}
-                onClick={() => {
-                  graph.setHighlightedLabels(prev => {
-                    const next = new Set(prev);
-                    if (next.has(label)) next.delete(label);
-                    else next.add(label);
-                    return next;
-                  });
-                }}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${FONT.caption} border transition-all cursor-pointer shrink-0`}
-                style={{
-                  color: isHighlighted ? color : `${color}80`,
-                  borderColor: isHighlighted ? color : `${color}30`,
-                  background: isHighlighted ? `${color}18` : `${color}08`,
-                  fontWeight: isHighlighted ? 600 : 400,
-                }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color, opacity: isHighlighted ? 1 : 0.5 }} />
-                {label}
-                <span className="opacity-60">·{count}</span>
-              </button>
-            );
-          })}
-          {labels.length > 12 && (
-            <span className={`${FONT.caption} px-1 shrink-0`} style={{ color: 'var(--color-text-faint)' }}>
-              +{labels.length - 12}
-            </span>
+      {/* Left: node type filters (Entities dropdown) */}
+      {labels.length > 0 && (
+        <div className="relative shrink-0" ref={nodeMenuRef}>
+          <button
+            onClick={() => {
+              setShowNodeMenu(!showNodeMenu);
+              setShowEdgeMenu(false); // close the other menu
+            }}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-colors ${FONT.caption}`}
+            style={{
+              borderColor: 'var(--color-border)',
+              background: showNodeMenu ? 'var(--color-surface-hover)' : 'transparent',
+              color: 'var(--color-text-main)'
+            }}
+          >
+            <Icon name="category" size={14} />
+            Entities {graph.highlightedLabels.size > 0 ? `(${graph.highlightedLabels.size})` : ''}
+            <Icon name={showNodeMenu ? 'expand_less' : 'expand_more'} size={14} />
+          </button>
+          
+          {showNodeMenu && (
+            <div 
+              className="absolute bottom-[calc(100%+8px)] left-0 w-64 max-h-64 overflow-y-auto rounded-lg border shadow-xl flex flex-col p-1 z-50 custom-scrollbar"
+              style={{
+                background: 'var(--color-surface)',
+                borderColor: 'var(--color-border)',
+              }}
+            >
+              <div className="px-2 py-1.5 border-b mb-1 flex items-center justify-between sticky top-0 bg-[var(--color-surface)] z-10" style={{ borderColor: 'var(--color-border)' }}>
+                <span className={`font-semibold text-[var(--color-text-main)] ${FONT.caption}`}>Filter Entities</span>
+                {graph.highlightedLabels.size > 0 && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); graph.setHighlightedLabels(new Set()); }}
+                    className={`text-[var(--color-primary)] hover:underline ${FONT.caption}`}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {labels.map(label => {
+                const color = getNodeColor(label);
+                const count = labelCounts.get(label) ?? 0;
+                const isSelected = graph.highlightedLabels.has(label);
+                return (
+                  <label
+                    key={label}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] ${FONT.caption}`}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={isSelected}
+                      onChange={() => {
+                        graph.setHighlightedLabels(prev => {
+                          const next = new Set(prev);
+                          if (next.has(label)) next.delete(label);
+                          else next.add(label);
+                          return next;
+                        });
+                      }}
+                      className="rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                    />
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                    <span className="truncate flex-1" style={{ color: 'var(--color-text-main)' }} title={label}>{label}</span>
+                    <span className="opacity-60 text-[10px]">·{count}</span>
+                  </label>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -120,7 +157,10 @@ export default function BottomRail() {
       {edgeLabels.length > 0 && (
         <div className="relative shrink-0" ref={edgeMenuRef}>
           <button
-            onClick={() => setShowEdgeMenu(!showEdgeMenu)}
+            onClick={() => {
+              setShowEdgeMenu(!showEdgeMenu);
+              setShowNodeMenu(false); // close the other menu
+            }}
             className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-colors ${FONT.caption}`}
             style={{
               borderColor: 'var(--color-border)',
