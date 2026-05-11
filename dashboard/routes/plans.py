@@ -1811,9 +1811,52 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
         "assets": [],
         "epic_assets": {}
     }
+    # Migrate thread assets to plan assets if thread_id is provided
     if thread_id:
         meta["thread_id"] = thread_id
+        try:
+            from dashboard.asset_store import ASSETS_DIR
+            thread_assets_dir = ASSETS_DIR / "threads" / thread_id
+            if thread_assets_dir.exists() and thread_assets_dir.is_dir():
+                import shutil
+                assets_target_dir = _plan_assets_dir(plan_id)
+                assets_target_dir.mkdir(parents=True, exist_ok=True)
+                
+                migrated_assets = []
+                for asset_file in sorted(thread_assets_dir.iterdir()):
+                    if asset_file.is_file():
+                        stored_name = _safe_asset_filename(asset_file.name)
+                        target_path = assets_target_dir / stored_name
+                        shutil.copy2(str(asset_file), str(target_path))
+                        
+                        ext = asset_file.suffix.lower()
+                        mime_map = {".jpg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+                        
+                        migrated_assets.append({
+                            "filename": stored_name,
+                            "original_name": asset_file.name,
+                            "mime_type": mime_map.get(ext, "application/octet-stream"),
+                            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                            "size_bytes": asset_file.stat().st_size,
+                            "bound_epics": [],
+                            "asset_type": "unspecified",
+                            "tags": [],
+                            "description": "Migrated from brainstorming session"
+                        })
+                if migrated_assets:
+                    meta["assets"] = migrated_assets
+                    logger.info(f"Migrated {len(migrated_assets)} assets from thread {thread_id} to plan {plan_id}")
+        except Exception as e:
+            logger.warning(f"Failed to migrate thread assets: {e}")
+            
     meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+    
+    if meta.get("assets"):
+        try:
+            _sync_asset_sections(plan_id)
+        except Exception as e:
+            logger.warning(f"Failed to sync asset sections to markdown for plan {plan_id}: {e}")
+
 
     plan_roles_file = plans_dir / f"{plan_id}.roles.json"
     if not plan_roles_file.exists():
@@ -2849,6 +2892,72 @@ async def get_all_goals():
                 "goal": goal_section.group(1).strip()
             })
     return {"goals": all_goals}
+
+def _persist_plan_images_from_data_uris(plan_id: str, images: list) -> None:
+    """Persist data URI images from a refine request as plan assets."""
+    if not images or not plan_id:
+        return
+        
+    try:
+        meta = _ensure_plan_meta(plan_id)
+        existing_assets = _normalize_plan_assets(plan_id, meta)
+        assets_dir = _plan_assets_dir(plan_id)
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        
+        saved_assets = []
+        for img in images:
+            data_uri = img.get("url", "")
+            if not data_uri.startswith("data:"):
+                continue
+                
+            original_name = img.get("name", "attachment")
+            
+            import base64
+            import hashlib
+            m = re.match(r"data:([^;]+);base64,(.+)", data_uri, re.DOTALL)
+            if not m:
+                continue
+                
+            mime_type = m.group(1)
+            raw_bytes = base64.b64decode(m.group(2))
+            
+            # Reuse _safe_asset_filename but ensure we have an extension
+            ext = ""
+            if mime_type == "image/jpeg": ext = ".jpg"
+            elif mime_type == "image/png": ext = ".png"
+            elif mime_type == "image/gif": ext = ".gif"
+            elif mime_type == "image/webp": ext = ".webp"
+            
+            if ext and not original_name.lower().endswith(ext):
+                original_name += ext
+                
+            stored_name = _safe_asset_filename(original_name)
+            asset_path = assets_dir / stored_name
+            
+            with asset_path.open("wb") as handle:
+                handle.write(raw_bytes)
+                
+            saved_assets.append({
+                "filename": stored_name,
+                "original_name": original_name,
+                "mime_type": mime_type,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "size_bytes": len(raw_bytes),
+                "bound_epics": [],
+                "asset_type": "unspecified",
+                "tags": [],
+                "description": "Uploaded during plan refinement"
+            })
+            
+        if saved_assets:
+            all_assets = existing_assets + saved_assets
+            meta["assets"] = all_assets
+            _write_plan_meta(plan_id, meta)
+            _sync_asset_sections(plan_id)
+            logger.info(f"Persisted {len(saved_assets)} images as assets for plan {plan_id}")
+    except Exception as e:
+        logger.warning(f"Failed to persist refine images for plan {plan_id}: {e}")
+
 @router.post("/api/plans/refine")
 async def refine_plan_endpoint(request: RefineRequest):
     try:
@@ -2881,6 +2990,10 @@ async def refine_plan_endpoint(request: RefineRequest):
             for i, img in enumerate(images[:3]):  # Log first 3
                 url_preview = img["url"][:100] + "..." if len(img["url"]) > 100 else img["url"]
                 logger.info(f"[REFINE] Image {i+1}: {url_preview}")
+            
+            # Persist these images to the plan's assets!
+            if request.plan_id:
+                _persist_plan_images_from_data_uris(request.plan_id, [img.model_dump() for img in request.images])
         result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
@@ -2911,6 +3024,10 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
         images = None
         if request.images:
             images = [{"url": img.get("url", "")} for img in request.images if img.get("url")]
+            
+            # Persist these images to the plan's assets!
+            if request.plan_id:
+                _persist_plan_images_from_data_uris(request.plan_id, [img.model_dump() for img in request.images])
         async def event_generator():
             try:
                 from plan_agent import parse_structured_response

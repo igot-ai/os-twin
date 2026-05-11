@@ -108,8 +108,10 @@ export interface RoleSettings {
 }
 
 export interface RuntimeSettings {
-  poll_interval: number;
+  poll_interval_seconds: number;
   max_concurrent_rooms: number;
+  max_engineer_retries: number;
+  state_timeout_seconds: number;
   auto_approve_tools: boolean;
   dynamic_pipelines: boolean;
   /** Master agent default model — format: "provider/model_id". Empty = use server default. */

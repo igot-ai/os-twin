@@ -219,6 +219,35 @@ JSONEOF
   grep -q '"ctrl+p": "palette"' "$TEST_DIR/opencode.json"
 }
 
+@test "merge_mcp_to_opencode does not rewrite unchanged config" {
+  cat > "$TEST_DIR/mcp.json" <<'JSONEOF'
+{
+  "mcp": {
+    "channel": {
+      "type": "local",
+      "command": ["python", "channel.py"],
+      "environment": {
+        "KEY": "val"
+      }
+    }
+  }
+}
+JSONEOF
+
+  "$PYTHON" "$SCRIPTS_DIR/merge_mcp_to_opencode.py" "$TEST_DIR/mcp.json" "$TEST_DIR/opencode.json" "$MCP_MODULE_DIR"
+
+  touch -t 200001010000 "$TEST_DIR/opencode.json"
+  before_mtime="$("$PYTHON" -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$TEST_DIR/opencode.json")"
+
+  run "$PYTHON" "$SCRIPTS_DIR/merge_mcp_to_opencode.py" "$TEST_DIR/mcp.json" "$TEST_DIR/opencode.json" "$MCP_MODULE_DIR"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already up to date"* ]]
+
+  after_mtime="$("$PYTHON" -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$TEST_DIR/opencode.json")"
+  [ "$before_mtime" = "$after_mtime" ]
+}
+
 @test "merge_mcp_to_opencode skips invalid servers" {
   cat > "$TEST_DIR/mcp.json" <<'JSONEOF'
 {
