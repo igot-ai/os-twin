@@ -748,7 +748,7 @@ switch ($Command) {
                 }
 
                 $plansDir = Join-Path $OstwinHome ".agents/plans"
-                
+
                 # Check for OSTWIN_ZVEC_DIR or use default ~/.config/ostwin/.zvec
                 $envZvec = [Environment]::GetEnvironmentVariable("OSTWIN_ZVEC_DIR")
                 if ($envZvec) {
