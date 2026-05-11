@@ -106,6 +106,8 @@ def _make_system(**overrides):
         side_effect=[_mock_analysis(), _mock_evolution()] * 50
     )
     mem._completion_fn = mock_completion
+    mem._embed_fn = lambda texts: [[0.0] * 768 for _ in texts]
+    mem._dirty = False
 
     return mem, tmpdir
 

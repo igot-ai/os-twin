@@ -71,13 +71,38 @@ Documents = List[str]
 Embeddings = List[List[float]]
 
 
+class _WrappedEmbedFn:
+    """Wrap a plain callable to satisfy zvec's embedding function interface.
+
+    zvec internally calls ``embedding_function.name()`` which fails on
+    plain lambdas or functions.  This wrapper provides the required method.
+    """
+
+    def __init__(self, fn, label: str = "gateway"):
+        self._fn = fn
+        self._label = label
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self._fn(input)
+
+    def name(self) -> str:
+        return self._label
+
+    @property
+    def dimension(self) -> int:
+        return EMBEDDING_DIMENSION
+
+
 def simple_tokenize(text):
     _ensure_retriever_imports()
     return word_tokenize(text)
 
 
 # --- Global embedding dimension -------------------------------------------
-from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
+try:
+    from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
+except ImportError:
+    EMBEDDING_DIMENSION = 768  # fallback for tests / standalone mode
 
 # Native model dimensions (before truncation) — used as a fast path
 # to avoid test-embedding calls (F9).
@@ -269,6 +294,8 @@ class ChromaRetriever:
             self.client = chromadb.Client(Settings(allow_reset=True))
         self.persist_dir = persist_dir
 
+        if embed_fn is not None and not hasattr(embed_fn, 'name'):
+            embed_fn = _WrappedEmbedFn(embed_fn)
         self.embedding_function = embed_fn or _create_embedding_function(
             embedding_backend, model_name
         )
@@ -418,7 +445,9 @@ class ZvecRetriever:
         self._model_name = model_name
         self._embedding_backend = embedding_backend
         # If an external embed_fn is injected (e.g. from memory_system),
-        # use it directly and skip the internal embedding classes.
+        # wrap it so zvec can call .name() / .dimension on it.
+        if embed_fn is not None and not hasattr(embed_fn, 'name'):
+            embed_fn = _WrappedEmbedFn(embed_fn)
         self._embedding_function: Optional[Any] = embed_fn
 
         self.persist_dir = persist_dir

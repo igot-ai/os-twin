@@ -1,7 +1,6 @@
 from typing import List, Dict, Optional, Any, Tuple, Callable
 import uuid
 from datetime import datetime
-from .memory_llm import MemoryLLM
 from .retrievers import ChromaRetriever, ZvecRetriever
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
@@ -10,7 +9,7 @@ import os
 import time
 
 # Lazy imports for text processing libraries (nltk, bm25, sklearn).
-# LLM calls go through MemoryLLM → dashboard.llm_wrapper.BaseLLMWrapper.
+# LLM calls go through dashboard.ai gateway.
 word_tokenize = None
 BM25Okapi = None
 cosine_similarity = None
@@ -78,7 +77,7 @@ class AgenticMemorySystem:
             llm_backend: LLM provider (openai/ollama/gemini/openai-compatible/etc.). If None, loads from config.
             llm_model: Name of the LLM model. If None, loads from config.
             evo_threshold: Number of memories before triggering evolution
-            api_key: API key for the LLM service (deprecated: MemoryLLM resolves
+            api_key: API key for the LLM service (deprecated: gateway resolves
                 keys automatically via MasterSettings/vault/env vars)
             sglang_host: Host URL for SGLang server (deprecated: unused)
             sglang_port: Port for SGLang server (deprecated: unused)
@@ -162,7 +161,7 @@ class AgenticMemorySystem:
         if self.persist_dir:
             self._load_notes()
 
-        # LLM completion function — injected by caller or resolved via MemoryLLM.
+        # LLM completion function — injected by caller or resolved via gateway.
         # Signature: completion_fn(prompt: str, response_format=None, ...) -> str
         if completion_fn is not None:
             self._completion_fn = completion_fn
@@ -181,39 +180,42 @@ class AgenticMemorySystem:
         sglang_host: str,
         sglang_port: int,
     ) -> Callable[..., str]:
-        """Resolve the completion function using MemoryLLM.
+        """Resolve the completion function from the centralized AI gateway.
 
-        All LLM calls go through ``MemoryLLM`` → ``BaseLLMWrapper`` →
-        ``dashboard.llm_client``.  This provides multi-provider support,
-        unified API key resolution, and graceful degradation without
-        requiring the AI gateway module.
+        All LLM calls go through ``dashboard.ai.get_completion()`` so they
+        are monitored, retried, and configurable from the dashboard Settings
+        page.  The dashboard must be running.
         """
-        llm = MemoryLLM(
-            model=llm_model or None,
-            provider=llm_backend or None,
-            api_key=api_key,
-        )
+        from dashboard.ai import get_completion as _gw
 
-        def _memory_completion(prompt, response_format=None, **kw):
-            return llm.get_completion(prompt, response_format=response_format)
+        def _gateway_completion(prompt, response_format=None, **kw):
+            return _gw(prompt, purpose="memory", response_format=response_format)
 
-        logger.info("Using MemoryLLM (dashboard.llm_wrapper) for LLM completion")
-        return _memory_completion
+        logger.info("Using dashboard.ai gateway for LLM completion")
+        return _gateway_completion
 
     def _create_retriever(self):
         """Create the vector retriever with embeddings.
 
         If ``embed_fn`` was injected via the constructor (e.g. by tests),
-        it is used directly.  Otherwise, each retriever backend handles
-        embedding internally (via KnowledgeEmbedder / sentence-transformers).
+        it is used directly.  Otherwise resolves via the AI gateway.
         """
+        embed_fn = self._embed_fn
+        if embed_fn is None:
+            try:
+                from dashboard.ai import get_embedding as _gw_embed
+                embed_fn = lambda texts: _gw_embed(texts)
+                logger.info("Using dashboard.ai gateway for embeddings")
+            except ImportError:
+                logger.info("dashboard.ai not available — retriever will use internal embedding")
+
         if self.vector_backend == "zvec":
             return ZvecRetriever(
                 collection_name="memories",
                 model_name=self.model_name,
                 persist_dir=self._vector_dir,
                 embedding_backend=self.embedding_backend,
-                embed_fn=self._embed_fn,
+                embed_fn=embed_fn,
             )
         else:
             return ChromaRetriever(
@@ -221,7 +223,7 @@ class AgenticMemorySystem:
                 model_name=self.model_name,
                 persist_dir=self._vector_dir,
                 embedding_backend=self.embedding_backend,
-                embed_fn=self._embed_fn,
+                embed_fn=embed_fn,
             )
 
     def _reload_embedding_settings(self):
@@ -230,7 +232,13 @@ class AgenticMemorySystem:
         This ensures that settings changes made via the dashboard UI take
         effect immediately without restarting the memory system. Called at
         the start of every public method that uses embeddings.
+
+        Skipped when ``_embed_fn`` was injected (caller controls embeddings)
+        or when ``persist_dir`` is None (in-memory mode).
         """
+        if self._embed_fn is not None or not self.persist_dir:
+            return
+
         from .config import load_config
 
         try:

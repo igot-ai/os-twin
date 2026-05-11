@@ -277,21 +277,41 @@ class RuntimeSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    # -- Processing LLM --
-    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
-    llm_model: str = "llama3.2"           # model name (provider-specific)
-    # -- Embedding --
-    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
-    embedding_model: str = "leoipulsar/harrier-0.6b"
+    """Memory system settings.
+
+    LLM and embedding model selection is handled by the AI gateway
+    (``dashboard/ai/`` + Provider Config).  These fields control the
+    memory system's own behaviour, search tuning, and pool management.
+    """
+
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
+
     # -- Behaviour --
     context_aware: bool = True                # include similar memories in LLM analysis
+    context_aware_tree: bool = False          # include directory tree in analysis context
+    max_links: int = 3                        # max links created per note during evolution
+
+    # -- Search tuning --
+    similarity_weight: float = 0.8            # weight for cosine similarity vs time decay
+    decay_half_life_days: float = 30.0        # older notes rank lower in search
+
+    # -- Sync --
     auto_sync: bool = True                    # periodic disk sync
-    auto_sync_interval: int = 60              # seconds between syncs
-    ttl_days: int = 30                        # auto-delete entries older than N days
-    # Legacy alias — readers should prefer vector_backend
-    vector_store: str = "zvec"
+    sync_interval_s: int = 60                 # seconds between syncs
+    conflict_resolution: str = "last_modified"
+
+    # -- Pool (HTTP transport) --
+    pool_idle_timeout_s: int = 300            # kill slot after N seconds idle
+    pool_max_instances: int = 10              # max concurrent memory systems
+    pool_eviction_policy: str = "lru"         # lru | oldest | none
+    pool_sync_interval_s: int = 60            # per-slot sync interval
+
+    # -- Legacy compat (read by agentic_memory/config.py, will be removed) --
+    llm_backend: str = ""
+    llm_model: str = ""
+    embedding_backend: str = ""
+    embedding_model: str = ""
 
 
 class ChannelPlatformSettings(BaseModel):

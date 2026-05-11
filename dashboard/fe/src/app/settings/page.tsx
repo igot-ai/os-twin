@@ -15,6 +15,7 @@ import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
+import { AgentCostsPanel } from '@/components/settings/AgentCostsPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
@@ -455,7 +456,6 @@ function SettingsPageContent() {
           <MemoryPanel
             memory={settings.memory || {}}
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
-            allModels={allModels}
           />
         );
 
@@ -475,6 +475,9 @@ function SettingsPageContent() {
 
       case 'channels':
         return <ChannelsPanel />;
+
+      case 'ai-monitor':
+        return <AgentCostsPanel />;
 
       default:
         return null;

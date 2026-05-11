@@ -126,25 +126,29 @@ export type MemoryEmbeddingBackend = 'gemini' | 'ollama' | 'vertex' | 'openai-co
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {
-  // Processing LLM
-  llm_backend?: MemoryLLMBackend;
-  llm_model?: string;
-  // OpenAI-compatible LLM config
-  llm_compatible_url?: string;
-  llm_compatible_key?: string;
-  // Embedding
-  embedding_backend?: MemoryEmbeddingBackend;
-  embedding_model?: string;
-  // OpenAI-compatible embedding config
-  embedding_compatible_url?: string;
-  embedding_compatible_key?: string;
   // Vector store
   vector_backend?: MemoryVectorBackend;
   // Behaviour
   context_aware?: boolean;
+  context_aware_tree?: boolean;
+  max_links?: number;
+  // Search tuning
+  similarity_weight?: number;
+  decay_half_life_days?: number;
+  // Sync
   auto_sync?: boolean;
-  auto_sync_interval?: number;
-  ttl_days?: number;
+  sync_interval_s?: number;
+  conflict_resolution?: string;
+  // Pool (HTTP transport)
+  pool_idle_timeout_s?: number;
+  pool_max_instances?: number;
+  pool_eviction_policy?: string;
+  pool_sync_interval_s?: number;
+  // Legacy compat (read by backend, will be removed)
+  llm_backend?: string;
+  llm_model?: string;
+  embedding_backend?: string;
+  embedding_model?: string;
   // Legacy alias
   vector_store?: string;
   [key: string]: unknown;
@@ -203,7 +207,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels' | 'ai-monitor';
 
 export interface VaultStatus {
   is_set: boolean;

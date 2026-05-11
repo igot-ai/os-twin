@@ -137,7 +137,7 @@ def _load_from_settings() -> AIConfig:
     from dashboard.lib.settings import SettingsResolver
 
     resolver = SettingsResolver()
-    settings = resolver.load()
+    settings = resolver.get_master_settings()
 
     # --- providers.google ---
     google = settings.providers.google if settings.providers else None
