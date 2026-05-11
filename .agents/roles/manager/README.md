@@ -44,7 +44,7 @@ On every iteration (default every 5 seconds), it:
 │      if terminal     → handle release/rescue                │
 │    check for deadlocks (stall cycles)                       │
 │    check if all rooms passed → release                      │
-│    sleep(poll_interval)                                     │
+│    sleep(poll_interval_seconds)                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 

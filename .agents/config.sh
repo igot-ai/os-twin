@@ -5,7 +5,7 @@
 #
 # Usage:
 #   config.sh                              # Print full config
-#   config.sh --get manager.poll_interval  # Get a specific value
+#   config.sh --get manager.poll_interval_seconds  # Get a specific value
 #   config.sh --set manager.max_concurrent_rooms 10  # Set a value
 
 set -euo pipefail

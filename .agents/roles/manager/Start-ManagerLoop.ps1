@@ -44,9 +44,11 @@ $readMessages = Join-Path $channelDir "Read-Messages.ps1"
 
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
+$configModule = Join-Path $agentsDir "lib" "Config.psm1"
 $utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
 $helpersModule = Join-Path $scriptDir "ManagerLoop-Helpers.psm1"
 if (Test-Path $logModule) { Import-Module $logModule -Force }
+if (Test-Path $configModule) { Import-Module $configModule -Force }
 if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
 if (Test-Path $helpersModule) { Import-Module $helpersModule -Force }
 
@@ -59,10 +61,23 @@ if (-not $ConfigPath) {
 }
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-$maxConcurrent = $config.manager.max_concurrent_rooms
-$pollInterval = $config.manager.poll_interval_seconds
-$maxRetries = $config.manager.max_engineer_retries
-$stateTimeout = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
+$managerRuntime = if (Get-Command Get-OstwinManagerRuntimeSettings -ErrorAction SilentlyContinue) {
+    Get-OstwinManagerRuntimeSettings -Config $config
+} else {
+    [PSCustomObject]@{
+        max_concurrent_rooms  = $config.manager.max_concurrent_rooms
+        poll_interval_seconds = $config.manager.poll_interval_seconds
+        max_engineer_retries  = $config.manager.max_engineer_retries
+        state_timeout_seconds = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
+        auto_approve_tools    = $config.manager.auto_approve_tools
+        dynamic_pipelines     = $config.manager.dynamic_pipelines
+    }
+}
+
+$maxConcurrent = $managerRuntime.max_concurrent_rooms
+$pollInterval = $managerRuntime.poll_interval_seconds
+$maxRetries = $managerRuntime.max_engineer_retries
+$stateTimeout = $managerRuntime.state_timeout_seconds
 
 # --- Resolve war-rooms dir ---
 if (-not $WarRoomsDir) {
@@ -267,8 +282,7 @@ while (-not $script:shuttingDown) {
                 $roomLifecycleCheck = Join-Path $roomDir "lifecycle.json"
                 $smartAssignment = $false
                 if ($config.manager.smart_assignment) { $smartAssignment = $config.manager.smart_assignment }
-                $dynamicPipelines = $true
-                if ($null -ne $config.manager.dynamic_pipelines) { $dynamicPipelines = $config.manager.dynamic_pipelines }
+                $dynamicPipelines = $managerRuntime.dynamic_pipelines
 
                 if ($dynamicPipelines -and -not (Test-Path $roomLifecycleCheck)) {
                     $analyzeScript = Join-Path $agentsDir "roles" "_base" "Analyze-TaskRequirements.ps1"
