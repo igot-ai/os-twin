@@ -105,7 +105,7 @@ export default function KnowledgeTabCore({
     stats: graphStats,
     isLoading: graphLoading,
     refresh: refreshGraph,
-  } = useKnowledgeGraph(selectedNamespace);
+  } = useKnowledgeGraph(activeDetailView === 'overview' ? selectedNamespace : null);
 
   // Handlers
   const handleSelectNamespace = useCallback((ns: string) => {

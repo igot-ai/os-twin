@@ -1,5 +1,5 @@
 /**
- * SWR hooks for Knowledge Explorer API — the Supernova tiled graph layer.
+ * SWR hooks for Knowledge Explorer API — the graph visualization layer.
  *
  * Endpoints:
  * - GET  /api/knowledge/namespaces/{namespace}/explorer/summary  -> ExplorerSummary
@@ -22,7 +22,7 @@ import { apiGet, apiPost } from '@/lib/api-client';
 // Types
 // ---------------------------------------------------------------------------
 
-/** Enhanced node with optional degree/centrality data from the explorer. */
+/** Enhanced node with optional degree/centrality/community data from the explorer. */
 export interface ExplorerNode {
   id: string;
   label: string;
@@ -33,6 +33,8 @@ export interface ExplorerNode {
   degree?: number;
   in_degree?: number;
   out_degree?: number;
+  /** Louvain community ID from the explorer seed/communities endpoint. */
+  community_id?: number;
 }
 
 /** Enhanced edge with label, weight, and direction. */
@@ -111,7 +113,7 @@ interface PathRequest {
 }
 
 /** Visual brightness computed for a node (0 = dim, 1 = full glow). */
-export type LensMode = 'structural' | 'semantic' | 'category';
+export type LensMode = 'structural' | 'semantic' | 'category' | 'community';
 
 // ---------------------------------------------------------------------------
 // Hook: useKnowledgeExplorerSummary
@@ -140,7 +142,7 @@ export function useKnowledgeExplorerSummary(namespace: string | null) {
 // ---------------------------------------------------------------------------
 
 /**
- * The main Supernova explorer hook. Manages accumulated graph state
+ * The main Knowledge Explorer hook. Manages accumulated graph state
  * and provides actions for progressive exploration.
  *
  * Usage:
@@ -156,7 +158,7 @@ export function useKnowledgeExplorer(namespace: string | null) {
   // ---- Exploration state ----
   const [activeIgnitionPoints, setActiveIgnitionPoints] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<{ source: string; target: string; path: string[] } | null>(null);
-  const [activeLens, setActiveLens] = useState<LensMode>('structural');
+  const [activeLens, setActiveLens] = useState<LensMode>('community');
   const [expansionDepth, setExpansionDepth] = useState(1);
 
   // ---- Loading flags ----
@@ -207,7 +209,7 @@ export function useKnowledgeExplorer(namespace: string | null) {
       }
 
       // 1-hop neighbors of ignition points are brighter
-      for (const [_, edge] of allEdges) {
+      for (const [, edge] of allEdges) {
         if (ignitionPoints.includes(edge.source)) {
           brightness.set(edge.target, Math.max(brightness.get(edge.target) ?? 0.3, 0.7));
         }

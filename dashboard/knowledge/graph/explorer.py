@@ -4,12 +4,14 @@ Provides progressive, on-demand graph exploration APIs that compose existing
 :class:`KuzuLabelledPropertyGraph` methods. The existing flat ``get_graph``
 endpoint remains untouched — this module adds *new* capabilities:
 
-- **seed**: Load the "brightest" nodes (top PageRank) + their 1-hop neighborhood.
+- **seed**: Load the "brightest" nodes (top PageRank per Louvain community)
+  + their 1-hop neighborhood.
 - **expand**: Expand from a set of node IDs outward by N hops.
 - **search**: Vector-similarity search over node embeddings + 1-hop context.
 - **path**: Shortest weighted path between two nodes.
 - **node_detail**: Full detail for a single node including incident edges + scores.
 - **summary**: Lightweight topology stats without any node data.
+- **communities**: Detect Louvain communities and return the mapping.
 
 All methods return plain dicts that are JSON-serialisable — no LlamaIndex types
 leak into the API layer.
@@ -29,11 +31,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _node_to_dict(node: Any) -> Dict[str, Any]:
+def _node_to_dict(node: Any, community_id: Optional[int] = None) -> Dict[str, Any]:
     """Serialize a LlamaIndex LabelledNode to a JSON-friendly dict.
 
-    Includes optional ``degree`` (number of incident relations) and
-    ``centrality_score`` when available.
+    Includes optional ``degree`` (number of incident relations),
+    ``centrality_score`` when available, and ``community_id`` when the
+    Louvain community mapping has been computed.
     """
     props = getattr(node, "properties", None) or {}
     if isinstance(props, str):
@@ -42,13 +45,16 @@ def _node_to_dict(node: Any) -> Dict[str, Any]:
         except (json.JSONDecodeError, TypeError):
             props = {}
 
-    return {
+    result = {
         "id": getattr(node, "id", ""),
         "label": getattr(node, "label", ""),
         "name": getattr(node, "name", "") or getattr(node, "id", ""),
         "score": float(props.get("weight", 1.0)),
         "properties": props,
     }
+    if community_id is not None:
+        result["community_id"] = community_id
+    return result
 
 
 def _relation_to_dict(rel: Any) -> Dict[str, Any]:
@@ -104,6 +110,10 @@ class KnowledgeExplorer:
     Composes existing :class:`KuzuLabelledPropertyGraph` methods — no new
     Cypher queries are introduced. This class is a thin orchestration layer.
 
+    Community detection uses NetworkX Louvain (``community.louvain_communities``)
+    on the entity subgraph already loaded for PageRank. Community assignments
+    are cached on the instance so subsequent calls are free.
+
     Usage::
 
         kg = service.get_kuzu_graph(namespace)
@@ -114,6 +124,10 @@ class KnowledgeExplorer:
 
     def __init__(self, graph: Any) -> None:
         self.graph = graph
+        # Cached community mapping: {entity_id: community_id}
+        self._community_map: Dict[str, int] = {}
+        # Cached NetworkX graph (shared between seed / communities)
+        self._nx_graph: Optional[Any] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -174,41 +188,71 @@ class KnowledgeExplorer:
         }
 
     def seed(self, top_k: int = 50) -> Dict[str, Any]:
-        """Load the initial "sky" — top-K nodes by PageRank + 1-hop neighborhood.
+        """Load the initial "sky" — top-K nodes by PageRank per community + 1-hop neighborhood.
 
-        1. Run PageRank with uniform personalization over entity nodes.
-        2. Take top-K results.
-        3. Expand 1-hop via ``get_triplets(ids=...)``.
-        4. Return nodes + edges + stats.
+        Community-aware seeding strategy:
+        1. Load the entity subgraph into NetworkX.
+        2. Run Louvain community detection.
+        3. Run PageRank with uniform personalization.
+        4. For each community, pick the top-PageRank node (representative).
+        5. Fill remaining slots from the global PageRank ranking.
+        6. Expand 1-hop via ``get_triplets(ids=...)``.
+
+        This ensures every community in the graph gets at least one seed
+        node, giving much better visual coverage than uniform PageRank top-K
+        (which tends to cluster all seeds in the densest community).
 
         The PageRank computation is cached by the graph store so repeated
-        calls are fast.
+        calls are fast. Community assignments are cached on this explorer
+        instance.
         """
         kg = self.graph
 
-        # Step 1: PageRank to find top nodes
+        # Step 1: Get entity graph into NetworkX (shared with community detection)
         try:
-            # Uniform personalization — all nodes get equal weight
-            # We need entity IDs first for the personalization dict
-            entities = kg.get_all_nodes(label_type="entity")
-            entity_ids = [getattr(e, "id", "") for e in entities if getattr(e, "id", "")]
+            G = self._get_nx_graph()
+        except Exception as exc:
+            logger.error("Explorer seed graph fetch failed: %s", exc)
+            return {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0, "seed_count": 0, "community_count": 0}}
+
+        if G is None or len(G.nodes()) == 0:
+            return {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0, "seed_count": 0, "community_count": 0}}
+
+        # Step 2: Run community detection (caches result)
+        try:
+            self._detect_communities(G)
+        except Exception as exc:
+            logger.warning("Explorer seed community detection failed: %s", exc)
+
+        # Step 3: PageRank with uniform personalization
+        try:
+            # Map NX node IDs to original entity IDs for personalization
+            entity_ids = []
+            for nx_id in G.nodes():
+                orig_id = G.nodes[nx_id].get("id", nx_id)
+                entity_ids.append(orig_id)
+
             if not entity_ids:
-                return {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0, "seed_count": 0}}
+                return {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0, "seed_count": 0, "community_count": 0}}
 
             uniform_weight = 1.0 / len(entity_ids)
             personalize = {eid: uniform_weight for eid in entity_ids}
-
             pagerank_results = kg.pagerank(personalize, score_threshold=0.0)
-            top_ids = [pid for pid, _score in pagerank_results[:top_k]]
+
+            # Build a lookup: entity_id -> pagerank_score
+            pr_scores = {pid: score for pid, score in pagerank_results}
         except Exception as exc:
             logger.error("Explorer seed PageRank failed: %s", exc)
+            pr_scores = {}
+
+        # Step 4: Community-aware seed selection
+        top_ids = self._select_community_seeds(pr_scores, top_k)
+
+        if not top_ids:
             # Fallback: just use first top_k entity IDs
             top_ids = entity_ids[:top_k]
 
-        if not top_ids:
-            return {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0, "seed_count": 0}}
-
-        # Step 2: Expand 1-hop from top nodes
+        # Step 5: Expand 1-hop from top nodes
         return self._expand_from_ids(top_ids, include_seed_info=True)
 
     def expand(self, node_ids: List[str], depth: int = 1) -> Dict[str, Any]:
@@ -428,10 +472,157 @@ class KnowledgeExplorer:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _get_nx_graph(self) -> Any:
+        """Get-or-compute the cached NetworkX entity subgraph.
+
+        This is the same graph used by ``pagerank()`` — we cache it so
+        community detection doesn't need to reload it.
+        """
+        import networkx as nx  # noqa: WPS433
+
+        if self._nx_graph is not None:
+            return self._nx_graph
+
+        kg = self.graph
+        G = kg.get_all_nodes(label_type="entity", graph=True)
+        self._nx_graph = G
+        return G
+
+    def _detect_communities(self, G: Any = None) -> Dict[str, int]:
+        """Run Louvain community detection on the entity subgraph.
+
+        Uses NetworkX's ``community.louvain_communities`` which is a
+        well-tested implementation that works on the same graph we already
+        load for PageRank. Results are cached on the explorer instance.
+
+        Returns:
+            Dict mapping entity_id -> community_id (0-indexed).
+        """
+        import networkx as nx  # noqa: WPS433
+        from networkx.algorithms.community import louvain_communities  # noqa: WPS433
+
+        if self._community_map:
+            return self._community_map
+
+        if G is None:
+            G = self._get_nx_graph()
+
+        if G is None or len(G.nodes()) == 0:
+            return {}
+
+        try:
+            # Convert MultiGraph to simple Graph for Louvain
+            if isinstance(G, nx.MultiGraph):
+                simple_G = nx.Graph()
+                simple_G.add_nodes_from(G.nodes(data=True))
+                for u, v, key, data in G.edges(data=True, keys=True):
+                    weight = data.get("weight", 1.0)
+                    if simple_G.has_edge(u, v):
+                        simple_G.edges[u, v]["weight"] = simple_G.edges[u, v].get("weight", 0.0) + weight
+                    else:
+                        simple_G.add_edge(u, v, weight=weight)
+            else:
+                simple_G = G
+
+            # Run Louvain community detection
+            communities = louvain_communities(simple_G, weight="weight", seed=42)
+
+            # Build mapping: entity_id -> community_id
+            community_map: Dict[str, int] = {}
+            for community_idx, community_set in enumerate(communities):
+                for nx_node_id in community_set:
+                    # Map NX node ID back to original entity ID
+                    orig_id = G.nodes[nx_node_id].get("id", nx_node_id) if nx_node_id in G.nodes else nx_node_id
+                    community_map[orig_id] = community_idx
+
+            self._community_map = community_map
+            logger.debug(
+                "Louvain detected %d communities across %d nodes",
+                len(communities), len(community_map),
+            )
+            return community_map
+
+        except Exception as exc:
+            logger.warning("Louvain community detection failed: %s", exc)
+            return {}
+
+    def _select_community_seeds(self, pr_scores: Dict[str, float], top_k: int) -> List[str]:
+        """Select seed nodes using community-aware strategy.
+
+        For each community, pick the node with the highest PageRank score
+        as its representative. Fill remaining slots from the global
+        PageRank ranking.
+
+        This guarantees every community gets at least one seed, preventing
+        the "all seeds in the densest cluster" problem.
+        """
+        if not pr_scores or not self._community_map:
+            # No community data — fall back to pure PageRank top-K
+            sorted_pr = sorted(pr_scores.items(), key=lambda x: x[1], reverse=True)
+            return [pid for pid, _ in sorted_pr[:top_k]]
+
+        # Group entity IDs by community
+        communities: Dict[int, List[str]] = {}
+        for eid, cid in self._community_map.items():
+            communities.setdefault(cid, []).append(eid)
+
+        # For each community, find the highest-PageRank node
+        community_representatives: List[str] = []
+        for cid in sorted(communities.keys()):
+            members = communities[cid]
+            # Sort members by PageRank score (default to 0 if not in pr_scores)
+            members_sorted = sorted(members, key=lambda eid: pr_scores.get(eid, 0.0), reverse=True)
+            if members_sorted:
+                community_representatives.append(members_sorted[0])
+
+        # If we have more communities than top_k, we still include one per community
+        # (up to 2x top_k to avoid explosion on extremely fragmented graphs)
+        max_seeds = max(top_k, min(len(community_representatives), top_k * 2))
+
+        # Start with community representatives (guaranteed coverage)
+        selected = set(community_representatives[:max_seeds])
+
+        # Fill remaining slots from global PageRank ranking
+        remaining = max_seeds - len(selected)
+        if remaining > 0:
+            sorted_pr = sorted(pr_scores.items(), key=lambda x: x[1], reverse=True)
+            for pid, _ in sorted_pr:
+                if pid not in selected:
+                    selected.add(pid)
+                    remaining -= 1
+                    if remaining <= 0:
+                        break
+
+        return list(selected)
+
+    def communities(self) -> Dict[str, Any]:
+        """Return the Louvain community mapping for the entity subgraph.
+
+        Runs community detection if not already cached. Returns:
+        - ``community_map``: {entity_id: community_id}
+        - ``community_count``: number of communities detected
+        - ``community_sizes``: {community_id: member_count}
+        """
+        G = self._get_nx_graph()
+        community_map = self._detect_communities(G)
+
+        # Compute community sizes
+        community_sizes: Dict[int, int] = {}
+        for _, cid in community_map.items():
+            community_sizes[cid] = community_sizes.get(cid, 0) + 1
+
+        return {
+            "community_map": community_map,
+            "community_count": len(community_sizes),
+            "community_sizes": community_sizes,
+        }
+
     def _expand_from_ids(self, seed_ids: List[str], include_seed_info: bool = False) -> Dict[str, Any]:
         """Expand 1-hop from seed IDs and return the subgraph.
 
         This is the shared core for ``seed()`` and ``search()``.
+        Includes ``community_id`` in node data when community detection
+        has been run.
         """
         kg = self.graph
         all_node_ids = set(seed_ids)
@@ -469,6 +660,11 @@ class KnowledgeExplorer:
         }
         if include_seed_info:
             stats["seed_count"] = len(seed_ids)
+            stats["community_count"] = len(set(
+                self._community_map.get(n["id"], -1)
+                for n in nodes
+                if n.get("community_id") is not None
+            )) or 0
 
         return {
             "nodes": nodes,
@@ -481,6 +677,9 @@ class KnowledgeExplorer:
 
         Uses ``kg.get_by_ids()`` which is efficient for batch lookups.
         Falls back to individual ``get_node()`` calls if batch fails.
+
+        Annotates each node with ``community_id`` when the Louvain
+        community mapping is available on this explorer instance.
         """
         if not node_ids:
             return []
@@ -490,7 +689,9 @@ class KnowledgeExplorer:
         try:
             kg_nodes = kg.get_by_ids(node_ids)
             for n in kg_nodes:
-                nodes.append(_node_to_dict(n))
+                eid = getattr(n, "id", "")
+                cid = self._community_map.get(eid) if self._community_map else None
+                nodes.append(_node_to_dict(n, community_id=cid))
             return nodes
         except Exception as exc:
             logger.warning("Batch node fetch failed, falling back: %s", exc)
@@ -500,7 +701,9 @@ class KnowledgeExplorer:
             try:
                 n = kg.get_node(nid)
                 if n is not None:
-                    nodes.append(_node_to_dict(n))
+                    eid = getattr(n, "id", "")
+                    cid = self._community_map.get(eid) if self._community_map else None
+                    nodes.append(_node_to_dict(n, community_id=cid))
             except Exception:
                 pass
         return nodes

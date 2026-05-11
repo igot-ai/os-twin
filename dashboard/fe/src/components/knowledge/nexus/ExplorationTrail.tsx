@@ -3,6 +3,8 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { TrailEntry, TrailAction } from '@/hooks/use-nexus-explorer';
+import { FONT } from './typography';
+import { Icon } from './Icon';
 
 function trailIcon(action: TrailAction): string {
   switch (action.type) {
@@ -39,15 +41,16 @@ function trailColor(action: TrailAction): string {
 
 interface ExplorationTrailProps {
   trail: TrailEntry[];
+  docked?: boolean;
 }
 
-export default function ExplorationTrail({ trail }: ExplorationTrailProps) {
+export default function ExplorationTrail({ trail, docked = false }: ExplorationTrailProps) {
   if (trail.length === 0) return null;
 
   const visible = trail.slice(0, 8);
 
   return (
-    <div className="absolute bottom-16 left-3 z-10 max-w-[280px]">
+    <div className={docked ? 'max-w-full' : 'absolute bottom-16 left-3 z-10 max-w-[280px]'}>
       <AnimatePresence mode="popLayout">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -60,9 +63,9 @@ export default function ExplorationTrail({ trail }: ExplorationTrailProps) {
             return (
               <React.Fragment key={entry.id}>
                 {i > 0 && (
-                  <span className="text-[8px]" style={{ color: 'var(--color-text-faint)' }}>→</span>                )}
+                  <span className={FONT.caption} style={{ color: 'var(--color-text-faint)' }}>→</span>                )}
                 <div
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-medium"
+                  className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md ${FONT.caption} font-medium`}
                   style={{
                     background: `${color}10`,
                     color,
@@ -70,14 +73,14 @@ export default function ExplorationTrail({ trail }: ExplorationTrailProps) {
                   }}
                   title={trailLabel(entry.action)}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 10 }}>{trailIcon(entry.action)}</span>
+                  <Icon name={trailIcon(entry.action)} size={10} />
                   <span className="truncate max-w-[60px]">{trailLabel(entry.action)}</span>
                 </div>
               </React.Fragment>
             );
           })}
           {trail.length > 8 && (
-            <span className="text-[8px] px-1" style={{ color: 'var(--color-text-faint)' }}>
+            <span className={`${FONT.caption} px-1`} style={{ color: 'var(--color-text-faint)' }}>
               +{trail.length - 8}
             </span>
           )}

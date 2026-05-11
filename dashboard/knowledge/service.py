@@ -393,6 +393,11 @@ class KnowledgeService:
         explorer = self._get_explorer(namespace)
         return explorer.node_detail(node_id=node_id)
 
+    def explorer_communities(self, namespace: str) -> dict:
+        """Return Louvain community mapping for the namespace graph."""
+        explorer = self._get_explorer(namespace)
+        return explorer.communities()
+
     def _get_graph_rag_engine(self, namespace: str) -> Any:
         """Cached per-namespace :class:`GraphRAGQueryEngine`.
 

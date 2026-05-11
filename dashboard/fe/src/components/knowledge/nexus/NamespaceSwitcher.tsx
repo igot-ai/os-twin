@@ -2,6 +2,8 @@
 
 import React from 'react';
 import type { NamespaceMetaResponse } from '@/hooks/use-knowledge-namespaces';
+import { FONT } from './typography';
+import { Icon } from './Icon';
 
 interface NamespaceSwitcherProps {
   namespaces: NamespaceMetaResponse[];
@@ -12,16 +14,11 @@ interface NamespaceSwitcherProps {
 export default function NamespaceSwitcher({ namespaces, selected, onSelect }: NamespaceSwitcherProps) {
   return (
     <div className="flex items-center gap-2">
-      <span className="material-symbols-outlined text-[16px]" style={{ color: 'var(--color-primary)' }}>
-        hub
-      </span>
-      <span className="text-xs font-bold tracking-wide" style={{ color: 'var(--color-text-main)' }}>
-        NEXUS
-      </span>
+      <Icon name="hub" size={16} style={{ color: 'var(--color-primary)' }} />
       <select
         value={selected ?? ''}
         onChange={(e) => onSelect(e.target.value)}
-        className="px-2 py-1 rounded-lg border text-[11px] font-medium"
+        className={`px-2 py-1 rounded-lg border ${FONT.body} font-medium`}
         style={{
           background: 'var(--color-surface)',
           borderColor: 'var(--color-border)',

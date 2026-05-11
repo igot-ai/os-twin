@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { ExplorerNode, ExplorerEdge } from '@/hooks/use-knowledge-explorer';
 import { getNodeColor } from '../constants';
+import { FONT } from './typography';
 
 interface MinimapProps {
   nodes: ExplorerNode[];
@@ -11,6 +12,7 @@ interface MinimapProps {
   ignitionPoints: string[];
   width?: number;
   height?: number;
+  docked?: boolean;
 }
 
 export default function Minimap({
@@ -20,6 +22,7 @@ export default function Minimap({
   ignitionPoints,
   width = 140,
   height = 100,
+  docked = false,
 }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState(false);
@@ -94,19 +97,18 @@ export default function Minimap({
 
   return (
     <div
-      className="absolute bottom-14 right-3 z-10 rounded-lg border overflow-hidden transition-opacity"
+      className={docked ? 'rounded-lg border overflow-hidden transition-opacity' : 'absolute bottom-14 right-3 z-10 rounded-lg border overflow-hidden transition-opacity'}
       style={{
-        background: 'rgba(255, 255, 255, 0.85)',
+        background: 'var(--surface-overlay-bg)',
         borderColor: 'var(--color-border)',
         opacity: hover ? 1 : 0.6,
-        backdropFilter: 'blur(8px)',
       }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
       <canvas ref={canvasRef} width={width} height={height} style={{ display: 'block' }} />
       <div
-        className="px-1.5 py-0.5 text-[8px] text-center border-t"
+        className={`px-1.5 py-0.5 ${FONT.caption} text-center border-t`}
         style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-faint)' }}
       >
         {nodes.length} nodes

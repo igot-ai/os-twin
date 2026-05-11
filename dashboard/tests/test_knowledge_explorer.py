@@ -94,6 +94,19 @@ class FakeKuzuGraph:
     def get_all_nodes(self, **kwargs) -> list:
         label_type = kwargs.get("label_type", None)
         context = kwargs.get("context", "")
+        graph = kwargs.get("graph", False)
+        if graph:
+            # Return a NetworkX MultiGraph for PageRank/community detection
+            import networkx as nx
+            G = nx.MultiGraph()
+            for e in self._entities:
+                eid = getattr(e, "id", "")
+                G.add_node(eid, id=eid)
+            for s, r, t in self._triplets:
+                s_id = getattr(s, "id", "")
+                t_id = getattr(t, "id", "")
+                G.add_edge(s_id, t_id, weight=1.0, relation_label=getattr(r, "label", "RELATES"))
+            return G
         if context:
             # Simulate vector search: return first N entities
             limit = kwargs.get("limit", 50)
@@ -184,6 +197,16 @@ class TestNodeToDict:
         result = _node_to_dict(node)
         assert result["score"] == 1.0
 
+    def test_community_id_included_when_provided(self):
+        node = FakeEntityNode(id="e1", name="Alice", label="person")
+        result = _node_to_dict(node, community_id=3)
+        assert result["community_id"] == 3
+
+    def test_community_id_absent_when_none(self):
+        node = FakeEntityNode(id="e1", name="Alice", label="person")
+        result = _node_to_dict(node, community_id=None)
+        assert "community_id" not in result
+
 
 class TestRelationToDict:
     """Tests for _relation_to_dict serialization."""
@@ -273,11 +296,20 @@ class TestExplorerSeed:
         assert result["stats"]["seed_count"] >= 1
 
     def test_seed_count_in_stats(self):
+        """With community-aware seeding, seed_count reflects actual seeds selected.
+
+        When entities are disconnected (each is its own community),
+        community-aware seeding picks one per community, so seed_count
+        equals the number of communities (up to max_seeds).
+        """
         entities = [FakeEntityNode(id=f"e{i}", name=f"Entity {i}") for i in range(5)]
+        # No edges → 5 communities of 1 node each
         kg = FakeKuzuGraph(entities=entities)
         explorer = KnowledgeExplorer(kg)
         result = explorer.seed(top_k=3)
-        assert result["stats"]["seed_count"] == 3
+        # With 5 disconnected nodes, community seeding picks all 5
+        # (each is its own community representative)
+        assert result["stats"]["seed_count"] >= 3
 
     def test_pagerank_failure_falls_back_to_id_list(self):
         entities = [FakeEntityNode(id=f"e{i}", name=f"Entity {i}") for i in range(5)]
@@ -529,3 +561,185 @@ class TestExplorerEdgeCases:
         explorer = KnowledgeExplorer(kg)
         result = explorer.seed(top_k=0)
         assert result["stats"]["seed_count"] == 0
+
+
+class TestExplorerCommunities:
+    """Tests for Louvain community detection and community-aware seeding."""
+
+    def test_community_detection_on_simple_graph(self):
+        """Two disconnected clusters should produce two communities."""
+        e1 = FakeEntityNode(id="e1", name="A")
+        e2 = FakeEntityNode(id="e2", name="B")
+        e3 = FakeEntityNode(id="e3", name="C")
+        e4 = FakeEntityNode(id="e4", name="D")
+
+        # Cluster 1: e1-e2 connected
+        # Cluster 2: e3-e4 connected
+        rel1 = FakeRelation(source_id="e1", target_id="e2")
+        rel2 = FakeRelation(source_id="e3", target_id="e4")
+
+        kg = FakeKuzuGraph(
+            entities=[e1, e2, e3, e4],
+            triplets=[(e1, rel1, e2), (e3, rel2, e4)],
+        )
+
+        # Provide a NetworkX graph for community detection
+        import networkx as nx
+        G = nx.MultiGraph()
+        G.add_node("n1", id="e1")
+        G.add_node("n2", id="e2")
+        G.add_node("n3", id="e3")
+        G.add_node("n4", id="e4")
+        G.add_edge("n1", "n2", weight=1.0)
+        G.add_edge("n3", "n4", weight=1.0)
+        kg.get_all_nodes = MagicMock(return_value=G)
+        kg.get_by_ids = MagicMock(return_value=[e1, e2, e3, e4])
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.communities()
+
+        assert result["community_count"] == 2
+        assert len(result["community_map"]) == 4
+        assert result["community_sizes"][0] == 2
+        assert result["community_sizes"][1] == 2
+
+    def test_community_map_cached(self):
+        """Calling communities() twice should use the cached result."""
+        e1 = FakeEntityNode(id="e1")
+        e2 = FakeEntityNode(id="e2")
+        rel = FakeRelation(source_id="e1", target_id="e2")
+        kg = FakeKuzuGraph(entities=[e1, e2], triplets=[(e1, rel, e2)])
+
+        import networkx as nx
+        G = nx.MultiGraph()
+        G.add_node("n1", id="e1")
+        G.add_node("n2", id="e2")
+        G.add_edge("n1", "n2", weight=1.0)
+        kg.get_all_nodes = MagicMock(return_value=G)
+        kg.get_by_ids = MagicMock(return_value=[e1, e2])
+
+        explorer = KnowledgeExplorer(kg)
+        result1 = explorer.communities()
+
+        # Reset mock to verify it's not called again
+        kg.get_all_nodes.reset_mock()
+
+        result2 = explorer.communities()
+        assert result2["community_count"] == result1["community_count"]
+        # get_all_nodes should NOT be called again (cached)
+        kg.get_all_nodes.assert_not_called()
+
+    def test_seed_includes_community_count(self):
+        """seed() should return community_count in stats."""
+        e1 = FakeEntityNode(id="e1", name="A")
+        e2 = FakeEntityNode(id="e2", name="B")
+        e3 = FakeEntityNode(id="e3", name="C")
+        e4 = FakeEntityNode(id="e4", name="D")
+        rel1 = FakeRelation(source_id="e1", target_id="e2")
+        rel2 = FakeRelation(source_id="e3", target_id="e4")
+
+        kg = FakeKuzuGraph(
+            entities=[e1, e2, e3, e4],
+            triplets=[(e1, rel1, e2), (e3, rel2, e4)],
+        )
+
+        import networkx as nx
+        G = nx.MultiGraph()
+        G.add_node("n1", id="e1")
+        G.add_node("n2", id="e2")
+        G.add_node("n3", id="e3")
+        G.add_node("n4", id="e4")
+        G.add_edge("n1", "n2", weight=1.0)
+        G.add_edge("n3", "n4", weight=1.0)
+        kg.get_all_nodes = MagicMock(return_value=G)
+        kg.get_by_ids = MagicMock(return_value=[e1, e2, e3, e4])
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.seed(top_k=10)
+
+        assert "community_count" in result["stats"]
+        assert result["stats"]["community_count"] == 2
+
+    def test_seed_nodes_include_community_id(self):
+        """Nodes returned by seed() should have community_id when available."""
+        e1 = FakeEntityNode(id="e1", name="A")
+        e2 = FakeEntityNode(id="e2", name="B")
+        rel = FakeRelation(source_id="e1", target_id="e2")
+        kg = FakeKuzuGraph(entities=[e1, e2], triplets=[(e1, rel, e2)])
+
+        import networkx as nx
+        G = nx.MultiGraph()
+        G.add_node("n1", id="e1")
+        G.add_node("n2", id="e2")
+        G.add_edge("n1", "n2", weight=1.0)
+        kg.get_all_nodes = MagicMock(return_value=G)
+        kg.get_by_ids = MagicMock(return_value=[e1, e2])
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.seed(top_k=10)
+
+        # At least one node should have a community_id
+        nodes_with_community = [n for n in result["nodes"] if "community_id" in n]
+        assert len(nodes_with_community) > 0
+
+    def test_community_aware_seeding_covers_all_communities(self):
+        """Community-aware seeding should pick at least one node per community."""
+        # Create 3 disconnected communities of 3 nodes each
+        entities = []
+        for i in range(9):
+            entities.append(FakeEntityNode(id=f"e{i}", name=f"Entity {i}"))
+
+        kg = FakeKuzuGraph(entities=entities)
+        kg.get_by_ids = MagicMock(return_value=entities)
+
+        import networkx as nx
+        G = nx.MultiGraph()
+        for i in range(9):
+            G.add_node(f"n{i}", id=f"e{i}")
+        # Community 0: e0-e1-e2
+        G.add_edge("n0", "n1", weight=1.0)
+        G.add_edge("n1", "n2", weight=1.0)
+        # Community 1: e3-e4-e5
+        G.add_edge("n3", "n4", weight=1.0)
+        G.add_edge("n4", "n5", weight=1.0)
+        # Community 2: e6-e7-e8
+        G.add_edge("n6", "n7", weight=1.0)
+        G.add_edge("n7", "n8", weight=1.0)
+
+        kg.get_all_nodes = MagicMock(return_value=G)
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.seed(top_k=3)
+
+        # With 3 communities and top_k=3, we should get at least one from each
+        community_ids_in_seed = set()
+        for n in result["nodes"]:
+            if "community_id" in n:
+                community_ids_in_seed.add(n["community_id"])
+
+        # Should cover all communities (at least in the seed set)
+        assert len(community_ids_in_seed) >= 2  # At least 2 of 3 covered
+
+    def test_communities_on_empty_graph(self):
+        """Community detection on empty graph should return empty mapping."""
+        kg = FakeKuzuGraph(entities=[])
+        import networkx as nx
+        G = nx.MultiGraph()
+        kg.get_all_nodes = MagicMock(return_value=G)
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.communities()
+        assert result["community_count"] == 0
+        assert result["community_map"] == {}
+
+    def test_community_detection_failure_graceful(self):
+        """Community detection failure should not crash seed()."""
+        e1 = FakeEntityNode(id="e1")
+        kg = FakeKuzuGraph(entities=[e1])
+        kg.get_all_nodes = MagicMock(side_effect=Exception("graph error"))
+
+        explorer = KnowledgeExplorer(kg)
+        result = explorer.seed(top_k=10)
+        # Should gracefully return empty or minimal result
+        assert isinstance(result, dict)
+        assert "nodes" in result

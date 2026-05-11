@@ -4,7 +4,7 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import type { ExplorerNode, ExplorerEdge } from '@/hooks/use-knowledge-explorer';
 
-const GraphScene = dynamic(() => import('../supernova/GraphScene'), { ssr: false });
+const GraphScene = dynamic(() => import('../graph/GraphScene'), { ssr: false });
 
 interface NexusCanvasProps {
   nodes: ExplorerNode[];
@@ -16,21 +16,24 @@ interface NexusCanvasProps {
   nodeBrightness: Map<string, number>;
   activeIgnitionPoints: string[];
   selectedPath: { source: string; target: string; path: string[] } | null;
+  highlightedLabels?: Set<string>;
+  communityLens?: boolean;
 }
 
 export default function NexusCanvas(props: NexusCanvasProps) {
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0" style={{ zIndex: 0 }}>
       <GraphScene
         nodes={props.nodes}
         edges={props.edges}
         isLoading={props.isLoading}
         selectedNode={props.selectedNode}
         onSelectNode={props.onSelectNode}
-        onIgnite={props.onIgnite}
         nodeBrightness={props.nodeBrightness}
         activeIgnitionPoints={props.activeIgnitionPoints}
         selectedPath={props.selectedPath}
+        highlightedLabels={props.highlightedLabels}
+        communityLens={props.communityLens}
       />
     </div>
   );

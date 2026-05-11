@@ -15,7 +15,7 @@
  * - POST /knowledge/namespaces/{ns}/query
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { apiGet, apiPost } from '@/lib/api-client';
 import type { QueryResultResponse } from '@/hooks/use-knowledge-query';
 import type {
@@ -70,7 +70,7 @@ export interface PathResult {
 
 const KB = '/knowledge';
 
-export function useNexusExplorer(namespace: string | null) {
+export function useNexusExplorer(namespace: string | null, options?: { autoSeed?: boolean; autoSeedTopK?: number }) {
   // ---- Accumulated graph ----
   const [nodesMap, setNodesMap] = useState<Map<string, ExplorerNode>>(new Map());
   const [edgesMap, setEdgesMap] = useState<Map<string, ExplorerEdge>>(new Map());
@@ -78,7 +78,7 @@ export function useNexusExplorer(namespace: string | null) {
   // ---- Exploration state ----
   const [activeIgnitionPoints, setActiveIgnitionPoints] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<PathResult | null>(null);
-  const [activeLens, setActiveLens] = useState<LensMode>('structural');
+  const [activeLens, setActiveLens] = useState<LensMode>('community');
   const [expansionDepth, setExpansionDepth] = useState(1);
 
   // ---- Selection ----
@@ -88,6 +88,7 @@ export function useNexusExplorer(namespace: string | null) {
   const [queryResult, setQueryResult] = useState<QueryResultResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryError, setQueryError] = useState<Error | null>(null);
+  const [queryMode, setQueryMode] = useState<QueryMode>('graph');
 
   // ---- Trail ----
   const [trail, setTrail] = useState<TrailEntry[]>([]);
@@ -105,7 +106,21 @@ export function useNexusExplorer(namespace: string | null) {
   const [isFindingPath, setIsFindingPath] = useState(false);
 
   const seedLoadedRef = useRef(false);
+  const activeSeedNamespaceRef = useRef<string | null>(null);
   let trailCounter = 0;
+
+  // ---- Auto-seed when namespace changes ----
+  const seedFnRef = useRef<((topK?: number) => Promise<void>) | null>(null);
+  useEffect(() => {
+    if (options?.autoSeed && namespace && activeSeedNamespaceRef.current !== namespace && seedFnRef.current) {
+      activeSeedNamespaceRef.current = namespace;
+      seedFnRef.current(options.autoSeedTopK ?? 50).catch(() => {
+        if (activeSeedNamespaceRef.current === namespace) {
+          activeSeedNamespaceRef.current = null;
+        }
+      });
+    }
+  }, [namespace, options?.autoSeed, options?.autoSeedTopK]);
 
   // ---- Helper: merge graph data ----
   const mergeGraphData = useCallback((data: ExplorerGraphData) => {
@@ -198,6 +213,8 @@ export function useNexusExplorer(namespace: string | null) {
       setIsSeeding(false);
     }
   }, [namespace, mergeGraphData, computeBrightness, addTrail, fetchSummary]);
+
+  seedFnRef.current = seed;
 
   // ---- Action: expand (ignite) ----
   const expand = useCallback(async (nodeId: string, depth?: number) => {
@@ -349,11 +366,11 @@ export function useNexusExplorer(namespace: string | null) {
     setTrail([]);
     setSummary(null);
     seedLoadedRef.current = false;
+    activeSeedNamespaceRef.current = null;
   }, []);
 
-  // ---- Derived ----
-  const nodes = Array.from(nodesMap.values());
-  const edges = Array.from(edgesMap.values());
+  const nodes = useMemo(() => Array.from(nodesMap.values()), [nodesMap]);
+  const edges = useMemo(() => Array.from(edgesMap.values()), [edgesMap]);
 
   return {
     // Graph data
@@ -377,6 +394,8 @@ export function useNexusExplorer(namespace: string | null) {
     queryResult,
     queryLoading,
     queryError,
+    queryMode,
+    setQueryMode,
 
     // Trail
     trail,

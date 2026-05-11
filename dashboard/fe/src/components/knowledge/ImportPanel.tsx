@@ -359,7 +359,6 @@ export default function ImportPanel({
   selectedNamespace,
   jobs,
   activeJob,
-  isLoading,
   onStartImport,
   onRefresh,
 }: ImportPanelProps) {

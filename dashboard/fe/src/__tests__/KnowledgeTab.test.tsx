@@ -223,10 +223,8 @@ vi.mock('@/hooks/use-knowledge-explorer', () => ({
 // Mock next/dynamic to render components directly
 vi.mock('next/dynamic', () => ({
   __esModule: true,
-  default: (loader: any) => {
-    let Component: any = () => null;
-    loader?.()?.then?.((mod: any) => { Component = mod.default || mod; });
-    return function DynamicMock(props: any) {
+  default: () => {
+    return function DynamicMock() {
       return <div data-testid="webgl-graph" />;
     };
   },

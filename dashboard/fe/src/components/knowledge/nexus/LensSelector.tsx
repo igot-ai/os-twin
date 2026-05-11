@@ -2,6 +2,8 @@
 
 import React from 'react';
 import type { LensMode } from '@/hooks/use-knowledge-explorer';
+import { FONT } from './typography';
+import { Icon } from './Icon';
 
 interface LensSelectorProps {
   active: LensMode;
@@ -12,6 +14,7 @@ const LENSES: { id: LensMode; label: string; icon: string }[] = [
   { id: 'structural', label: 'Structural', icon: 'account_tree' },
   { id: 'semantic', label: 'Semantic', icon: 'psychology' },
   { id: 'category', label: 'Category', icon: 'category' },
+  { id: 'community', label: 'Community', icon: 'hub' },
 ];
 
 export default function LensSelector({ active, onSet }: LensSelectorProps) {
@@ -21,14 +24,14 @@ export default function LensSelector({ active, onSet }: LensSelectorProps) {
         <button
           key={lens.id}
           onClick={() => onSet(lens.id)}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition-all"
+          className={`flex items-center gap-1 px-2 py-1 rounded-lg ${FONT.label} font-medium border transition-all`}
           style={{
             background: active === lens.id ? 'var(--color-primary-muted)' : 'transparent',
             borderColor: active === lens.id ? 'var(--color-primary)' : 'var(--color-border)',
             color: active === lens.id ? 'var(--color-primary)' : 'var(--color-text-muted)',
           }}
         >
-          <span className="material-symbols-outlined text-[12px]">{lens.icon}</span>
+          <Icon name={lens.icon} size={12} />
           {lens.label}
         </button>
       ))}

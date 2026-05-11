@@ -969,6 +969,29 @@ async def explorer_node_detail(
         raise _map_error(exc)
 
 
+@router.get(
+    "/namespaces/{namespace}/explorer/communities",
+    summary="Get Louvain community mapping",
+)
+async def explorer_communities(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Return the Louvain community mapping for the namespace graph.
+
+    Uses NetworkX Louvain community detection on the entity subgraph.
+    Returns:
+    - ``community_map``: {entity_id: community_id}
+    - ``community_count``: number of communities detected
+    - ``community_sizes``: {community_id: member_count}
+    """
+    try:
+        service = _get_service()
+        return await asyncio.to_thread(service.explorer_communities, namespace)
+    except Exception as exc:
+        raise _map_error(exc)
+
+
 # ---------------------------------------------------------------------------
 # Metrics and Health Endpoints (EPIC-005)
 # ---------------------------------------------------------------------------

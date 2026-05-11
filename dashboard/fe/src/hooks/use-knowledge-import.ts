@@ -8,7 +8,7 @@
  */
 
 import useSWR from 'swr';
-import { apiGet, apiPost } from '@/lib/api-client';
+import { apiPost } from '@/lib/api-client';
 
 export interface ImportFolderRequest {
   folder_path: string;

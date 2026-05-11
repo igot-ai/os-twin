@@ -10,7 +10,7 @@
  */
 
 import useSWR from 'swr';
-import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
+import { apiPost, apiDelete } from '@/lib/api-client';
 
 // Types matching knowledge_models.py
 export interface NamespaceStatsResponse {

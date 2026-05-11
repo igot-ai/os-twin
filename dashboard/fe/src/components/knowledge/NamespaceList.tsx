@@ -246,7 +246,6 @@ export default function NamespaceList({
   onSelect,
   onCreate,
   onDelete,
-  isLoading,
   onNamespaceUpdated,
 }: NamespaceListProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
