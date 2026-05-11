@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NamespaceMetaResponse } from '@/hooks/use-knowledge-namespaces';
 
 /* ── Helpers ───────────────────────────────────────────────────────── */

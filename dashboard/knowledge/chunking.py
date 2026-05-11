@@ -345,10 +345,13 @@ class VisionSlidingWindowConverter(DocumentConverter):
             if pdf_bytes is None:
                 logger.warning(
                     "Could not convert %s to PDF for vision OCR — "
-                    "returning empty result (MarkItDown fallback will handle it)",
+                    "raising to allow MarkItDown fallback",
                     extension,
                 )
-                return _ConverterResult(markdown="")
+                raise RuntimeError(
+                    f"Vision OCR: could not convert {extension} to PDF. "
+                    f"Falling back to built-in converter."
+                )
             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         else:
             pdf_bytes = io.BytesIO(raw_bytes)
@@ -413,6 +416,22 @@ class VisionSlidingWindowConverter(DocumentConverter):
             total_chars,
             llm_model or "<none>",
         )
+
+        if total_chars == 0:
+            logger.warning(
+                "VisionSlidingWindowConverter.convert: all windows produced empty "
+                "results for %s (%d pages, llm_model=%s). Raising to allow "
+                "MarkItDown fallback to built-in PdfConverter.",
+                extension,
+                total_pages,
+                llm_model or "<none>",
+            )
+            raise RuntimeError(
+                f"Vision OCR produced no content for {extension} file "
+                f"({total_pages} pages, model={llm_model or 'unknown'}). "
+                f"Falling back to built-in converter."
+            )
+
         return _ConverterResult(markdown="\n\n".join(markdown_parts))
 
     def _combine_page_images(

@@ -47,14 +47,16 @@ export default function GraphView({
 }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fullscreenDims, setFullscreenDims] = useState<{ width: number; height: number } | null>(null);
+  const [rawFullscreenDims, setFullscreenDims] = useState<{ width: number; height: number } | null>(null);
+  const fullscreenDims = isFullscreen ? rawFullscreenDims : null;
 
-  // Measure fullscreen container
+  // Measure fullscreen container — only runs when isFullscreen is true
   useEffect(() => {
-    if (!isFullscreen) { setFullscreenDims(null); return; }
+    if (!isFullscreen) return;
     const el = fullscreenContainerRef.current;
     if (!el) return;
     const measure = () => {
@@ -146,7 +148,7 @@ export default function GraphView({
     return { nodes: graphNodes, links: graphLinks };
   }, [nodes, edges]);
 
-  // Node painter for canvas rendering
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const isSelected = selectedNode?.id === node.id;
     const r = 6 + node.score * 3;
@@ -191,7 +193,7 @@ export default function GraphView({
     }
   }, [selectedNode]);
 
-  // Handle node click
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleNodeClick = useCallback((node: any) => {
     if (node) {
       const originalNode = nodes.find(n => n.id === node.id);
@@ -251,7 +253,9 @@ export default function GraphView({
       width={dims.width}
       height={dims.height}
       nodeRelSize={6}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       nodeVal={(node: any) => node.score}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       nodeColor={(node: any) => node.color}
       linkColor={() => '#6b7280'}
       nodeCanvasObject={paintNode}
