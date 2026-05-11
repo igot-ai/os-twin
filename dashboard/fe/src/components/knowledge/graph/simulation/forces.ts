@@ -20,9 +20,12 @@ export function applyClusterAttraction(
   }
 }
 
+const LINK_BASE = 100;
+const LINK_SPREAD = 45;
+
 export function applyLinkForce(
   links: SimLink[],
-  linkDistance: number,
+  _linkDistance: number,
   alpha: number
 ): void {
   for (const link of links) {
@@ -36,8 +39,12 @@ export function applyLinkForce(
 
     const srcDeg = source.degree ?? 1;
     const tgtDeg = target.degree ?? 1;
+    const hubDeg = Math.max(srcDeg, tgtDeg);
+    const excess = Math.max(hubDeg - 2, 0);
+    const targetDist = LINK_BASE + LINK_SPREAD * Math.sqrt(excess);
+
     const strength = (1 / Math.sqrt(1 + Math.min(srcDeg, tgtDeg))) * alpha * 0.6;
-    const force = (dist - linkDistance) * strength;
+    const force = (dist - targetDist) * strength;
     const fx = (dx / dist) * force;
     const fy = (dy / dist) * force;
     const fz = (dz / dist) * force;

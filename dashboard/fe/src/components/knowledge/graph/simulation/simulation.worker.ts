@@ -1,12 +1,13 @@
 import { buildOctree, computeRepulsion } from './octree';
 
-const FRICTION = 0.82;
+const FRICTION = 0.88;
 
 let positions: Float64Array | null = null;
 let velocities: Float64Array | null = null;
 let linkSources: Int32Array | null = null;
 let linkTargets: Int32Array | null = null;
 let linkWeights: Float64Array | null = null;
+let linkDistances: Float64Array | null = null;
 let clusterCentersX: Float64Array | null = null;
 let clusterCentersY: Float64Array | null = null;
 let clusterCentersZ: Float64Array | null = null;
@@ -19,7 +20,7 @@ let linkCount = 0;
 let clusterCount = 0;
 let boundary = 0;
 let alpha = 1;
-let alphaDecay = 0.008;
+let alphaDecay = 0.012;
 let alphaMin = 0.005;
 let chargeStrength = -400;
 let linkDistance = 80;
@@ -36,7 +37,7 @@ self.onmessage = (e: MessageEvent) => {
       linkCount = data.linkCount;
       clusterCount = data.clusterCount;
       boundary = data.boundary;
-      alphaDecay = data.alphaDecay ?? 0.008;
+      alphaDecay = data.alphaDecay ?? 0.012;
       alphaMin = data.alphaMin ?? 0.005;
       chargeStrength = data.chargeStrength ?? -400;
       linkDistance = data.linkDistance ?? 80;
@@ -50,6 +51,12 @@ self.onmessage = (e: MessageEvent) => {
       linkSources = new Int32Array(data.linkSources);
       linkTargets = new Int32Array(data.linkTargets);
       linkWeights = new Float64Array(data.linkWeights);
+
+      if (data.linkDistances) {
+        linkDistances = new Float64Array(data.linkDistances);
+      } else {
+        linkDistances = null;
+      }
       clusterCentersX = new Float64Array(data.clusterCentersX);
       clusterCentersY = new Float64Array(data.clusterCentersY);
       clusterCentersZ = new Float64Array(data.clusterCentersZ);
@@ -140,8 +147,7 @@ function step(): void {
     flattenZ();
   }
 
-  const effectiveDecay = stepCount < 300 ? alphaDecay * 0.6 : alphaDecay;
-  alpha -= effectiveDecay * alpha;
+  alpha -= alphaDecay * alpha;
   if (alpha <= alphaMin) {
     isRunning = false;
   }
@@ -177,8 +183,9 @@ function applyLinkForce(): void {
     let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (dist === 0) dist = 0.01;
 
+    const targetDist = linkDistances ? linkDistances[i] : linkDistance;
     const strength = linkWeights[i] * alpha * 0.6;
-    const force = (dist - linkDistance) * strength;
+    const force = (dist - targetDist) * strength;
     const fx = (dx / dist) * force;
     const fy = (dy / dist) * force;
     const fz = (dz / dist) * force;
@@ -232,7 +239,7 @@ function integratePositions(): void {
   if (!positions || !velocities) return;
 
   const MAX_POS = 5000;
-  const MAX_VEL = 200;
+  const MAX_VEL = 80;
 
   for (let i = 0; i < nodeCount * 3; i++) {
     velocities[i] *= FRICTION;

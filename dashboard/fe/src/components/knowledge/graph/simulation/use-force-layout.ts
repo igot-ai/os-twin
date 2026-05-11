@@ -279,6 +279,10 @@ function initWorker(
   const linkSources = new Int32Array(E);
   const linkTargets = new Int32Array(E);
   const linkWeights = new Float64Array(E);
+  const linkDistances = new Float64Array(E);
+
+  const LINK_BASE = 100;
+  const LINK_SPREAD = 45;
 
   for (let i = 0; i < E; i++) {
     const link = input.links[i];
@@ -292,6 +296,10 @@ function initWorker(
     const srcDeg = input.nodes[srcIdx]?.degree ?? 1;
     const tgtDeg = input.nodes[tgtIdx]?.degree ?? 1;
     linkWeights[i] = 1 / Math.sqrt(1 + Math.min(srcDeg, tgtDeg));
+
+    const hubDeg = Math.max(srcDeg, tgtDeg);
+    const excess = Math.max(hubDeg - 2, 0);
+    linkDistances[i] = LINK_BASE + LINK_SPREAD * Math.sqrt(excess);
   }
 
   positionsRef.current = positions;
@@ -303,15 +311,16 @@ function initWorker(
         linkCount: E,
         clusterCount,
         boundary,
-        alphaDecay: options.alphaDecay ?? 0.008,
+        alphaDecay: options.alphaDecay ?? 0.012,
         alphaMin: options.alphaMin ?? 0.005,
         chargeStrength: options.chargeStrength ?? -300,
         linkDistance: options.linkDistance ?? 100,
-        dimension: options.dimension ?? '2d',
+        dimension: options.dimension ?? '3d',
       positions: positions.buffer,
       linkSources: linkSources.buffer,
       linkTargets: linkTargets.buffer,
       linkWeights: linkWeights.buffer,
+      linkDistances: linkDistances.buffer,
       clusterCentersX: clusterCentersX.buffer,
       clusterCentersY: clusterCentersY.buffer,
       clusterCentersZ: clusterCentersZ.buffer,
@@ -324,6 +333,7 @@ function initWorker(
     linkSources.buffer,
     linkTargets.buffer,
     linkWeights.buffer,
+    linkDistances.buffer,
     clusterCentersX.buffer,
     clusterCentersY.buffer,
     clusterCentersZ.buffer,

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useCallback, useMemo, useState } from 'react';
+import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import { useNexusContext } from './NexusContext';
 import NexusCanvas from './NexusCanvas';
 import TopRail from './TopRail';
@@ -19,6 +19,12 @@ export default function NexusShell() {
   const rightDock = useDockState('right');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (graph.selectedNode && rightDock.collapsed) {
+      rightDock.toggle();
+    }
+  }, [graph.selectedNode]);
 
   const visibleError = useMemo(() => {
     if (!query.queryError || dismissed) return null;

@@ -6,7 +6,7 @@ import { SHAPE_TYPES } from '../../constants';
 
 const MAX_INSTANCES = 15000;
 const EPS = 0.001;
-const SIM_STEP_INTERVAL = 4;
+const SIM_STEP_INTERVAL = 1;
 
 interface NodeInstancesProps {
   nodes: SimNode[];

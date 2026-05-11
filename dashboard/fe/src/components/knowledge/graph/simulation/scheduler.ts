@@ -47,9 +47,9 @@ export class SimulationScheduler {
   private stepCount = 0;
 
   constructor(options: SimulationOptions = {}) {
-    this.chargeStrength = options.chargeStrength ?? -800;
-    this.linkDistance = options.linkDistance ?? 140;
-    this.alphaDecay = options.alphaDecay ?? 0.008;
+    this.chargeStrength = options.chargeStrength ?? -300;
+    this.linkDistance = options.linkDistance ?? 100;
+    this.alphaDecay = options.alphaDecay ?? 0.012;
     this.alphaMin = options.alphaMin ?? 0.005;
     this.is2D = (options.dimension ?? '2d') === '2d';
   }
@@ -165,8 +165,7 @@ export class SimulationScheduler {
     applyCenterGravity(this.nodes, this.alpha, this.is2D);
     integratePositions(this.nodes, 0.88, this.is2D);
 
-    const effectiveDecay = this.stepCount < 300 ? this.alphaDecay * 0.6 : this.alphaDecay;
-    this.alpha -= effectiveDecay * this.alpha;
+    this.alpha -= this.alphaDecay * this.alpha;
 
     if (this.alpha <= this.alphaMin) {
       this.isRunning = false;
