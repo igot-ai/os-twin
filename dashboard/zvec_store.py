@@ -33,9 +33,8 @@ logger = logging.getLogger("zvec_store")
 # Fixed at startup; cannot be changed dynamically to avoid dimension conflicts
 # across memory, knowledge, and zvec collections.
 from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIM
-OSTWIN_EMBED_MODEL = os.environ.get(
-    "OSTWIN_EMBED_MODEL", "leoipulsar/harrier-0.6b"
-)
+
+OSTWIN_EMBED_MODEL = os.environ.get("OSTWIN_EMBED_MODEL", "leoipulsar/harrier-0.6b")
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
 PLANS_COLLECTION = "plans_v2"
@@ -679,7 +678,7 @@ class OSTwinStore:
             if self._embedder is None:
                 from dashboard.knowledge.embeddings import KnowledgeEmbedder
 
-                self._embedder = KnowledgeEmbedder(model_name=OSTWIN_EMBED_MODEL)
+                self._embedder = KnowledgeEmbedder()  # uses MasterSettings > env > default
 
             import numpy as np
 

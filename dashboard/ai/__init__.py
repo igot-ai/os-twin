@@ -36,6 +36,7 @@ def _get_embedder():
     global _embedder
     if _embedder is None:
         from dashboard.llm_client import create_embedding_client
+
         _embedder = create_embedding_client(
             model=_detect_embed_model(),
             provider=_detect_embed_provider(),
@@ -47,11 +48,12 @@ def _detect_embed_model() -> str:
     """Resolve embedding model from settings or env var."""
     try:
         from dashboard.lib.settings.resolver import get_settings_resolver
+
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
-        if hasattr(master, 'knowledge') and master.knowledge:
+        if hasattr(master, "knowledge") and master.knowledge:
             know_cfg = master.knowledge
-            if hasattr(know_cfg, 'knowledge_embedding_model') and know_cfg.knowledge_embedding_model:
+            if hasattr(know_cfg, "knowledge_embedding_model") and know_cfg.knowledge_embedding_model:
                 return know_cfg.knowledge_embedding_model
     except Exception:
         pass
@@ -62,15 +64,16 @@ def _detect_embed_provider() -> str:
     """Resolve embedding provider from settings or env var."""
     try:
         from dashboard.lib.settings.resolver import get_settings_resolver
+
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
-        if hasattr(master, 'knowledge') and master.knowledge:
+        if hasattr(master, "knowledge") and master.knowledge:
             know_cfg = master.knowledge
-            if hasattr(know_cfg, 'knowledge_embedding_backend') and know_cfg.knowledge_embedding_backend:
+            if hasattr(know_cfg, "knowledge_embedding_backend") and know_cfg.knowledge_embedding_backend:
                 return know_cfg.knowledge_embedding_backend
     except Exception:
         pass
-    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "ollama")
+    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "sentence-transformers")
 
 
 import os
@@ -107,12 +110,14 @@ def embed(
 def get_stats():
     """Return AI usage statistics."""
     from .monitor import get_stats as _get_stats
+
     return _get_stats()
 
 
 def reset_stats():
     """Reset AI usage statistics."""
     from .monitor import reset_stats as _reset_stats
+
     return _reset_stats()
 
 
