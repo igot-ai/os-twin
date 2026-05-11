@@ -213,7 +213,7 @@ export default function GraphScene({
     return { nodes: simNodes, links: simLinks };
   }, [nodes, edges, communityLens]);
 
-  const is2D = true;
+  const is2D = false;
 
   const simOptions = useMemo(() => ({
     width: dimensions?.width ?? 800,
@@ -355,6 +355,7 @@ export default function GraphScene({
       role="application"
       aria-label="Knowledge Graph Explorer"
       tabIndex={0}
+      onContextMenu={e => e.preventDefault()}
     >
       <div ref={announcementRef} role="status" aria-live="polite" className="sr-only" />
       <Canvas
