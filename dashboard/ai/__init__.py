@@ -95,8 +95,34 @@ def get_embedding(
     texts: list[str],
     **kwargs,
 ) -> list[list[float]]:
-    """Texts → vectors via KnowledgeEmbedder."""
-    return _get_embedder().embed(texts)
+    """Texts → vectors via KnowledgeEmbedder.
+
+    Every call is recorded in the AI Monitor for observability.
+    """
+    import time as _time
+    from .monitor import record_embedding
+
+    embedder = _get_embedder()
+    t0 = _time.time()
+    try:
+        result = embedder.embed(texts)
+        latency_ms = (_time.time() - t0) * 1000
+        record_embedding(
+            model=f"{embedder.provider}/{embedder.model_name}",
+            text_count=len(texts),
+            latency_ms=latency_ms,
+        )
+        return result
+    except Exception as exc:
+        latency_ms = (_time.time() - t0) * 1000
+        record_embedding(
+            model=f"{embedder.provider}/{embedder.model_name}",
+            text_count=len(texts),
+            latency_ms=latency_ms,
+            success=False,
+            error=str(exc),
+        )
+        raise
 
 
 def embed(
