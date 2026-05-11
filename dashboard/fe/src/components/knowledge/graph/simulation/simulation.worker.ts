@@ -1,413 +1,117 @@
-import { buildOctree, computeRepulsion } from './octree';
+// @ts-ignore
+import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force-3d';
 
-const FRICTION = 0.88;
-
-let positions: Float64Array | null = null;
-let velocities: Float64Array | null = null;
-let linkSources: Int32Array | null = null;
-let linkTargets: Int32Array | null = null;
-let linkWeights: Float64Array | null = null;
-let linkDistances: Float64Array | null = null;
-let clusterCentersX: Float64Array | null = null;
-let clusterCentersY: Float64Array | null = null;
-let clusterCentersZ: Float64Array | null = null;
-let nodeLabels: Int32Array | null = null;
-let chargeArray: Float64Array | null = null;
-let nodeDegrees: Int32Array | null = null;
-
-let nodeCount = 0;
-let linkCount = 0;
-let clusterCount = 0;
-let boundary = 0;
-let alpha = 1;
-let alphaDecay = 0.012;
-let alphaMin = 0.005;
-let chargeStrength = -400;
-let linkDistance = 80;
-let is2D = true;
-let isRunning = false;
-let stepCount = 0;
+let simulation: any = null;
+let nodes: any[] = [];
+let links: any[] = [];
+let is2D = false;
 
 self.onmessage = (e: MessageEvent) => {
   const { type, data } = e.data;
 
   switch (type) {
     case 'init': {
-      nodeCount = data.nodeCount;
-      linkCount = data.linkCount;
-      clusterCount = data.clusterCount;
-      boundary = data.boundary;
-      alphaDecay = data.alphaDecay ?? 0.012;
-      alphaMin = data.alphaMin ?? 0.005;
-      chargeStrength = data.chargeStrength ?? -400;
-      linkDistance = data.linkDistance ?? 80;
       is2D = data.dimension === '2d';
-      alpha = 0.8;
-      stepCount = 0;
-      isRunning = true;
+      nodes = data.nodes;
+      links = data.links;
 
-      positions = new Float64Array(data.positions);
-      velocities = new Float64Array(nodeCount * 3);
-      linkSources = new Int32Array(data.linkSources);
-      linkTargets = new Int32Array(data.linkTargets);
-      linkWeights = new Float64Array(data.linkWeights);
+      // ALWAYS generate a perfect 3D spherical scatter on init to guarantee volume
+      nodes.forEach((n: any) => {
+        const radius = 600 * Math.cbrt(Math.random());
+        const theta = Math.random() * 2 * Math.PI;
+        const phi = Math.acos(2 * Math.random() - 1);
+        
+        n.x = radius * Math.sin(phi) * Math.cos(theta);
+        n.y = radius * Math.sin(phi) * Math.sin(theta);
+        n.z = is2D ? 0 : radius * Math.cos(phi);
+        n.vx = 0;
+        n.vy = 0;
+        n.vz = 0;
+      });
 
-      if (data.linkDistances) {
-        linkDistances = new Float64Array(data.linkDistances);
-      } else {
-        linkDistances = null;
-      }
-      clusterCentersX = new Float64Array(data.clusterCentersX);
-      clusterCentersY = new Float64Array(data.clusterCentersY);
-      clusterCentersZ = new Float64Array(data.clusterCentersZ);
-      nodeLabels = new Int32Array(data.nodeLabels);
-
-      if (data.chargeArray) {
-        chargeArray = new Float64Array(data.chargeArray);
-      } else {
-        chargeArray = null;
+      if (simulation) {
+        simulation.stop();
       }
 
-      if (data.nodeDegrees) {
-        nodeDegrees = new Int32Array(data.nodeDegrees);
-      } else {
-        nodeDegrees = null;
-      }
-
-      if (is2D) {
-        for (let i = 0; i < nodeCount; i++) {
-          positions[i * 3 + 2] = 0;
-        }
-      }
+      simulation = forceSimulation(nodes)
+        .numDimensions(is2D ? 2 : 3)
+        .force('link', forceLink(links).id((d: any) => d.id).distance((d: any) => {
+          const srcDeg = d.source.degree || 0;
+          const tgtDeg = d.target.degree || 0;
+          
+          // Calculate the exact physical radius of both nodes based on the NodeInstances scaling math
+          // Math: rawSize = degree * 10 (or 5 min), base = rawSize * 25, radius = base * 0.5
+          const srcRadius = (srcDeg > 0 ? srcDeg * 10 : 5) * 25 * 0.5;
+          const tgtRadius = (tgtDeg > 0 ? tgtDeg * 10 : 5) * 25 * 0.5;
+          
+          // The link distance must be at least the sum of their radii so they don't overlap,
+          // plus a healthy padding of 300 to let the satellites orbit clearly outside the hub
+          return srcRadius + tgtRadius + 300;
+        }))
+        .force('charge', forceManyBody().strength((d: any) => {
+          // Keep repulsion strong to maintain the 3D volume
+          // Increase repulsion heavily for hubs so they push other hubs away
+          const degree = d.degree || 0;
+          const radius = (degree > 0 ? degree * 10 : 5) * 25 * 0.5;
+          return -2000 - (radius * 10);
+        }))
+        .force('center', forceCenter(0, 0, 0)) // Explicitly center all 3 axes
+        .stop(); // We will tick manually
 
       break;
     }
 
     case 'step': {
-      if (!isRunning || !positions || !velocities) {
-        self.postMessage({ type: 'step', alpha, isRunning: false, positions: null });
+      if (!simulation) {
+        self.postMessage({ type: 'step', isRunning: false, positions: null });
         return;
       }
 
-      step();
+      simulation.tick();
 
-      const posCopy = new Float64Array(positions);
-      const converged = !isRunning;
-      const telemetry = converged ? computeTelemetry() : null;
+      const alpha = simulation.alpha();
+      const isRunning = alpha > simulation.alphaMin();
+
+      const positions = new Float64Array(nodes.length * 3);
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        positions[i * 3] = n.x || 0;
+        positions[i * 3 + 1] = n.y || 0;
+        positions[i * 3 + 2] = is2D ? 0 : (n.z || 0);
+      }
+
       self.postMessage(
-        { type: 'step', alpha, isRunning, positions: posCopy.buffer, telemetry }
+        { type: 'step', isRunning, positions: positions.buffer },
+        { transfer: [positions.buffer] }
       );
 
       break;
     }
 
     case 'reheat': {
-      alpha = data?.alpha ?? 0.3;
-      isRunning = true;
+      if (simulation) {
+        simulation.alpha(data?.alpha ?? 0.3).restart();
+        simulation.stop(); // Keep manual ticking
+      }
       break;
     }
 
     case 'pause': {
-      isRunning = false;
+      // Nothing needed for manual ticking
       break;
     }
 
     case 'resume': {
-      if (alpha > alphaMin) isRunning = true;
+      // Nothing needed for manual ticking
       break;
     }
 
     case 'stop': {
-      isRunning = false;
+      if (simulation) {
+        simulation.stop();
+        simulation = null;
+      }
       break;
     }
   }
 };
-
-function step(): void {
-  if (!positions || !velocities) return;
-
-  stepCount++;
-
-  applyClusterAttraction();
-  applyLinkForce();
-
-  const octree = buildOctree(positions, nodeCount);
-  if (chargeArray) {
-    computeRepulsionWithCharge(octree, positions, velocities, nodeCount, chargeArray, alpha);
-  } else {
-    computeRepulsion(octree, positions, velocities, nodeCount, chargeStrength, alpha);
-  }
-
-  applyBoundary();
-  applyCenterGravity();
-  integratePositions();
-
-  if (is2D) {
-    flattenZ();
-  }
-
-  alpha -= alphaDecay * alpha;
-  if (alpha <= alphaMin) {
-    isRunning = false;
-  }
-}
-
-function applyClusterAttraction(): void {
-  if (!positions || !velocities || !nodeLabels || !clusterCentersX || !clusterCentersY || !clusterCentersZ) return;
-
-  for (let i = 0; i < nodeCount; i++) {
-    const ci = nodeLabels[i];
-    if (ci < 0 || ci >= clusterCount) continue;
-    const idx = i * 3;
-    const dx = clusterCentersX[ci] - positions[idx];
-    const dy = clusterCentersY[ci] - positions[idx + 1];
-    const dz = is2D ? 0 : clusterCentersZ[ci] - positions[idx + 2];
-    const deg = nodeDegrees ? nodeDegrees[i] : 1;
-    const strength = 0.008 * alpha * (1 + Math.sqrt(deg) * 0.05);
-    velocities[idx] += dx * strength;
-    velocities[idx + 1] += dy * strength;
-    velocities[idx + 2] += dz * strength;
-  }
-}
-
-function applyLinkForce(): void {
-  if (!positions || !velocities || !linkSources || !linkTargets || !linkWeights) return;
-
-  for (let i = 0; i < linkCount; i++) {
-    const si = linkSources[i] * 3;
-    const ti = linkTargets[i] * 3;
-    const dx = positions[ti] - positions[si];
-    const dy = positions[ti + 1] - positions[si + 1];
-    const dz = is2D ? 0 : positions[ti + 2] - positions[si + 2];
-    let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (dist === 0) dist = 0.01;
-
-    const targetDist = linkDistances ? linkDistances[i] : linkDistance;
-    const strength = linkWeights[i] * alpha * 0.6;
-    const force = (dist - targetDist) * strength;
-    const fx = (dx / dist) * force;
-    const fy = (dy / dist) * force;
-    const fz = (dz / dist) * force;
-
-    velocities[si] += fx;
-    velocities[si + 1] += fy;
-    velocities[si + 2] += fz;
-    velocities[ti] -= fx;
-    velocities[ti + 1] -= fy;
-    velocities[ti + 2] -= fz;
-  }
-}
-
-function applyBoundary(): void {
-  if (!positions || !velocities) return;
-
-  const boundary2 = boundary * boundary;
-
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    const x = positions[idx], y = positions[idx + 1], z = positions[idx + 2];
-    const r2 = x * x + y * y + (is2D ? 0 : z * z);
-    if (r2 > boundary2) {
-      const r = Math.sqrt(r2);
-      const excess = (r - boundary) / boundary;
-      const k = 0.05 * alpha * excess;
-      velocities[idx] -= (x / r) * r * k;
-      velocities[idx + 1] -= (y / r) * r * k;
-      if (!is2D) {
-        velocities[idx + 2] -= (z / r) * r * k;
-      }
-    }
-  }
-}
-
-function applyCenterGravity(): void {
-  if (!positions || !velocities) return;
-
-  const strength = 0.005 * alpha;
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    velocities[idx] -= positions[idx] * strength;
-    velocities[idx + 1] -= positions[idx + 1] * strength;
-    if (!is2D) {
-      velocities[idx + 2] -= positions[idx + 2] * strength;
-    }
-  }
-}
-
-function integratePositions(): void {
-  if (!positions || !velocities) return;
-
-  const MAX_POS = 5000;
-  const MAX_VEL = 80;
-
-  for (let i = 0; i < nodeCount * 3; i++) {
-    velocities[i] *= FRICTION;
-
-    if (!isFinite(velocities[i])) velocities[i] = 0;
-    if (velocities[i] > MAX_VEL) velocities[i] = MAX_VEL;
-    if (velocities[i] < -MAX_VEL) velocities[i] = -MAX_VEL;
-
-    positions[i] += velocities[i];
-
-    if (!isFinite(positions[i])) positions[i] = (Math.random() - 0.5) * 10;
-    if (positions[i] > MAX_POS) { positions[i] = MAX_POS; velocities[i] = 0; }
-    if (positions[i] < -MAX_POS) { positions[i] = -MAX_POS; velocities[i] = 0; }
-  }
-}
-
-function flattenZ(): void {
-  if (!positions || !velocities) return;
-
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    positions[idx + 2] = 0;
-    velocities[idx + 2] = 0;
-  }
-}
-
-function computeRepulsionWithCharge(
-  root: import('./octree').OctreeNode,
-  positions: Float64Array,
-  velocities: Float64Array,
-  count: number,
-  chargeArray: Float64Array,
-  alpha: number
-): void {
-  const softening = 25;
-  for (let i = 0; i < count; i++) {
-    const idx = i * 3;
-    const px = positions[idx];
-    const py = positions[idx + 1];
-    const pz = is2D ? 0 : positions[idx + 2];
-    let fx = 0, fy = 0, fz = 0;
-
-    traverseWithCharge(root, px, py, pz, alpha, softening, (dx, dy, dz, force) => {
-      fx += dx * force;
-      fy += dy * force;
-      fz += dz * force;
-    });
-
-    velocities[idx] += fx;
-    velocities[idx + 1] += fy;
-    if (!is2D) {
-      velocities[idx + 2] += fz;
-    }
-
-    if (!isFinite(velocities[idx])) velocities[idx] = 0;
-    if (!isFinite(velocities[idx + 1])) velocities[idx + 1] = 0;
-    if (!isFinite(velocities[idx + 2])) velocities[idx + 2] = 0;
-  }
-}
-
-function traverseWithCharge(
-  node: import('./octree').OctreeNode,
-  px: number, py: number, pz: number,
-  alpha: number,
-  softening: number,
-  onForce: (dx: number, dy: number, dz: number, force: number) => void
-): void {
-  if (node.mass === 0) return;
-
-  const dx = node.x - px;
-  const dy = node.y - py;
-  const dz = node.z - pz;
-  const distSq = dx * dx + dy * dy + dz * dz;
-
-  if (node.isLeaf) {
-    if (distSq < 0.1) return;
-    const dist = Math.sqrt(distSq);
-    // Force is proportional to the other node's charge (node.mass)
-    const force = (node.mass * alpha) / (distSq + softening);
-    onForce(dx / dist, dy / dist, dz / dist, force);
-    return;
-  }
-
-  const THETA = 0.5;
-  const s = node.size;
-  if ((s * s) / distSq < THETA * THETA) {
-    const dist = Math.sqrt(Math.max(distSq, 0.01));
-    // Force is proportional to the accumulated charge of the octree cell (node.mass)
-    const force = (node.mass * alpha) / (distSq + softening);
-    onForce(dx / dist, dy / dist, dz / dist, force);
-    return;
-  }
-
-  for (const child of node.children) {
-    if (child) traverseWithCharge(child, px, py, pz, alpha, softening, onForce);
-  }
-}
-
-function computeTelemetry(): { centroidOffset: number; densityVariance: number; isolatedNodeCount: number; longestEdgeRatio: number; occupiedAreaRatio: number } {
-  if (!positions || !nodeDegrees || nodeCount === 0) {
-    return { centroidOffset: 0, densityVariance: 0, isolatedNodeCount: 0, longestEdgeRatio: 0, occupiedAreaRatio: 0 };
-  }
-
-  let cx = 0, cy = 0;
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    cx += positions[idx];
-    cy += positions[idx + 1];
-  }
-  cx /= nodeCount;
-  cy /= nodeCount;
-
-  const centroidOffset = Math.sqrt(cx * cx + cy * cy);
-
-  const GRID = 10;
-  const minMax = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    const x = positions[idx], y = positions[idx + 1];
-    if (x < minMax.minX) minMax.minX = x;
-    if (x > minMax.maxX) minMax.maxX = x;
-    if (y < minMax.minY) minMax.minY = y;
-    if (y > minMax.maxY) minMax.maxY = y;
-  }
-  const rangeX = minMax.maxX - minMax.minX || 1;
-  const rangeY = minMax.maxY - minMax.minY || 1;
-
-  const buckets = new Int32Array(GRID * GRID);
-  for (let i = 0; i < nodeCount; i++) {
-    const idx = i * 3;
-    const bx = Math.min(GRID - 1, Math.max(0, Math.floor((positions[idx] - minMax.minX) / rangeX * GRID)));
-    const by = Math.min(GRID - 1, Math.max(0, Math.floor((positions[idx + 1] - minMax.minY) / rangeY * GRID)));
-    buckets[by * GRID + bx]++;
-  }
-
-  const mean = nodeCount / (GRID * GRID);
-  let varSum = 0;
-  let occupied = 0;
-  for (let i = 0; i < GRID * GRID; i++) {
-    varSum += (buckets[i] - mean) ** 2;
-    if (buckets[i] > 0) occupied++;
-  }
-  const densityVariance = varSum / (GRID * GRID);
-
-  let isolatedCount = 0;
-  for (let i = 0; i < nodeCount; i++) {
-    if (nodeDegrees[i] === 0) isolatedCount++;
-  }
-
-  let maxEdgeLen = 0;
-  let edgeLenSum = 0;
-  if (linkSources && linkTargets) {
-    for (let i = 0; i < linkCount; i++) {
-      const si = linkSources[i] * 3;
-      const ti = linkTargets[i] * 3;
-      const dx = positions[ti] - positions[si];
-      const dy = positions[ti + 1] - positions[si + 1];
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > maxEdgeLen) maxEdgeLen = len;
-      edgeLenSum += len;
-    }
-  }
-  const medianEdge = linkCount > 0 ? edgeLenSum / linkCount : 1;
-  const longestEdgeRatio = medianEdge > 0 ? maxEdgeLen / medianEdge : 0;
-
-  const occupiedAreaRatio = occupied / (GRID * GRID);
-
-  return { centroidOffset, densityVariance, isolatedNodeCount: isolatedCount, longestEdgeRatio, occupiedAreaRatio };
-}
-
-export {};

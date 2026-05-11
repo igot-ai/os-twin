@@ -33,6 +33,7 @@ interface GraphSceneProps {
   activeIgnitionPoints: string[];
   selectedPath: { source: string; target: string; path: string[] } | null;
   highlightedLabels?: Set<string>;
+  highlightedEdges?: Set<string>;
   /** When true, use community-based coloring instead of label-based. */
   communityLens?: boolean;
 }
@@ -48,6 +49,7 @@ function SceneContent({
   width,
   height,
   highlightedLabels,
+  highlightedEdges,
   nodeBrightness,
   simStep,
   simGetPositions,
@@ -64,6 +66,7 @@ function SceneContent({
   width: number;
   height: number;
   highlightedLabels: Set<string>;
+  highlightedEdges: Set<string>;
   nodeBrightness: Map<string, number>;
   simStep: () => void;
   simGetPositions: () => { nodes: SimNode[]; links: SimLink[] };
@@ -84,7 +87,7 @@ function SceneContent({
         is2D={is2D}
         simGetIsRunning={simGetIsRunning}
       />
-      <EdgeLines links={simLinks} nodes={simNodes} selectedPath={selectedPath} ignitionSet={ignitionSet} simGetIsRunning={simGetIsRunning} />
+      <EdgeLines links={simLinks} nodes={simNodes} selectedPath={selectedPath} ignitionSet={ignitionSet} highlightedEdges={highlightedEdges} highlightedLabels={highlightedLabels} simGetIsRunning={simGetIsRunning} />
       <NodeInstances
         nodes={simNodes}
         ignitionSet={ignitionSet}
@@ -119,11 +122,14 @@ export default function GraphScene({
   activeIgnitionPoints,
   selectedPath,
   highlightedLabels: externalHighlightedLabels,
+  highlightedEdges: externalHighlightedEdges,
   communityLens = false,
 }: GraphSceneProps) {
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [internalHighlightedLabels] = useState<Set<string>>(new Set());
+  const [internalHighlightedEdges] = useState<Set<string>>(new Set());
   const highlightedLabels = externalHighlightedLabels ?? internalHighlightedLabels;
+  const highlightedEdges = externalHighlightedEdges ?? internalHighlightedEdges;
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -176,9 +182,10 @@ export default function GraphScene({
       const emissiveStrength = ARCHETYPE_EMISSIVE_STRENGTH[archetype as keyof typeof ARCHETYPE_EMISSIVE_STRENGTH] ?? 0.5;
       const roleScale = ARCHETYPE_SCALE[archetype as keyof typeof ARCHETYPE_SCALE] ?? 1.0;
 
-      // Choose color based on active lens
-      const color = communityLens ? getCommunityColor(n.community_id) : getNodeColor(label);
-      const emissiveColor = communityLens ? getCommunityEmissiveColor(n.community_id) : getNodeEmissiveColor(label);
+      // Always choose color based on the label, disregarding the community lens 
+      // (as requested to ensure nodes of the same label keep their exact color identity)
+      const color = getNodeColor(label);
+      const emissiveColor = getNodeEmissiveColor(label);
 
       return {
         id: n.id,
@@ -385,6 +392,7 @@ export default function GraphScene({
           width={dimensions!.width}
           height={dimensions!.height}
           highlightedLabels={highlightedLabels}
+          highlightedEdges={highlightedEdges}
           nodeBrightness={nodeBrightness}
           simStep={step}
           simGetPositions={getPositions}

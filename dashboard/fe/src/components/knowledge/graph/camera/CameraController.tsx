@@ -19,12 +19,11 @@ const FOCUS_LERP = 0.06;
 export default function CameraController({ nodes, width, height, selectedId, is2D = false, simGetIsRunning }: CameraControllerProps) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
-  const prevNodeCount = useRef(0);
+  const initialFitDone = useRef(false);
   const targetPosition = useRef<THREE.Vector3 | null>(null);
   const targetLookAt = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const animating = useRef(false);
   const orthoConfigRef = useRef<{ left: number; right: number; top: number; bottom: number } | null>(null);
-  const wasRunningRef = useRef(false);
 
   const frameGraph = useCallback(() => {
     if (nodes.length === 0) return;
@@ -100,15 +99,15 @@ export default function CameraController({ nodes, width, height, selectedId, is2
   }, [nodes, width, height, is2D, camera]);
 
   useEffect(() => {
-    if (nodes.length === 0 || nodes.length === prevNodeCount.current) return;
-    prevNodeCount.current = nodes.length;
+    if (nodes.length === 0 || initialFitDone.current) return;
+    initialFitDone.current = true;
 
     const timer = setTimeout(() => {
       frameGraph();
-    }, 800);
+    }, 1500); // Give the 3D layout a bit more time to spread out on initial load
 
     return () => clearTimeout(timer);
-  }, [nodes.length, nodes, frameGraph]);
+  }, [nodes.length, frameGraph]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -120,7 +119,10 @@ export default function CameraController({ nodes, width, height, selectedId, is2
     const ny = -(node.y);
     const nz = node.z;
     const roleScale = node.roleScale ?? 1.0;
-    const base = 4 + Math.log2(node.degree + 1) * 3 + Math.pow(node.score, 2) * 6;
+    
+    const degree = node.degree ?? 0;
+    const rawSize = degree > 0 ? degree * 10 : 5;
+    const base = rawSize * 25;
     const scale = base * roleScale;
     const focusDist = is2D ? 0 : Math.max(40, scale * 6);
 
@@ -147,14 +149,6 @@ export default function CameraController({ nodes, width, height, selectedId, is2
   }, [selectedId, nodes, is2D]);
 
   useFrame((state) => {
-    if (simGetIsRunning) {
-      const isRunning = simGetIsRunning();
-      if (wasRunningRef.current && !isRunning) {
-        frameGraph();
-      }
-      wasRunningRef.current = isRunning;
-    }
-
     if (is2D) {
       const orthoCam = state.camera as THREE.OrthographicCamera;
       if (orthoCam.isOrthographicCamera && orthoConfigRef.current) {

@@ -24,8 +24,8 @@ type DragState =
 
 const NODE_W = 200;
 const NODE_H = 95;
-const GAP_X = 80;  // horizontal gap between waves
-const GAP_Y = 24;  // vertical gap between nodes in same wave
+const GAP_X = 200;  // horizontal gap between waves (extended to reduce edge overlap)
+const GAP_Y = 60;   // vertical gap between nodes in same wave (expanded for neighbor nodes)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

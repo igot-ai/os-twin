@@ -41,14 +41,49 @@ export default function ContextualCard({
     }
   }, [node]);
 
-  const neighborCount = useMemo(() => {
-    if (!node) return 0;
-    let count = 0;
-    for (const edge of edges) {
-      if (edge.source === node.id || edge.target === node.id) count++;
-    }
-    return count;
+  const connectedEdges = useMemo(() => {
+    if (!node) return [];
+    return edges.filter(e => {
+      const sourceId = typeof e.source === 'string' ? e.source : (e.source as any).id;
+      const targetId = typeof e.target === 'string' ? e.target : (e.target as any).id;
+      return sourceId === node.id || targetId === node.id;
+    });
   }, [node, edges]);
+
+  const neighborCount = connectedEdges.length;
+
+  const edgesByLabel = useMemo(() => {
+    if (!node) return new Map();
+    const map = new Map<string, { in: ExplorerNode[], out: ExplorerNode[] }>();
+    const nodeMap = new Map(ctx.graph.nodes.map(n => [n.id, n]));
+
+    for (const e of connectedEdges) {
+      const sourceId = typeof e.source === 'string' ? e.source : (e.source as any).id;
+      const targetId = typeof e.target === 'string' ? e.target : (e.target as any).id;
+      const label = e.label || 'Unknown';
+      
+      if (!map.has(label)) map.set(label, { in: [], out: [] });
+
+      if (sourceId === node.id) {
+        const targetNode = nodeMap.get(targetId);
+        if (targetNode) map.get(label)!.out.push(targetNode);
+      } else {
+        const sourceNode = nodeMap.get(sourceId);
+        if (sourceNode) map.get(label)!.in.push(sourceNode);
+      }
+    }
+    return map;
+  }, [node, connectedEdges, ctx.graph.nodes]);
+
+  const [expandedRelationships, setExpandedRelationships] = useState<Set<string>>(new Set());
+  const toggleRelationship = (label: string) => {
+    setExpandedRelationships(prev => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
 
   const prologue = (() => {
     if (!node) return null;
@@ -199,10 +234,10 @@ export default function ContextualCard({
 
         {/* Properties */}
         {filteredPropertyKeys.length > 0 && (
-          <div className="px-3 pb-2">
+          <div className="px-3 pb-2 border-b border-white/5 mb-2">
             <button
               onClick={() => setShowProperties(!showProperties)}
-              className={`flex items-center gap-1 ${FONT.label} font-medium cursor-pointer`}
+              className={`flex items-center gap-1 ${FONT.label} font-medium cursor-pointer mb-2`}
               style={{ color: 'var(--color-text-muted)' }}
             >
               <Icon name={showProperties ? 'expand_less' : 'expand_more'} size={12} />
@@ -217,7 +252,7 @@ export default function ContextualCard({
                   transition={{ duration: 0.15 }}
                   className="overflow-hidden"
                 >
-                  <div className="mt-1 space-y-0.5 max-h-[320px] overflow-y-auto">
+                  <div className="space-y-0.5 max-h-[320px] overflow-y-auto pb-2">
                     {filteredPropertyKeys.map(key => {
                       const val = (node.properties as Record<string, unknown>)?.[key];
                       return (
@@ -241,6 +276,88 @@ export default function ContextualCard({
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+        )}
+
+        {/* Semantic Inspector: Relationships Grouped by Edge Label */}
+        {edgesByLabel.size > 0 && (
+          <div className="px-3 pb-2 flex-1 overflow-y-auto custom-scrollbar">
+            <div className={`mb-2 font-semibold ${FONT.caption} uppercase tracking-wider text-[var(--color-text-muted)]`}>
+              Relationships
+            </div>
+            <div className="space-y-1">
+              {Array.from(edgesByLabel.entries()).map(([edgeLabel, group]) => {
+                const isExpanded = expandedRelationships.has(edgeLabel);
+                const totalEntities = group.in.length + group.out.length;
+                return (
+                  <div key={edgeLabel} className="rounded-lg bg-black/10 border border-white/5 overflow-hidden">
+                    <button
+                      onClick={() => {
+                         toggleRelationship(edgeLabel);
+                         // Auto highlight the edge label on the graph when exploring it
+                         if (!isExpanded) {
+                           ctx.graph.setHighlightedEdges(new Set([edgeLabel]));
+                         } else {
+                           ctx.graph.setHighlightedEdges(new Set());
+                         }
+                      }}
+                      className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-white/5 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Icon name={isExpanded ? 'expand_more' : 'chevron_right'} size={14} style={{ color: 'var(--color-text-muted)' }} />
+                        <span className={`font-medium ${FONT.caption}`} style={{ color: 'var(--color-text-main)' }}>{edgeLabel}</span>
+                      </div>
+                      <span className={`px-1.5 py-0.5 rounded bg-white/10 ${FONT.caption}`} style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                        {totalEntities}
+                      </span>
+                    </button>
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden bg-black/20"
+                        >
+                          <div className="px-2 py-1.5 space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+                            {group.out.length > 0 && (
+                              <div className="mb-1.5">
+                                <div className={`text-[9px] uppercase font-bold text-[var(--color-text-faint)] mb-1 pl-1`}>Outgoing ({group.out.length})</div>
+                                {group.out.map((targetNode: ExplorerNode) => (
+                                  <div 
+                                    key={targetNode.id} 
+                                    onClick={() => ctx.actions.selectNode(targetNode)}
+                                    className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${FONT.caption}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: getNodeColor(targetNode.label) }} />
+                                    <span className="truncate" style={{ color: 'var(--color-text-main)' }} title={targetNode.name}>{targetNode.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {group.in.length > 0 && (
+                              <div>
+                                <div className={`text-[9px] uppercase font-bold text-[var(--color-text-faint)] mb-1 pl-1`}>Incoming ({group.in.length})</div>
+                                {group.in.map((sourceNode: ExplorerNode) => (
+                                  <div 
+                                    key={sourceNode.id} 
+                                    onClick={() => ctx.actions.selectNode(sourceNode)}
+                                    className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${FONT.caption}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: getNodeColor(sourceNode.label) }} />
+                                    <span className="truncate" style={{ color: 'var(--color-text-main)' }} title={sourceNode.name}>{sourceNode.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

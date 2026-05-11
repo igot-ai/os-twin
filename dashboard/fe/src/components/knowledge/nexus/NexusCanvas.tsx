@@ -17,6 +17,7 @@ interface NexusCanvasProps {
   activeIgnitionPoints: string[];
   selectedPath: { source: string; target: string; path: string[] } | null;
   highlightedLabels?: Set<string>;
+  highlightedEdges?: Set<string>;
   communityLens?: boolean;
 }
 
@@ -33,6 +34,7 @@ export default function NexusCanvas(props: NexusCanvasProps) {
         activeIgnitionPoints={props.activeIgnitionPoints}
         selectedPath={props.selectedPath}
         highlightedLabels={props.highlightedLabels}
+        highlightedEdges={props.highlightedEdges}
         communityLens={props.communityLens}
       />
     </div>

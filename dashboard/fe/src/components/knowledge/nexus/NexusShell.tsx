@@ -75,6 +75,7 @@ export default function NexusShell() {
           activeIgnitionPoints={graph.activeIgnitionPoints}
           selectedPath={graph.selectedPath}
           highlightedLabels={graph.highlightedLabels}
+          highlightedEdges={graph.highlightedEdges}
           communityLens={graph.activeLens === 'community'}
         />
         {/* Overlay layer — sits above canvas */}

@@ -25,6 +25,8 @@ export interface NexusContextValue {
     isSeeded: boolean;
     highlightedLabels: Set<string>;
     setHighlightedLabels: React.Dispatch<React.SetStateAction<Set<string>>>;
+    highlightedEdges: Set<string>;
+    setHighlightedEdges: React.Dispatch<React.SetStateAction<Set<string>>>;
   };
   query: {
     queryResult: QueryResultResponse | null;
@@ -96,6 +98,7 @@ export function NexusProvider({
 }: NexusProviderProps) {
   const [pathSource, setPathSource] = useState<string | null>(null);
   const [highlightedLabels, setHighlightedLabels] = useState<Set<string>>(new Set());
+  const [highlightedEdges, setHighlightedEdges] = useState<Set<string>>(new Set());
 
   const pathMode = pathSource !== null;
 
@@ -139,6 +142,8 @@ export function NexusProvider({
       isSeeded: nexusHook.isSeeded,
       highlightedLabels,
       setHighlightedLabels,
+      highlightedEdges,
+      setHighlightedEdges,
     },
     query: {
       queryResult: nexusHook.queryResult,
