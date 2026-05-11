@@ -21,7 +21,7 @@ Manifest schema (NamespaceMeta serialized as JSON, ``schema_version=1``)::
         "language": "English",
         "description": "...",
         "embedding_model": "BAAI/bge-base-en-v1.5",
-        "embedding_dimension": 768,
+        "embedding_dimension": 1024,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,

@@ -407,7 +407,18 @@ if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
 if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
 if ($SessionTitle) { $extraCliArgs += "--title"; $extraCliArgs += $SessionTitle }
 if ($SessionId) { $extraCliArgs += "--session"; $extraCliArgs += $SessionId }
-if ($ContinueSession) { $extraCliArgs += "--continue" }
+
+# --- Detect if this is a lifecycle retry ---
+$isLifecycleRetry = $false
+$retriesFile = Join-Path $absRoomDir "retries"
+if (Test-Path $retriesFile) {
+    try { 
+        $roomRetries = [int](Get-Content $retriesFile -Raw).Trim()
+        if ($roomRetries -gt 0) { $isLifecycleRetry = $true }
+    } catch {}
+}
+
+if ($ContinueSession -or $isLifecycleRetry) { $extraCliArgs += "--continue" }
 if ($ForkSession) { $extraCliArgs += "--fork" }
 if ($ShareSession) { $extraCliArgs += "--share" }
 if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
@@ -432,13 +443,19 @@ if (-not $NoMcp -and $ProjectDir) {
 $extraCliArgs += $ExtraArgs
 $extraCliArgs += "--dangerously-skip-permissions"
 
-$argsLine = ($extraCliArgs | ForEach-Object {
-        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-    }) -join ' '
-
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
     $wrapperScript = $null  # Initialize before try block
+
+    $attemptArgs = $extraCliArgs.Clone()
+    if ($processAttempt -gt 1 -and $attemptArgs -notcontains "--continue") {
+        $attemptArgs += "--continue"
+    }
+
+    $argsLine = ($attemptArgs | ForEach-Object {
+            if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+        }) -join ' '
+
     try {
         # Detect if running on Windows
         # NOTE: Cannot use $isWindows because PowerShell is case-insensitive and

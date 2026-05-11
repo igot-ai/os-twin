@@ -24,13 +24,13 @@ class FakeKnowledgeEmbedder:
     def dimension(self):
         return 384
     def get_text_embedding(self, text):
-        return [0.1] * 768
+        return [0.1] * 1024
     def get_query_embedding(self, query):
-        return [0.1] * 768
+        return [0.1] * 1024
     async def aget_text_embedding(self, text):
-        return [0.1] * 768
+        return [0.1] * 1024
     async def aget_query_embedding(self, query):
-        return [0.1] * 768
+        return [0.1] * 1024
 
 
 class TestGraphStorageOrganization(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestGraphStorageOrganization(unittest.TestCase):
         Settings._llm = self.mock_llm
         
         from llama_index.core.embeddings.mock_embed_model import MockEmbedding
-        self.li_mock_embedder = MockEmbedding(embed_dim=768)
+        self.li_mock_embedder = MockEmbedding(embed_dim=1024)
         Settings._embed_model = self.li_mock_embedder
 
         # Initialize service with a dedicated NamespaceManager

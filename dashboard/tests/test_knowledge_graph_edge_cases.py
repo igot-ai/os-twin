@@ -145,7 +145,7 @@ class TestGraphRAGExtractorEdgeCases:
             assert result[0].metadata[KG_RELATIONS_KEY] == []
 
     def test_extract_with_retry_exponential_backoff(self):
-        """_extract_with_retry applies exponential backoff on retries."""
+        """_extract_single_sync applies exponential backoff on retries."""
         from llama_index.core.schema import TextNode
         from dashboard.knowledge.graph.core.graph_rag_extractor import (
             ExtractionConfig,
@@ -153,6 +153,7 @@ class TestGraphRAGExtractorEdgeCases:
         )
 
         fake_llm = mock.MagicMock(spec=KnowledgeLLM)
+        fake_llm.extract_entities.side_effect = RuntimeError("fail")
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
 
         extractor = GraphRAGExtractor(
@@ -164,22 +165,18 @@ class TestGraphRAGExtractorEdgeCases:
 
         node = TextNode(text="test")
 
-        call_count = [0]
         sleep_times = []
 
-        async def mock_sleep(duration):
+        def mock_sleep(duration):
             sleep_times.append(duration)
-            return None
 
-        async def mock_extract(node):
-            return ([], [])
-
-        with mock.patch("asyncio.sleep", mock_sleep):
-            with mock.patch.object(extractor, "_aextract_single", mock_extract):
-                asyncio.run(extractor._extract_with_retry(node))
+        with mock.patch("time.sleep", mock_sleep):
+            extractor._extract_single_sync(node)
+        
+        assert sleep_times == [0.1, 0.2]
 
     def test_aextract_single_node_missing_text(self):
-        """_aextract_single handles nodes without .text attribute."""
+        """_extract_single_sync handles nodes without .text attribute."""
         from llama_index.core.graph_stores.types import KG_NODES_KEY
         from llama_index.core.schema import TextNode
         from dashboard.knowledge.graph.core.graph_rag_extractor import (
@@ -194,13 +191,13 @@ class TestGraphRAGExtractorEdgeCases:
         node = TextNode(text="", id_="test-id")
         delattr(node, "text")
 
-        result = asyncio.run(extractor._aextract_single(node))
+        result = extractor._extract_single_sync(node)
 
         assert KG_NODES_KEY in result.metadata
         assert "extraction_error" in result.metadata
 
     def test_aextract_single_timeout(self):
-        """_aextract_single raises ValueError on timeout."""
+        """_extract_single_sync handles LLM timeout by returning empty result."""
         from llama_index.core.schema import TextNode
         from dashboard.knowledge.graph.core.graph_rag_extractor import (
             ExtractionConfig,
@@ -208,20 +205,21 @@ class TestGraphRAGExtractorEdgeCases:
         )
 
         fake_llm = mock.MagicMock(spec=KnowledgeLLM)
-        fake_llm.extract_entities.side_effect = lambda *args: time.sleep(10)
+        fake_llm.extract_entities.side_effect = TimeoutError("timeout")
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
 
         extractor = GraphRAGExtractor(
             llm=fake_llm,
             embedder=fake_embedder,
-            config=ExtractionConfig(timeout_seconds=0.1),
+            config=ExtractionConfig(timeout_seconds=0.1, max_retries=0),
             num_workers=1,
         )
 
         node = TextNode(text="test")
 
-        with pytest.raises(ValueError, match="timeout"):
-            asyncio.run(extractor._aextract_single(node))
+        result = extractor._extract_single_sync(node)
+        assert result.metadata["extraction_error"] == "timeout"
+        assert result.metadata["extraction_status"] == "failed"
 
 
 # ---------------------------------------------------------------------------

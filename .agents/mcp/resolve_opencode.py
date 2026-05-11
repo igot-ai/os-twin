@@ -214,7 +214,7 @@ def _permission_key(server_name):
 # These are required for inter-agent communication (channel) and room state
 # management (warroom). Without these, agents cannot post signals or update
 # status, breaking the lifecycle state machine.
-INFRA_SERVERS = {"channel", "warroom", "memory"}
+INFRA_MCP_SERVERS = {"channel", "warroom", "memory", "knowledge"}
 
 
 def build_agent_permissions(roles, mcp_server_names):
@@ -238,7 +238,7 @@ def build_agent_permissions(roles, mcp_server_names):
         permission = {}
         for srv in server_names:
             pkey = _permission_key(srv)
-            if srv in INFRA_SERVERS:
+            if srv in INFRA_MCP_SERVERS:
                 permission[pkey] = "allow"
             else:
                 permission[pkey] = "allow" if srv in allowed else "deny"

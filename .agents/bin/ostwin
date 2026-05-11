@@ -444,11 +444,14 @@ switch ($Command) {
                 }
 
                 if ($doCreate) {
-                    Write-Host "Running manager agent to scaffold roles..."
+                    Write-Host "Scaffolding missing roles..."
+                    $createRoleScript = Join-Path $AgentsDir "bin/Auto-CreateRole.ps1"
                     foreach ($mr in $missingRoles) {
-                        $createRoleScript = Join-Path $AgentsDir "bin/Auto-CreateRole.ps1"
                         if (Test-Path $createRoleScript) {
                             & pwsh -NoProfile -File $createRoleScript $mr $AgentsDir
+                            if ($LASTEXITCODE -ne 0) {
+                                Write-Warning "Auto-CreateRole.ps1 exited with code $LASTEXITCODE for role '$mr'"
+                            }
                         }
                         else {
                             Write-Warning "Auto-CreateRole.ps1 not found — skipping role '$mr'"
@@ -745,7 +748,15 @@ switch ($Command) {
                 }
 
                 $plansDir = Join-Path $OstwinHome ".agents/plans"
-                $zvecPlans = Join-Path $OstwinHome ".zvec/plans_v2"
+
+                # Check for OSTWIN_ZVEC_DIR or use default ~/.config/ostwin/.zvec
+                $envZvec = [Environment]::GetEnvironmentVariable("OSTWIN_ZVEC_DIR")
+                if ($envZvec) {
+                    $zvecPlans = Join-Path $envZvec "plans_v2"
+                } else {
+                    $userProfile = [Environment]::GetFolderPath("UserProfile")
+                    $zvecPlans = Join-Path $userProfile ".config/ostwin/.zvec/plans_v2"
+                }
 
                 # Count files to remove
                 $fileCount = 0

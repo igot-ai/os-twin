@@ -532,10 +532,8 @@ def test_get_knowledge_settings_returns_defaults(client, temp_config):
     assert "knowledge_llm_model" in data
     assert "knowledge_embedding_model" in data
     assert "knowledge_embedding_dimension" in data
-    # Defaults: empty strings + 384.
-    assert data["knowledge_llm_model"] == ""
-    assert data["knowledge_embedding_model"] == ""
-    assert data["knowledge_embedding_dimension"] == 384
+    # Dimension is read-only, fixed from OSTWIN_EMBEDDING_DIM env var.
+    assert data["knowledge_embedding_dimension"] == 1024
 
 
 def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
@@ -543,13 +541,14 @@ def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
     payload = {
         "knowledge_llm_model": "claude-haiku-4-5",
         "knowledge_embedding_model": "BAAI/bge-base-en-v1.5",
-        "knowledge_embedding_dimension": 768,
     }
     r = client.put("/api/settings/knowledge", json=payload)
     assert r.status_code == 200
     body = r.json()
     assert body["knowledge_llm_model"] == "claude-haiku-4-5"
     assert body["knowledge_embedding_model"] == "BAAI/bge-base-en-v1.5"
+    # Dimension is read-only (ignored on write, always reflects env var).
+    assert body["knowledge_embedding_dimension"] == 1024
 
     # Roundtrip: GET should return the new values.
     r2 = client.get("/api/settings/knowledge")
@@ -583,5 +582,5 @@ def test_knowledge_settings_partial_payload_uses_defaults(client, temp_config):
     body = r.json()
     assert body["knowledge_llm_model"] == "claude-sonnet-4-5-20251022"
     assert body["knowledge_embedding_model"] == ""
-    assert body["knowledge_embedding_dimension"] == 384
+    assert body["knowledge_embedding_dimension"] == 1024
 

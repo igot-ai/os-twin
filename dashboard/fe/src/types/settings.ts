@@ -183,7 +183,7 @@ export interface KnowledgeSettings {
   /** OpenAI-compatible embedding config */
   knowledge_embedding_compatible_url?: string;
   knowledge_embedding_compatible_key?: string;
-  /** Read-only / informational. Always 768. */
+  /** Reflects OSTWIN_EMBEDDING_DIMENSION env var. Read-only in UI. */
   knowledge_embedding_dimension: number;
 }
 

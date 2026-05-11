@@ -122,7 +122,7 @@ def main():
             context_aware_analysis=False,
         )
         # Mock the LLM calls
-        memory.llm_controller.llm.get_completion = MagicMock(side_effect=[mock_analysis, mock_evolution] * (args.notes + 10))
+        memory.llm.get_completion = MagicMock(side_effect=[mock_analysis, mock_evolution] * (args.notes + 10))
     else:
         memory = AgenticMemorySystem(
             model_name="gemini-embedding-001",

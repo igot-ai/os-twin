@@ -1009,4 +1009,124 @@ Write-Output "ARGS: `$(`$args -join ' ')"
             $capturedArgs.Count | Should -Be 8
         }
     }
-}
+
+    # =========================================================================
+    # Lifecycle retry detection — $isLifecycleRetry triggers --continue
+    # =========================================================================
+    Context "Lifecycle retry detection (retries file → --continue)" {
+        It "adds --continue flag when retries file exists and value > 0" {
+            # Create a room with a retries file containing "2"
+            "2" | Out-File -FilePath (Join-Path $script:roomDir "retries") -Encoding utf8 -NoNewline
+
+            # Mock that captures CLI args
+            $argsDump = Join-Path $TestDrive "retry-args-$(Get-Random).txt"
+            $argsMock = Join-Path $TestDrive "retry-argsmock-$(Get-Random).ps1"
+            @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$argsDump' -Encoding utf8
+"@ | Out-File $argsMock -Encoding utf8
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "retry test" `
+                -AgentCmd $argsMock -TimeoutSeconds 5
+
+            if (Test-Path $argsDump) {
+                $capturedArgs = Get-Content $argsDump
+                $capturedArgs | Should -Contain "--continue" `
+                    -Because "retries file with value > 0 should trigger --continue"
+            }
+        }
+
+        It "does NOT add --continue when retries file is absent" {
+            # Room has no retries file — default behavior
+            $argsDump = Join-Path $TestDrive "no-retry-args-$(Get-Random).txt"
+            $argsMock = Join-Path $TestDrive "no-retry-argsmock-$(Get-Random).ps1"
+            @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$argsDump' -Encoding utf8
+"@ | Out-File $argsMock -Encoding utf8
+
+            # Explicitly NOT passing -ContinueSession
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "no retry" `
+                -AgentCmd $argsMock -TimeoutSeconds 5
+
+            if (Test-Path $argsDump) {
+                $capturedArgs = Get-Content $argsDump
+                $capturedArgs | Should -Not -Contain "--continue" `
+                    -Because "no retries file and no -ContinueSession means no --continue"
+            }
+        }
+
+        It "does NOT add --continue when retries file contains 0" {
+            "0" | Out-File -FilePath (Join-Path $script:roomDir "retries") -Encoding utf8 -NoNewline
+
+            $argsDump = Join-Path $TestDrive "zero-retry-args-$(Get-Random).txt"
+            $argsMock = Join-Path $TestDrive "zero-retry-argsmock-$(Get-Random).ps1"
+            @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$argsDump' -Encoding utf8
+"@ | Out-File $argsMock -Encoding utf8
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "zero retry" `
+                -AgentCmd $argsMock -TimeoutSeconds 5
+
+            if (Test-Path $argsDump) {
+                $capturedArgs = Get-Content $argsDump
+                $capturedArgs | Should -Not -Contain "--continue" `
+                    -Because "retries=0 means this is NOT a lifecycle retry"
+            }
+        }
+
+        It "existing -ContinueSession still works with retries file absent" {
+            $argsDump = Join-Path $TestDrive "explicit-continue-$(Get-Random).txt"
+            $argsMock = Join-Path $TestDrive "explicit-continue-mock-$(Get-Random).ps1"
+            @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$argsDump' -Encoding utf8
+"@ | Out-File $argsMock -Encoding utf8
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "explicit continue" `
+                -ContinueSession `
+                -AgentCmd $argsMock -TimeoutSeconds 5
+
+            if (Test-Path $argsDump) {
+                $capturedArgs = Get-Content $argsDump
+                $capturedArgs | Should -Contain "--continue" `
+                    -Because "explicit -ContinueSession flag must be preserved"
+            }
+        }
+    }
+
+    # =========================================================================
+    # Retry loop: attempt 2+ auto-injects --continue
+    # =========================================================================
+    Context "Retry loop — auto-inject --continue on attempt 2+" {
+        It "per-attempt args include --continue when processAttempt > 1" {
+            # This validates the internal logic: when $processAttempt -gt 1,
+            # the code adds "--continue" to $attemptArgs if not already present.
+            # We can't easily mock a multi-attempt scenario with the echo mock,
+            # so we verify the static analysis: the for loop body clones args
+            # and conditionally appends --continue.
+            $scriptContent = Get-Content $script:InvokeAgent -Raw
+
+            # The retry loop must clone the args array for each attempt
+            $scriptContent | Should -Match '\$attemptArgs = \$extraCliArgs\.Clone\(\)' `
+                -Because "each attempt must work on a copy of the base args"
+
+            # The condition must check for attempt > 1 AND --continue not already present
+            $scriptContent | Should -Match 'if \(\$processAttempt -gt 1.*\$attemptArgs -notcontains "--continue"\)' `
+                -Because "attempt 2+ should only add --continue if not already there"
+
+            # The argsLine must be built from $attemptArgs (not $extraCliArgs)
+            $scriptContent | Should -Match '\$argsLine = \(\$attemptArgs \| ForEach-Object' `
+                -Because "the actual exec command must use per-attempt args"
+        }
+
+        It "does not duplicate --continue if already present from -ContinueSession" {
+            # If -ContinueSession was passed, --continue is already in $extraCliArgs.
+            # The retry loop guard ($attemptArgs -notcontains "--continue") must prevent
+            # a duplicate.
+            $scriptContent = Get-Content $script:InvokeAgent -Raw
+            $scriptContent | Should -Match '\$attemptArgs -notcontains "--continue"' `
+                -Because "duplicate --continue flags would be a regression"
+        }
+    }

@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import mimetypes
+import threading
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -728,3 +729,461 @@ def create_client(
 
     base_url = _get_base_url(provider)
     return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
+
+
+# ---------------------------------------------------------------------------
+# Sync helper — run an async coroutine from sync code
+# ---------------------------------------------------------------------------
+
+def run_sync(coro):
+    """Execute an async coroutine from synchronous code.
+
+    If no event loop is running, uses ``asyncio.run()``.  If a loop is
+    already running (e.g. inside ``asyncio.to_thread``), spins up a new
+    loop in a dedicated thread so we don't collide with the existing one.
+
+    This is the shared version of the ``_run_sync`` helpers that were
+    duplicated in ``dashboard.knowledge.llm`` and elsewhere.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Already inside a loop → use a thread-based loop
+    import concurrent.futures
+
+    def _runner():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_runner).result()
+
+
+# ---------------------------------------------------------------------------
+# Embedding client abstraction
+# ---------------------------------------------------------------------------
+
+# Known native model dimensions — avoids a test-embedding probe on first use.
+_KNOWN_EMBEDDING_DIMENSIONS: dict[str, int] = {
+    "all-MiniLM-L6-v2": 384,
+    "all-MiniLM-L12-v2": 384,
+    "all-mpnet-base-v2": 1024,
+    "paraphrase-MiniLM-L6-v2": 384,
+    "paraphrase-multilingual-MiniLM-L12-v2": 384,
+    "BAAI/bge-base-en-v1.5": 1024,
+    "BAAI/bge-small-en-v1.5": 384,
+    "BAAI/bge-large-en-v1.5": 1024,
+    "gemini-embedding-001": 1024,
+    "text-embedding-004": 1024,
+    "text-embedding-005": 1024,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    # Ollama embedding models
+    "leoipulsar/harrier-0.6b": 1024,
+    "embeddinggemma": 1024,
+    "qwen3-embedding:0.6b": 896,
+}
+
+# Single source of truth for embedding dimension across the entire system.
+# Fixed at startup from OSTWIN_EMBEDDING_DIM env var; cannot be changed
+# dynamically via settings.  All embedding clients, vector stores, and
+# retrievers (memory + knowledge) MUST use this value to avoid dimension
+# conflicts in shared collections.
+import os as _os_for_dim
+DEFAULT_EMBEDDING_DIMENSION: int = int(
+    _os_for_dim.environ.get("OSTWIN_EMBEDDING_DIM", "1024")
+)
+
+
+class EmbeddingClient(ABC):
+    """Base class for embedding providers.
+
+    Subclasses implement ``embed(texts)`` which returns a list of float-lists.
+    The ``dimension`` property returns the output vector size (cached on first
+    call when not explicitly set).
+    """
+
+    def __init__(self, model: str, dimension: Optional[int] = None):
+        self.model = model
+        self._dimension = dimension
+
+    @abstractmethod
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed a batch of texts. Returns a list of float-lists."""
+
+    def embed_one(self, text: str) -> list[float]:
+        """Embed a single text string."""
+        if text is None:
+            return []
+        result = self.embed([text])
+        return result[0] if result else []
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension (cached after first probe)."""
+        if self._dimension is not None:
+            return self._dimension
+        # Probe once and cache
+        try:
+            probe = self.embed_one("dimension probe")
+            self._dimension = len(probe) if probe else DEFAULT_EMBEDDING_DIMENSION
+        except Exception:
+            self._dimension = DEFAULT_EMBEDDING_DIMENSION
+        return self._dimension
+
+    @staticmethod
+    def _truncate_to_dim(embeddings: list[list[float]], dim: int) -> list[list[float]]:
+        """Truncate (or zero-pad) each vector to exactly *dim* floats.
+
+        Truncation of MRL (Matryoshka Representation Learning) models is
+        dimension-preserving: the first *dim* components retain full semantic
+        quality.  Zero-padding is a lossy fallback for models whose native
+        dimension is smaller than the target.
+        """
+        out: list[list[float]] = []
+        for vec in embeddings:
+            if len(vec) >= dim:
+                out.append(vec[:dim])
+            else:
+                out.append(vec + [0.0] * (dim - len(vec)))
+        return out
+
+
+class OllamaEmbeddingClient(EmbeddingClient):
+    """Ollama embedding via the native ``ollama`` Python SDK.
+
+    No litellm dependency.  Output is truncated to the configured dimension
+    (default: 1024) for cross-backend consistency.
+
+    When the Ollama server is unreachable (connection refused, timeout),
+    the client falls back to ``SentenceTransformersEmbeddingClient`` with
+    ``all-MiniLM-L6-v2`` so the knowledge pipeline doesn't hard-fail on
+    an offline machine.  The fallback is tried once and cached; subsequent
+    calls reuse the local model.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        dimension: Optional[int] = None,
+    ):
+        super().__init__(model, dimension)
+        self._base_url = base_url  # None → ollama default (localhost:11434)
+        self._fallback: Any = None
+        self._fallback_attempted = False
+
+    def _try_fallback(self) -> Any:
+        """Return a cached sentence-transformers fallback, or None if already tried."""
+        if self._fallback_attempted:
+            return self._fallback
+        self._fallback_attempted = True
+        try:
+            self._fallback = SentenceTransformersEmbeddingClient(
+                model="all-MiniLM-L6-v2",
+                dimension=self._dimension,
+            )
+            logger.info(
+                "Ollama unavailable; falling back to sentence-transformers "
+                "(all-MiniLM-L6-v2) for embedding. Set "
+                "OSTWIN_KNOWLEDGE_EMBED_PROVIDER=sentence-transformers to "
+                "suppress this fallback."
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Ollama fallback to sentence-transformers also failed: %s", exc
+            )
+        return self._fallback
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import ollama as _ollama  # noqa: WPS433
+
+        if not texts:
+            return []
+        kwargs: dict = {"model": self.model, "input": texts}
+        if self._dimension is not None:
+            kwargs["dimensions"] = self._dimension
+        try:
+            response = _ollama.embed(**kwargs)
+            result = response["embeddings"]
+        except Exception as exc:
+            logger.error("Ollama embedding failed: %s", exc)
+            # Try sentence-transformers fallback before returning empty
+            fb = self._try_fallback()
+            if fb is not None:
+                try:
+                    return fb.embed(texts)
+                except Exception as fb_exc:  # noqa: BLE001
+                    logger.error("Sentence-transformers fallback also failed: %s", fb_exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+class OpenAICompatibleEmbeddingClient(EmbeddingClient):
+    """Embedding via any OpenAI-compatible /v1/embeddings endpoint.
+
+    Uses ``OPENAI_COMPATIBLE_BASE_URL`` and ``OPENAI_COMPATIBLE_API_KEY``
+    env vars when not explicitly set.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        dimension: Optional[int] = None,
+    ):
+        super().__init__(model, dimension)
+        self._base_url = base_url
+        self._api_key = api_key
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import os as _os
+        import httpx
+
+        if not texts:
+            return []
+
+        base_url = self._base_url or _os.environ.get(
+            "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
+        )
+        api_key = self._api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+
+        try:
+            with httpx.Client() as client:
+                payload: dict = {"model": self.model, "input": texts}
+                if self._dimension is not None:
+                    payload["dimensions"] = self._dimension
+                response = client.post(
+                    f"{base_url}/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    json=payload,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                result = [item["embedding"] for item in data["data"]]
+        except Exception as exc:
+            logger.error("OpenAI-compatible embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+class GeminiEmbeddingClient(EmbeddingClient):
+    """Embedding via Google Gemini / Vertex AI embedding API.
+
+    Uses the ``google-genai`` SDK (same as ``GoogleClient`` for chat).
+    Supports both AI Studio (api_key) and Vertex AI (project + location).
+    """
+
+    def __init__(
+        self,
+        model: str = "gemini-embedding-001",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        dimension: Optional[int] = None,
+        vertexai: bool = False,
+    ):
+        super().__init__(model, dimension)
+        import os as _os
+        from google.genai import Client
+
+        if vertexai:
+            project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = _os.environ.get("VERTEX_LOCATION")
+            self._client = Client(vertexai=True, project=project, location=location)
+        else:
+            key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+            self._client = Client(api_key=key)
+        self._base_url = base_url
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+
+        if not texts:
+            return []
+        try:
+            # The genai SDK supports batch embedding
+            result = self._client.models.embed_content(
+                model=self.model,
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=self._dimension,
+                ) if self._dimension is not None else None,
+            )
+            embeddings = [e.values for e in result.embeddings]
+        except Exception as exc:
+            logger.error("Gemini embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(embeddings, target_dim)
+
+
+class SentenceTransformersEmbeddingClient(EmbeddingClient):
+    """Embedding via local sentence-transformers model.
+
+    Loads the model lazily on first use.
+    """
+
+    def __init__(
+        self,
+        model: str = "all-MiniLM-L6-v2",
+        dimension: Optional[int] = None,
+    ):
+        if not model:
+            model = "all-MiniLM-L6-v2"
+        super().__init__(model, dimension)
+        self._st_model = None
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        if self._st_model is None:
+            from sentence_transformers import SentenceTransformer
+            self._st_model = SentenceTransformer(self.model)
+
+        try:
+            embeddings = self._st_model.encode(texts, convert_to_numpy=True)
+            result = embeddings.tolist()
+        except Exception as exc:
+            logger.error("Sentence-transformers embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+# Embedding-client singleton cache: keyed by (provider, model, dimension)
+_embedding_cache: dict[str, Any] = {}
+_embedding_cache_lock = threading.Lock()
+
+
+def _detect_embedding_provider(model: str) -> str:
+    """Auto-detect embedding provider from model name."""
+    if not model:
+        return "sentence-transformers"
+    model_lower = model.lower()
+    if "gemini" in model_lower or "text-embedding" in model_lower:
+        return "google"
+    # Default to ollama for local model names
+    return "ollama"
+
+
+def create_embedding_client(
+    model: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    dimension: Optional[int] = None,
+    *,
+    shared: bool = True,
+) -> EmbeddingClient:
+    """Factory: create (or retrieve cached) embedding client.
+
+    Args:
+        model: Embedding model identifier.
+        provider: Backend: ``"ollama"``, ``"google"``, ``"openai-compatible"``.
+            Auto-detected from model name when ``None``.
+        api_key: API key (provider-specific).
+        base_url: Override base URL for the provider.
+        dimension: Output vector dimension.  ``None`` means use the model's
+            native dimension (or ``DEFAULT_EMBEDDING_DIMENSION`` as fallback).
+        shared: If ``True`` (default), return a singleton cached by
+            ``(provider, model, dimension)``.  ``False`` creates a private
+            instance.
+
+    Returns:
+        An ``EmbeddingClient`` instance.
+    """
+    if provider is None:
+        provider = _detect_embedding_provider(model)
+
+    # Use known dimension if not explicitly set
+    if dimension is None:
+        dimension = _KNOWN_EMBEDDING_DIMENSIONS.get(model)
+
+    cache_key = f"{provider}:{model}:{dimension}"
+
+    if shared:
+        with _embedding_cache_lock:
+            cached = _embedding_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    # Resolve settings for provider-specific config
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master_settings = resolver.get_master_settings()
+        providers_cfg = master_settings.providers if master_settings else None
+    except Exception:
+        providers_cfg = None
+
+    import os as _os
+
+    if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
+        is_vertex = provider == "google-vertex"
+        client = GeminiEmbeddingClient(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            dimension=dimension,
+            vertexai=is_vertex,
+        )
+    elif provider == "openai-compatible":
+        cfg = providers_cfg.openai_compatible if providers_cfg else None
+        resolved_base = base_url or (
+            cfg.base_url if cfg and cfg.base_url else _os.environ.get(
+                "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
+            )
+        )
+        resolved_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        client = OpenAICompatibleEmbeddingClient(
+            model=model,
+            base_url=resolved_base,
+            api_key=resolved_key,
+            dimension=dimension,
+        )
+    elif provider == "sentence-transformers":
+        client = SentenceTransformersEmbeddingClient(
+            model=model,
+            dimension=dimension,
+        )
+    elif provider == "ollama":
+        cfg = providers_cfg.ollama if providers_cfg else None
+        resolved_base = base_url or (
+            cfg.base_url if cfg and cfg.base_url else _os.environ.get(
+                "OLLAMA_BASE_URL", "http://localhost:11434"
+            )
+        )
+        client = OllamaEmbeddingClient(
+            model=model,
+            base_url=resolved_base,
+            dimension=dimension,
+        )
+    else:
+        # Fallback to ollama
+        logger.warning("Unknown embedding provider %r; falling back to ollama", provider)
+        client = OllamaEmbeddingClient(
+            model=model,
+            base_url=base_url,
+            dimension=dimension,
+        )
+
+    if shared:
+        with _embedding_cache_lock:
+            existing = _embedding_cache.get(cache_key)
+            if existing is not None:
+                return existing
+            _embedding_cache[cache_key] = client
+
+    return client

@@ -31,7 +31,29 @@ param(
 # --- Resolve role path ---
 if (-not $RolePath -and $RoleName) {
     $rolesDir = (Resolve-Path (Join-Path $PSScriptRoot "..") -ErrorAction SilentlyContinue).Path
-    $RolePath = Join-Path $rolesDir $RoleName
+    $projectRoot = (Resolve-Path (Join-Path $rolesDir ".." "..") -ErrorAction SilentlyContinue).Path
+    $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
+
+    # Search order: .agents/roles/ → ~/.ostwin/.agents/roles/ → contributes/roles/
+    $searchPaths = @(
+        (Join-Path $rolesDir $RoleName),
+        (Join-Path $OstwinHome ".agents" "roles" $RoleName)
+    )
+    if ($projectRoot) {
+        $searchPaths += Join-Path $projectRoot "contributes" "roles" $RoleName
+    }
+
+    foreach ($candidate in $searchPaths) {
+        if (Test-Path $candidate) {
+            $RolePath = $candidate
+            break
+        }
+    }
+
+    if (-not $RolePath) {
+        $RolePath = Join-Path $rolesDir $RoleName
+    }
 }
 
 if (-not $RolePath -or -not (Test-Path $RolePath)) {

@@ -3,7 +3,7 @@
 Heavy deps (kuzu, sentence-transformers, markitdown, anthropic) are NEVER
 instantiated by the bulk of these tests. We:
 
-- Inject a ``fake_embedder`` (MagicMock with deterministic 768-dim output) so
+- Inject a ``fake_embedder`` (MagicMock with deterministic 1024-dim output) so
   the real sentence-transformers model is never loaded.
 - Inject a ``KnowledgeLLM`` that's just a MagicMock — by default
   ``is_available()`` returns False so the ingestor takes the no-LLM path.
@@ -86,16 +86,16 @@ def _clear_kuzu_cache() -> Iterator[None]:
 
 @pytest.fixture
 def fake_embedder() -> MagicMock:
-    """Deterministic 768-dim embedder with no model load."""
+    """Deterministic 1024-dim embedder with no model load."""
     e = MagicMock(name="FakeEmbedder")
-    e.dimension.return_value = 768
+    e.dimension.return_value = 1024
     e.model_name = "test-fake-embedder"
 
     def _embed(texts: list[str]) -> list[list[float]]:
-        return [[(hash(t) % 1000) / 1000.0] * 768 for t in texts]
+        return [[(hash(t) % 1000) / 1000.0] * 1024 for t in texts]
 
     def _embed_one(t: str) -> list[float]:
-        return [(hash(t) % 1000) / 1000.0] * 768
+        return [(hash(t) % 1000) / 1000.0] * 1024
 
     e.embed.side_effect = _embed
     e.embed_one.side_effect = _embed_one
@@ -948,12 +948,12 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "doc-a",
-                    "embedding": [0.1] * 768,
+                    "embedding": [0.1] * 1024,
                     "metadata": {"file_hash": "h1", "filename": "a.md", "chunk_index": 0, "total_chunks": 1},
                 },
                 {
                     "text": "doc-b",
-                    "embedding": [0.2] * 768,
+                    "embedding": [0.2] * 1024,
                     "metadata": {"file_hash": "h1", "filename": "a.md", "chunk_index": 1, "total_chunks": 2},
                 },
             ]
@@ -974,7 +974,7 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "doc",
-                    "embedding": [0.0] * 768,
+                    "embedding": [0.0] * 1024,
                     "metadata": {"file_hash": "abc", "filename": "x.md", "chunk_index": 0, "total_chunks": 1},
                 }
             ]
@@ -990,10 +990,10 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "1", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 3}},
-                {"text": "2", "embedding": [0.1] * 768, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 3}},
-                {"text": "3", "embedding": [0.2] * 768, "metadata": {"file_hash": "h1", "chunk_index": 2, "total_chunks": 3}},
-                {"text": "x", "embedding": [0.5] * 768, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "1", "embedding": [0.0] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 3}},
+                {"text": "2", "embedding": [0.1] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 3}},
+                {"text": "3", "embedding": [0.2] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 2, "total_chunks": 3}},
+                {"text": "x", "embedding": [0.5] * 1024, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         assert store.count_by_file_hash("h1") == 3
@@ -1005,9 +1005,9 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "x", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 2}},
-                {"text": "y", "embedding": [0.1] * 768, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 2}},
-                {"text": "z", "embedding": [0.2] * 768, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "x", "embedding": [0.0] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 2}},
+                {"text": "y", "embedding": [0.1] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 2}},
+                {"text": "z", "embedding": [0.2] * 1024, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         deleted = store.delete_by_file_hash("h1")
@@ -1020,7 +1020,7 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "x", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "x", "embedding": [0.0] * 1024, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         assert store.delete_by_file_hash("nope") == 0
@@ -1038,7 +1038,7 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "x",
-                    "embedding": [0.0] * 768,
+                    "embedding": [0.0] * 1024,
                     "metadata": {"file_hash": weird, "chunk_index": 0, "total_chunks": 1},
                 }
             ]
@@ -1412,7 +1412,7 @@ class TestRealE2E:
 
     This is the regression-killer: chromadb-mock-only suites historically
     missed both Defect 1 and Defect 2. Running the entire pipeline against
-    real backends — even with the cheap 768-dim BGE model — is the only way
+    real backends — even with the cheap 1024-dim BGE model — is the only way
     to catch path-leak and stats-drift bugs ahead of integration testing.
     """
 

@@ -65,7 +65,7 @@ def mock_service() -> MagicMock:
             self.language = language
             self.description = description
             self.embedding_model = "BAAI/bge-small-en-v1.5"
-            self.embedding_dimension = 768
+            self.embedding_dimension = 1024
             self.stats = stats
             self.imports = []
         
