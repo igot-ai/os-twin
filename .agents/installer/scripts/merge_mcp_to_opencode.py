@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+from copy import deepcopy
 
 
 def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
@@ -121,12 +122,17 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
                 existing = json.load(f)
         except (json.JSONDecodeError, ValueError):
             existing = {}
+    original_existing = deepcopy(existing)
 
     # Merge: replace only the managed keys (mcp, tools, agent)
     existing["$schema"] = "https://opencode.ai/config.json"
     existing["mcp"] = validated_mcp
     existing["tools"] = tools_deny
     existing["agent"] = agent_config
+
+    if existing == original_existing:
+        print(f"    OpenCode MCP config already up to date at {opencode_file}")
+        return
 
     with open(opencode_file, "w") as f:
         json.dump(existing, f, indent=2)
