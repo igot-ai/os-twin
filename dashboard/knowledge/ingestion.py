@@ -47,9 +47,16 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from dashboard.knowledge.chunking import (
+    SlidingWindowChunker,
+    VisionSlidingWindowConverter,
+    flat_chunk_text,
+)
 from dashboard.knowledge.config import (
     EMBEDDING_DIMENSION,
     IMAGE_EXTENSIONS,
+    SLIDING_WINDOW_OVERLAP,
+    SLIDING_WINDOW_SIZE,
     SUPPORTED_DOCUMENT_EXTENSIONS,
 )
 from dashboard.knowledge.jobs import JobEvent, JobState
@@ -72,13 +79,19 @@ logger = logging.getLogger(__name__)
 class IngestOptions(BaseModel):
     """Tunable knobs for a single ingestion run."""
 
-    chunk_size: int = 1024
-    chunk_overlap: int = 200
+    chunk_size: int = 2048
+    chunk_overlap: int = 512
     max_file_size_mb: int = 50
-    force: bool = False  # re-ingest unchanged files (deletes existing chunks first)
-    extract_entities: bool = True  # set False to skip the LLM entirely
+    force: bool = False
+    extract_entities: bool = True
     language: str = "English"
     domain: str = ""
+    llm_model: str = ""
+    vision_ocr: bool = True
+    vision_ocr_model: str = ""
+    sliding_window_size: int = SLIDING_WINDOW_SIZE
+    sliding_window_overlap: int = SLIDING_WINDOW_OVERLAP
+    vision_ocr_dpi: int = 144
 
 
 class FileEntry(BaseModel):
@@ -107,23 +120,11 @@ def _sha256(data: bytes) -> str:
 def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     """Split ``text`` into overlapping windows of ~``chunk_size`` chars.
 
-    Identical algorithm to ``MarkitdownReader._chunk_text`` so file_hash-based
-    idempotency stays stable across this module and the legacy reader.
+    Delegates to :func:`dashboard.knowledge.chunking.flat_chunk_text` so
+    file_hash-based idempotency stays stable across this module and the
+    legacy reader.
     """
-    if not text:
-        return []
-    if len(text) <= chunk_size:
-        return [text]
-    chunks: list[str] = []
-    step = max(1, chunk_size - overlap)
-    for start in range(0, len(text), step):
-        end = start + chunk_size
-        chunk = text[start:end]
-        if chunk.strip():
-            chunks.append(chunk)
-        if end >= len(text):
-            break
-    return chunks
+    return flat_chunk_text(text, chunk_size=chunk_size, overlap=overlap)
 
 
 def _is_hidden(path: Path) -> bool:
@@ -318,6 +319,9 @@ class Ingestor:
         # constructions.
         self._markitdown: Any = None
         self._markitdown_lock = threading.Lock()
+        self._vision_ocr_model: str = ""
+        self._vision_ocr_client: Any = None
+        self._llm_model_override: str = ""
 
     # ---- Lazy accessors ------------------------------------------------
 
@@ -332,7 +336,7 @@ class Ingestor:
         self._embedder = KnowledgeEmbedder()
         return self._embedder
 
-    def _get_llm(self) -> Any:
+    def _get_llm(self, model: str | None = None) -> Any:
         if self._llm is not None:
             return self._llm
         if self._llm_override is not None:
@@ -340,27 +344,82 @@ class Ingestor:
             return self._llm
         from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
 
-        self._llm = KnowledgeLLM()
+        self._llm = KnowledgeLLM(model=model or None)
         return self._llm
 
-    def _get_markitdown_converter(self) -> Any:
+    def _apply_llm_model_override(self, model: str) -> None:
+        """Reset cached LLM and graph indexes so ``model`` is used for entity extraction.
+
+        When the caller specifies ``IngestOptions.llm_model``, the service-level
+        ``KnowledgeLLM`` singleton may be using a different model. This method
+        stores the override model and invalidates any cached graph indexes so
+        they pick up the new LLM on next access via :meth:`_get_graph_index`.
+        """
+        self._llm_model_override = model
+        with self._graph_index_lock:
+            self._graph_indexes.clear()
+
+    def _get_markitdown_converter(self, options: IngestOptions | None = None) -> Any:
         """Lazy-construct the per-Ingestor MarkItDown client.
 
-        Delegates to :class:`MarkitdownReader._get_markitdown` so the
-        provider-aware vision configuration logic lives in exactly one place.
-        Cached for the lifetime of the Ingestor — config changes between
-        runs require constructing a new Ingestor.
+        Uses :func:`dashboard.llm_client.create_openai_sync_client` to build
+        an OpenAI-compatible sync client from the configured vision OCR model.
+        This single client serves both MarkItDown's ``ImageConverter`` and
+        :class:`VisionSlidingWindowConverter._vision_ocr` Path 2.
+
+        When ``options.vision_ocr`` is True (default), registers a
+        :class:`VisionSlidingWindowConverter` at higher priority than the
+        built-in PdfConverter so PDFs are routed through vision LLM OCR
+        when an LLM client is available.
         """
-        if self._markitdown is not None:
+        vision_model = ""
+        if options:
+            vision_model = options.vision_ocr_model or options.llm_model
+
+        if self._markitdown is not None and self._vision_ocr_model == vision_model:
             return self._markitdown
+
         with self._markitdown_lock:
-            if self._markitdown is not None:
+            if self._markitdown is not None and self._vision_ocr_model == vision_model:
                 return self._markitdown
+
             from dashboard.knowledge.graph.parsers.markitdown_reader import (  # noqa: WPS433
                 MarkitdownReader,
             )
 
-            self._markitdown = MarkitdownReader()._get_markitdown()
+            md = MarkitdownReader()._get_markitdown()
+
+            vision_client = None
+            if vision_model:
+                try:
+                    from dashboard.llm_client import create_openai_sync_client  # noqa: WPS433
+                    vision_client = create_openai_sync_client(model=vision_model)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to create vision OCR client for %s: %s",
+                        vision_model, exc,
+                    )
+
+            if vision_client is not None:
+                md = type(md)(
+                    llm_client=vision_client,
+                    llm_model=vision_model,
+                )
+                self._vision_ocr_client = vision_client
+
+            if options is None or options.vision_ocr:
+                ws = options.sliding_window_size if options else SLIDING_WINDOW_SIZE
+                ov = options.sliding_window_overlap if options else SLIDING_WINDOW_OVERLAP
+                dpi = options.vision_ocr_dpi if options else 144
+                converter = VisionSlidingWindowConverter(
+                    window_size=ws,
+                    overlap=ov,
+                    dpi=dpi,
+                )
+                md.register_converter(converter, priority=-1.0)
+
+            self._markitdown = md
+            self._vision_ocr_model = vision_model
             return self._markitdown
 
     def _get_graph_index(self, namespace: str) -> Any:
@@ -370,13 +429,19 @@ class Ingestor:
         :class:`KnowledgeService`. Returns ``None`` when no factory is
         configured (standalone Ingestor mode — should not happen in
         production since the service always injects one).
+
+        When ``_llm_model_override`` is set (via ``IngestOptions.llm_model``),
+        passes it to the factory so the graph extractor uses the requested model.
         """
         if self._graph_index_factory is None:
             return None
         with self._graph_index_lock:
             idx = self._graph_indexes.get(namespace)
             if idx is None:
-                idx = self._graph_index_factory(namespace)
+                factory_kwargs: dict[str, Any] = {}
+                if getattr(self, "_llm_model_override", None):
+                    factory_kwargs["llm_model"] = self._llm_model_override
+                idx = self._graph_index_factory(namespace, **factory_kwargs)
                 self._graph_indexes[namespace] = idx
             return idx
 
@@ -458,27 +523,44 @@ class Ingestor:
 
         Strategy:
         1. Try MarkItDown for any supported type; it covers Office, PDF, HTML,
-           and many text formats out of the box.
+           and many text formats out of the box. When ``options.vision_ocr`` is
+           True and a vision LLM is available, PDFs are routed through
+           :class:`VisionSlidingWindowConverter` for page-level OCR.
         2. If MarkItDown returns nothing or fails, fall back to a UTF-8 read
            (with replacement) for text-ish extensions.
-        3. Chunk the resulting text using the configured chunk size / overlap.
+        3. Chunk the resulting text. Large documents (>
+           ``chunk_size * 10`` chars) use :class:`SlidingWindowChunker`
+           with page-range metadata; smaller documents use flat char chunking.
 
         Empty list on parse failure or empty file — caller treats this as a
         skip, not a hard error.
         """
         path = Path(file_entry.path)
+        parse_t0 = time.monotonic()
 
         # --- 1) MarkItDown (with Anthropic vision when key set, ADR-14) ---
         text = ""
+        t_markitdown_start = time.monotonic()
         try:
-            converter = self._get_markitdown_converter()
-            result = converter.convert(str(path))
+            converter = self._get_markitdown_converter(options)
+            convert_kwargs: dict[str, Any] = {}
+            if self._vision_ocr_client is not None:
+                convert_kwargs["llm_client"] = self._vision_ocr_client
+            if self._vision_ocr_model:
+                convert_kwargs["llm_model"] = self._vision_ocr_model
+            result = converter.convert(str(path), **convert_kwargs)
             text = (
                 getattr(result, "text_content", None)
                 or getattr(result, "text", None)
                 or ""
             )
+            t_markitdown = time.monotonic() - t_markitdown_start
+            logger.info(
+                "[TRACE] parse_file/markitdown: %.3fs, %s, %d chars extracted",
+                t_markitdown, file_entry.path, len(text),
+            )
         except Exception as exc:  # noqa: BLE001
+            t_markitdown = time.monotonic() - t_markitdown_start
             exc_name = type(exc).__name__
             if "MissingDependency" in exc_name:
                 # Dependency-resolution errors are environment problems, not
@@ -491,6 +573,10 @@ class Ingestor:
                 )
                 raise  # Let the caller report as "Failed", not "Skipped"
             logger.error("debussing on %s: %s", path, exc)
+            logger.info(
+                "[TRACE] parse_file/markitdown: %.3fs, %s, FAILED (%s)",
+                t_markitdown, file_entry.path, exc_name,
+            )
             text = ""
 
         # --- 2) Fallback: plain-text read for text-ish files ----------
@@ -525,13 +611,29 @@ class Ingestor:
         if not text or not text.strip():
             return []
 
-        # --- 3) Chunk -------------------------------------------------
-        chunks_text = _chunk_text(text, options.chunk_size, options.chunk_overlap)
+        # --- 4) Chunk -------------------------------------------------
+        t_chunk_start = time.monotonic()
+
+        sliding_window_threshold = options.chunk_size * 10
+        if len(text) > sliding_window_threshold:
+            chunker = SlidingWindowChunker(
+                window_size=options.sliding_window_size,
+                overlap=options.sliding_window_overlap,
+                page_chars=options.chunk_size,
+            )
+            raw_chunks = chunker.chunk(text)
+            chunks_text = [c["text"] for c in raw_chunks]
+            chunk_metas = [c["metadata"] for c in raw_chunks]
+        else:
+            chunks_text = _chunk_text(text, options.chunk_size, options.chunk_overlap)
+            chunk_metas = [{} for _ in chunks_text]
+
+        t_chunk = time.monotonic() - t_chunk_start
         if not chunks_text:
             return []
 
         out: list[dict] = []
-        for i, chunk in enumerate(chunks_text):
+        for i, (chunk, cmeta) in enumerate(zip(chunks_text, chunk_metas)):
             metadata = {
                 "file_path": file_entry.path,
                 "filename": path.name,
@@ -541,10 +643,17 @@ class Ingestor:
                 "mtime": file_entry.mtime,
                 "extension": file_entry.extension,
                 "file_hash": file_entry.content_hash,
-                # Per-chunk hash for fine-grained dedup if ever needed.
                 "chunk_hash": _sha256(chunk.encode("utf-8")),
             }
+            metadata.update(cmeta)
             out.append({"text": chunk, "metadata": metadata})
+
+        parse_total = time.monotonic() - parse_t0
+        logger.info(
+            "[TRACE] parse_file total: %.3fs (markitdown+chunk), %s, %d chunks, %d chars",
+            parse_total, file_entry.path, len(chunks_text), len(text),
+        )
+        get_metrics_registry().histogram("ingest_parse_seconds").observe(parse_total)
         return out
 
     # ---- Per-file pipeline --------------------------------------------
@@ -579,6 +688,8 @@ class Ingestor:
                 "chunks_skipped": 0,
             }
 
+        embed_t0 = time.monotonic()
+
         graph_index = self._get_graph_index(namespace)
         if graph_index is None:
             # No PropertyGraphIndex available — this is a programming error
@@ -609,15 +720,27 @@ class Ingestor:
         #  3. Write entities + relations to Kuzu via GraphRAGStore
         #  4. Write text chunks as ChunkNode to Kuzu (entity→chunk linkage)
         #  5. Write entity embeddings to zvec via ZvecVectorStoreAdapter
+        t_insert_start = time.monotonic()
         try:
             graph_index.insert_nodes(text_nodes)
         except Exception as exc:  # noqa: BLE001
+            t_insert = time.monotonic() - t_insert_start
+            logger.info(
+                "[TRACE] extract_and_embed/insert_nodes: %.3fs, %s, FAILED",
+                t_insert, file_entry.path,
+            )
             logger.exception(
                 "PropertyGraphIndex.insert_nodes failed for %s: %s",
                 file_entry.path,
                 exc,
             )
             raise
+        t_insert = time.monotonic() - t_insert_start
+        logger.info(
+            "[TRACE] extract_and_embed/insert_nodes: %.3fs, %s, %d nodes",
+            t_insert, file_entry.path, len(text_nodes),
+        )
+        get_metrics_registry().histogram("ingest_insert_nodes_seconds").observe(t_insert)
 
         # Persist text chunks to the NamespaceVectorStore (zvec) for
         # file-hash-based idempotency tracking. The PropertyGraphIndex
@@ -625,10 +748,19 @@ class Ingestor:
         # per-file chunk vectors need to live in the namespace store so
         # _is_already_indexed / count_by_file_hash / delete_by_file_hash
         # can function correctly for skip-if-unchanged and force-reingest.
+        t_vstore_start = time.monotonic()
         store = self._get_store(namespace)
         embedder = self._get_embedder()
         texts = [c["text"] for c in chunks]
+        t_embed_start = time.monotonic()
         vectors = embedder.embed(texts)
+        t_embed = time.monotonic() - t_embed_start
+        logger.info(
+            "[TRACE] extract_and_embed/embed_chunks: %.3fs, %s, %d texts",
+            t_embed, file_entry.path, len(texts),
+        )
+        get_metrics_registry().histogram("ingest_embed_seconds").observe(t_embed)
+
         store_chunks = []
         for c, vec in zip(chunks, vectors):
             store_chunks.append({
@@ -639,12 +771,23 @@ class Ingestor:
         try:
             store.add_chunks(store_chunks)
         except Exception as exc:  # noqa: BLE001
+            t_vstore = time.monotonic() - t_vstore_start
+            logger.info(
+                "[TRACE] extract_and_embed/vstore_write: %.3fs, %s, FAILED",
+                t_vstore, file_entry.path,
+            )
             logger.exception(
                 "Failed to persist chunks to namespace store for %s: %s",
                 file_entry.path,
                 exc,
             )
             raise
+        t_vstore = time.monotonic() - t_vstore_start
+        logger.info(
+            "[TRACE] extract_and_embed/vstore_write: %.3fs, %s, %d chunks",
+            t_vstore, file_entry.path, len(store_chunks),
+        )
+        get_metrics_registry().histogram("ingest_vstore_write_seconds").observe(t_vstore)
 
         # Count entities and relations from node metadata (populated by
         # GraphRAGExtractor during the transformation step).
@@ -658,6 +801,13 @@ class Ingestor:
         for node in text_nodes:
             entities_added += len(node.metadata.get(KG_NODES_KEY, []))
             relations_added += len(node.metadata.get(KG_RELATIONS_KEY, []))
+
+        embed_total = time.monotonic() - embed_t0
+        logger.info(
+            "[TRACE] extract_and_embed total: %.3fs, %s, %d entities, %d relations, %d chunks",
+            embed_total, file_entry.path, entities_added, relations_added, len(text_nodes),
+        )
+        get_metrics_registry().histogram("ingest_extract_and_embed_seconds").observe(embed_total)
 
         return {
             "entities_added": entities_added,
@@ -690,6 +840,11 @@ class Ingestor:
         emit = emit or (lambda ev: None)
         cancel_check = cancel_check or (lambda: False)
 
+        # When the caller specifies an LLM model override, ensure the
+        # graph-index and KnowledgeLLM use it for entity extraction.
+        if options.llm_model:
+            self._apply_llm_model_override(options.llm_model)
+
         started_at = _utcnow()
         run_t0 = time.monotonic()
 
@@ -717,14 +872,22 @@ class Ingestor:
                 progress_total=0,
             )
         )
+        t_walk_start = time.monotonic()
         files = list(self._walk_folder(folder, options))
+        t_walk = time.monotonic() - t_walk_start
+        logger.info("[TRACE] walk_folder: %.3fs, %d files discovered", t_walk, len(files))
+
         # Compute file hashes upfront so we can dedup.
+        t_hash_start = time.monotonic()
         for fe in files:
             try:
                 fe.content_hash = self._hash_file(Path(fe.path))
             except OSError as exc:
                 logger.exception("Could not hash %s: %s", fe.path, exc)
                 fe.content_hash = ""
+        t_hash = time.monotonic() - t_hash_start
+        logger.info("[TRACE] hash_files: %.3fs, %d files hashed", t_hash, len(files))
+
         n = len(files)
         emit(
             JobEvent(
@@ -814,11 +977,13 @@ class Ingestor:
                     logger.exception("Force-reingest pre-cleanup failed for %s: %s", fe.path, exc)
 
             # 3c) Parse → chunk.
+            t_parse_start = time.monotonic()
             try:
                 chunks = self._parse_file(fe, options)
             except Exception as exc:  # noqa: BLE001
+                t_parse = time.monotonic() - t_parse_start
                 files_failed += 1
-                logger.exception("Parse failed for %s", fe.path)
+                logger.exception("Parse failed for %s (%.3fs)", fe.path, t_parse)
                 err = f"{fe.path}: parse failed: {exc}"
                 errors.append(err)
                 emit(
@@ -849,11 +1014,13 @@ class Ingestor:
                 continue
 
             # 3d) Embed + (optional) extract.
+            t_extract_start = time.monotonic()
             try:
                 counts = self._extract_and_embed(namespace, fe, chunks, options)
             except Exception as exc:  # noqa: BLE001
+                t_extract = time.monotonic() - t_extract_start
                 files_failed += 1
-                logger.exception("embed/extract failed for %s", fe.path)
+                logger.exception("embed/extract failed for %s (%.3fs)", fe.path, t_extract)
                 err = f"{fe.path}: embed/extract failed: {exc}"
                 errors.append(err)
                 emit(
@@ -872,9 +1039,14 @@ class Ingestor:
             total_chunks += counts["chunks_added"]
             total_entities += counts["entities_added"]
             total_relations += counts["relations_added"]
+            t_file_total = time.monotonic() - t_parse_start
             # Record metrics for this file
             metrics.counter("ingest_files_total").inc()
             metrics.counter("ingest_bytes_total").inc(fe.size)
+            logger.info(
+                "[TRACE] file_total: %.3fs, %s, parse+embed, %d chunks, %d entities",
+                t_file_total, fe.path, counts["chunks_added"], counts["entities_added"],
+            )
             emit(
                 JobEvent(
                     timestamp=_utcnow(),
@@ -923,6 +1095,12 @@ class Ingestor:
         elapsed = time.monotonic() - run_t0
         # Record ingestion latency
         metrics.histogram("ingest_latency_seconds").observe(elapsed)
+        logger.info(
+            "[TRACE] run total: %.3fs, namespace=%s, %d/%d indexed, %d skipped, %d failed, "
+            "%d chunks, %d entities, %d relations",
+            elapsed, namespace, files_indexed, n, files_skipped, files_failed,
+            total_chunks, total_entities, total_relations,
+        )
         result = {
             "namespace": namespace,
             "folder_path": str(folder),

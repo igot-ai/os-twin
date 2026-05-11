@@ -154,7 +154,7 @@ test.describe('Knowledge Tab & Pipeline', () => {
     }
   });
 
-  test('T-001.4: Type query in QueryPanel, verify loading state', async () => {
+  test('T-001.4: Type query in NexusExplorer, verify loading state', async () => {
     // Mock query API
     await page.route('**/api/knowledge/namespaces/test-namespace/query', async (route) => {
       // Simulate delay

@@ -519,11 +519,21 @@ switch ($Command) {
             $psArgs = [System.Collections.ArrayList]::new()
             $null = $psArgs.Add($initTarget)
             $null = $psArgs.Add('-Yes')   # non-interactive during run
-            # Extract plan_id from plan filename (stem = plan_id, e.g. 107240b7fe28.md → 107240b7fe28)
+            # Extract plan_id: use hash ID if filename is hex, else generate stable hash
             if ($resolvedPlanFile) {
-                $initPlanId = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPlanFile)
-                $initPlanId = $initPlanId -replace '\.refined$', ''
-                if ($initPlanId -and $initPlanId -ne 'PLAN.template') {
+                $initPlanStem = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPlanFile)
+                $initPlanStem = $initPlanStem -replace '\.refined$', ''
+                if ($initPlanStem -and $initPlanStem -ne 'PLAN.template') {
+                    if ($initPlanStem -match '^[0-9a-fA-F]{8,64}$') {
+                        $initPlanId = $initPlanStem
+                    } else {
+                        # Generate stable hash from working_dir + filename
+                        $hashInput = "${initTarget}:${initPlanStem}"
+                        $sha = [System.Security.Cryptography.SHA256]::Create()
+                        $bytes = [System.Text.Encoding]::UTF8.GetBytes($hashInput)
+                        $hash = $sha.ComputeHash($bytes)
+                        $initPlanId = [BitConverter]::ToString($hash).Replace('-', '').Substring(0, 12).ToLower()
+                    }
                     $null = $psArgs.Add('-PlanId')
                     $null = $psArgs.Add($initPlanId)
                 }
@@ -1052,31 +1062,131 @@ switch ($Command) {
 
     # ── dashboard ────────────────────────────────────────────────────────────
     "dashboard" {
-        $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+        $dashSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "help" }
+        $dashArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
+        $dashPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { "3366" }
+        $dashScript = Join-Path $AgentsDir "dashboard.sh"
+        $logFile = Join-Path $OstwinHome "dashboard" "stdout.log"
 
-        if (Test-Path $dashPs1) {
-            # Translate bash-style flags to PS params
-            $psArgs = [System.Collections.ArrayList]::new()
-            $hasProjectDir = $false
-            $di = 0
-            while ($di -lt $Arguments.Count) {
-                switch ($Arguments[$di]) {
-                    '--port' { $null = $psArgs.Add('-Port'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
-                    '--project-dir' { $hasProjectDir = $true; $null = $psArgs.Add('-ProjectDir'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
-                    '--background' { $null = $psArgs.Add('-Background'); $di++ }
-                    { $_ -in @('-h', '--help') } { $null = $psArgs.Add('-Help'); $di++ }
-                    default { $null = $psArgs.Add($Arguments[$di]); $di++ }
+        # Find running dashboard PID by port (reliable, ignores stale PID files)
+        function Get-DashboardPid {
+            $pids = & lsof -ti:$dashPort -sTCP:LISTEN 2>$null
+            if (-not $pids) { return $null }
+            foreach ($p in ($pids -split "`n")) {
+                $p = $p.Trim()
+                if (-not $p) { continue }
+                $comm = & ps -p $p -o comm= 2>$null
+                if ($comm -match 'python|uvicorn') { return $p }
+            }
+            return $null
+        }
+
+        switch ($dashSub) {
+            "start" {
+                $existingPid = Get-DashboardPid
+                if ($existingPid) {
+                    Write-Host "Dashboard already running (PID $existingPid) on http://localhost:$dashPort" -ForegroundColor Yellow
+                    exit 0
+                }
+                Write-Host "Starting dashboard on http://localhost:$dashPort..."
+                if (Get-Command bash -ErrorAction SilentlyContinue) {
+                    & bash $dashScript --port $dashPort --project-dir $OstwinHome --background --skip-build
+                } else {
+                    $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+                    & pwsh -NoProfile -File $dashPs1 -Port $dashPort -ProjectDir $OstwinHome -Background
+                }
+                $ready = $false
+                for ($i = 0; $i -lt 15; $i++) {
+                    Start-Sleep -Seconds 1
+                    try {
+                        $null = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 2
+                        $ready = $true
+                        break
+                    } catch {}
+                }
+                if ($ready) {
+                    Write-Host "Dashboard running on http://localhost:$dashPort" -ForegroundColor Green
+                } else {
+                    Write-Host "Dashboard started but not yet responding. Check: ostwin dashboard logs" -ForegroundColor Yellow
                 }
             }
-            if (-not $hasProjectDir) {
-                $null = $psArgs.Insert(0, $OstwinHome)
-                $null = $psArgs.Insert(0, "-ProjectDir")
+            "stop" {
+                $dashPid = Get-DashboardPid
+                if ($dashPid) {
+                    & kill $dashPid 2>$null
+                    Start-Sleep -Seconds 1
+                    & kill -0 $dashPid 2>$null
+                    if ($LASTEXITCODE -eq 0) { & kill -9 $dashPid 2>$null }
+                    Write-Host "Dashboard stopped (PID $dashPid)" -ForegroundColor Green
+                } else {
+                    Write-Host "Dashboard not running" -ForegroundColor Yellow
+                }
             }
-            & pwsh -NoProfile -File $dashPs1 @psArgs
-        }
-        else {
-            Write-Error "[ERROR] dashboard.ps1 not found."
-            exit 1
+            "restart" {
+                Write-Host "Restarting dashboard..."
+                # dashboard.sh handles stop+start internally, just call it
+                if (Get-Command bash -ErrorAction SilentlyContinue) {
+                    & bash $dashScript --port $dashPort --project-dir $OstwinHome --background --skip-build
+                } else {
+                    $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+                    & pwsh -NoProfile -File $dashPs1 -Port $dashPort -ProjectDir $OstwinHome -Background
+                }
+                $ready = $false
+                for ($i = 0; $i -lt 15; $i++) {
+                    Start-Sleep -Seconds 1
+                    try {
+                        $null = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 2
+                        $ready = $true
+                        break
+                    } catch {}
+                }
+                if ($ready) {
+                    Write-Host "Dashboard restarted on http://localhost:$dashPort" -ForegroundColor Green
+                } else {
+                    Write-Host "Dashboard started but not yet responding. Check: ostwin dashboard logs" -ForegroundColor Yellow
+                }
+            }
+            "status" {
+                $runPid = Get-DashboardPid
+                $running = [bool]$runPid
+                if ($running) {
+                    Write-Host "Dashboard: running (PID $runPid)" -ForegroundColor Green
+                    Write-Host "  URL:  http://localhost:$dashPort"
+                    Write-Host "  Log:  $logFile"
+                    try {
+                        $health = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 3
+                        Write-Host "  Pool: $($health.active_slots) slot(s), ML $(if ($health.ml_ready) {'ready'} else {'loading'})"
+                    } catch {
+                        Write-Host "  Pool: not responding" -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "Dashboard: not running" -ForegroundColor Red
+                }
+            }
+            "logs" {
+                if (Test-Path $logFile) {
+                    if ($dashArgs -contains "-f" -or $dashArgs -contains "--follow") {
+                        & tail -f $logFile
+                    } else {
+                        Get-Content $logFile -Tail 50
+                    }
+                } else {
+                    Write-Host "No log file at $logFile" -ForegroundColor Yellow
+                }
+            }
+            default {
+                Write-Host ""
+                Write-Host "  ostwin dashboard — Manage the dashboard server" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "  Usage:"
+                Write-Host "    ostwin dashboard start       Start in background"
+                Write-Host "    ostwin dashboard stop        Stop the dashboard"
+                Write-Host "    ostwin dashboard restart     Stop + start"
+                Write-Host "    ostwin dashboard status      Show running state + pool health"
+                Write-Host "    ostwin dashboard logs        Show last 50 log lines"
+                Write-Host "    ostwin dashboard logs -f     Follow log output"
+                Write-Host ""
+            }
         }
     }
 
@@ -1768,6 +1878,155 @@ Invoke-Pester '$AgentsDir\lib','$AgentsDir\channel','$AgentsDir\war-rooms','$Age
     # ── help ─────────────────────────────────────────────────────────────────
     { $_ -in @('-h', '--help', 'help', '') } {
         Show-OstwinHelp
+    }
+
+    # ── memory ────────────────────────────────────────────────────────────────
+    "memory" {
+        $memSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "help" }
+        $memArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
+
+        # Resolve dashboard URL
+        $dashPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { "3366" }
+        $dashBase = "http://localhost:$dashPort"
+        $apiKey = if ($env:OSTWIN_API_KEY) { $env:OSTWIN_API_KEY } else { "" }
+        $headers = @{}
+        if ($apiKey) { $headers["Authorization"] = "Bearer $apiKey" }
+
+        switch ($memSub) {
+            "list" {
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/namespaces" -Headers $headers
+                    if ($resp.Count -eq 0) {
+                        Write-Host "No memory namespaces found."
+                    } else {
+                        Write-Host ""
+                        Write-Host "  Memory Namespaces:" -ForegroundColor Cyan
+                        Write-Host "  $('-' * 70)"
+                        foreach ($ns in $resp) {
+                            $title = if ($ns.title) { $ns.title } else { $ns.plan_id }
+                            $size = if ($ns.disk_bytes -gt 1MB) { "{0:N1} MB" -f ($ns.disk_bytes / 1MB) }
+                                    elseif ($ns.disk_bytes -gt 1KB) { "{0:N0} KB" -f ($ns.disk_bytes / 1KB) }
+                                    else { "$($ns.disk_bytes) B" }
+                            $arc = if ($ns.archived_versions -gt 0) { " ($($ns.archived_versions) archived)" } else { "" }
+                            Write-Host ("  {0,-14} {1,-30} {2,5} notes  {3,8}{4}" -f $ns.plan_id, $title, $ns.notes_count, $size, $arc)
+                        }
+                        Write-Host ""
+                    }
+                } catch {
+                    Write-Error "Failed to list namespaces. Is the dashboard running? $_"
+                    exit 1
+                }
+            }
+            "stats" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "_global" }
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/$planId/stats" -Headers $headers
+                    Write-Host ""
+                    Write-Host "  Memory Stats: $planId" -ForegroundColor Cyan
+                    Write-Host "  Notes:    $($resp.total_notes)"
+                    Write-Host "  Tags:     $($resp.total_tags)"
+                    Write-Host "  Keywords: $($resp.total_keywords)"
+                    Write-Host "  Paths:    $($resp.total_paths)"
+                    Write-Host "  Dir:      $($resp.memory_dir)"
+                    Write-Host ""
+                } catch {
+                    Write-Error "Failed to get stats for '$planId': $_"
+                    exit 1
+                }
+            }
+            "tree" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "_global" }
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/$planId/tree" -Headers $headers
+                    Write-Host $resp
+                } catch {
+                    Write-Error "Failed to get tree for '$planId': $_"
+                    exit 1
+                }
+            }
+            "clear" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "" }
+                if (-not $planId) {
+                    Write-Error "Usage: ostwin memory clear <plan_id> [--force]"
+                    exit 1
+                }
+                $force = $memArgs -contains "--force"
+                if (-not $force) {
+                    Write-Host "This will permanently delete ALL notes for namespace '$planId'."
+                    $confirm = Read-Host "Type 'yes' to confirm"
+                    if ($confirm -ne "yes") {
+                        Write-Host "Cancelled."
+                        exit 0
+                    }
+                }
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/$planId" -Method Delete -Headers $headers
+                    Write-Host "Cleared $($resp.cleared) notes from '$planId'." -ForegroundColor Green
+                } catch {
+                    Write-Error "Failed to clear '$planId': $_"
+                    exit 1
+                }
+            }
+            "delete" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "" }
+                $noteId = if ($memArgs.Count -gt 1) { $memArgs[1] } else { "" }
+                if (-not $planId -or -not $noteId) {
+                    Write-Error "Usage: ostwin memory delete <plan_id> <note_id>"
+                    exit 1
+                }
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/$planId/notes/$noteId" -Method Delete -Headers $headers
+                    Write-Host "Deleted note '$noteId' from '$planId'." -ForegroundColor Green
+                } catch {
+                    Write-Error "Failed to delete note: $_"
+                    exit 1
+                }
+            }
+            "archive" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "" }
+                if (-not $planId) {
+                    Write-Error "Usage: ostwin memory archive <plan_id>"
+                    exit 1
+                }
+                try {
+                    $resp = Invoke-RestMethod -Uri "$dashBase/api/amem/$planId/archive" -Method Post -Headers $headers
+                    Write-Host "Archived $($resp.notes_archived) notes to '$($resp.archived_to)'." -ForegroundColor Green
+                    Write-Host "Namespace '$planId' is now empty — agents will start fresh."
+                } catch {
+                    Write-Error "Failed to archive '$planId': $_"
+                    exit 1
+                }
+            }
+            "export" {
+                $planId = if ($memArgs.Count -gt 0) { $memArgs[0] } else { "" }
+                if (-not $planId) {
+                    Write-Error "Usage: ostwin memory export <plan_id>"
+                    exit 1
+                }
+                $outFile = "memory-$planId.tar.gz"
+                try {
+                    Invoke-WebRequest -Uri "$dashBase/api/amem/$planId/export" -Headers $headers -OutFile $outFile
+                    Write-Host "Exported to $outFile" -ForegroundColor Green
+                } catch {
+                    Write-Error "Failed to export '$planId': $_"
+                    exit 1
+                }
+            }
+            default {
+                Write-Host ""
+                Write-Host "  ostwin memory — Manage agent memory namespaces" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "  Usage:"
+                Write-Host "    ostwin memory list                     List all namespaces with stats"
+                Write-Host "    ostwin memory stats <plan_id>          Show stats for a namespace"
+                Write-Host "    ostwin memory tree <plan_id>           Show note directory tree"
+                Write-Host "    ostwin memory clear <plan_id> [--force]  Clear all notes"
+                Write-Host "    ostwin memory delete <plan_id> <id>    Delete a single note"
+                Write-Host "    ostwin memory archive <plan_id>        Archive and start fresh"
+                Write-Host "    ostwin memory export <plan_id>         Export as .tar.gz"
+                Write-Host ""
+            }
+        }
     }
 
     # ── unknown ──────────────────────────────────────────────────────────────

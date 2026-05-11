@@ -1042,6 +1042,46 @@ export default function MemoryTab() {
               refresh
             </span>
           </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Archive all memories? They will be saved to a timestamped backup and agents will start fresh.')) return;
+              try {
+                await fetch(`/api/amem/${planId}/archive`, { method: 'POST' });
+                fetchData();
+              } catch { /* ignore */ }
+            }}
+            className="px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors hover:bg-[var(--color-surface-hover)]"
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}
+            title="Archive memories and start fresh"
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1 align-middle">archive</span>
+            Archive
+          </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Delete ALL memories for this plan? This cannot be undone.')) return;
+              try {
+                await fetch(`/api/amem/${planId}`, { method: 'DELETE' });
+                fetchData();
+              } catch { /* ignore */ }
+            }}
+            className="px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors hover:bg-red-50"
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}
+            title="Clear all memories"
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1 align-middle">delete_sweep</span>
+            Clear
+          </button>
+          <a
+            href={`/api/amem/${planId}/export`}
+            download
+            className="px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors hover:bg-[var(--color-surface-hover)] inline-flex items-center"
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}
+            title="Export as .tar.gz"
+          >
+            <span className="material-symbols-outlined text-[14px] mr-1">download</span>
+            Export
+          </a>
         </div>
       </div>
 
@@ -1064,9 +1104,9 @@ export default function MemoryTab() {
 
           {/* Note list */}
           {filteredNodes.map(node => (
-            <button
+             <button
               key={node.id}
-              className="w-full text-left px-3 py-2.5 rounded-xl border transition-all"
+              className="group w-full text-left px-3 py-2.5 rounded-xl border transition-all"
               style={{
                 borderColor: selectedNodeId === node.id ? 'var(--color-primary)' : 'var(--color-border)',
                 background: selectedNodeId === node.id ? 'var(--color-primary-muted)' : 'transparent',
@@ -1075,8 +1115,23 @@ export default function MemoryTab() {
             >
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: node.color }} />
-                <span className="text-xs font-medium truncate" style={{ color: 'var(--color-text-main)' }}>
+                <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--color-text-main)' }}>
                   {node.title}
+                </span>
+                <span
+                  className="material-symbols-outlined text-[14px] opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-red-500 transition-opacity cursor-pointer flex-shrink-0"
+                  style={{ color: 'var(--color-text-muted)' }}
+                  title="Delete this note"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm(`Delete "${node.title}"?`)) return;
+                    try {
+                      await fetch(`/api/amem/${planId}/notes/${node.id}`, { method: 'DELETE' });
+                      fetchData();
+                    } catch { /* ignore */ }
+                  }}
+                >
+                  delete
                 </span>
               </div>
               <p className="text-[10px] mt-0.5 truncate ml-4" style={{ color: 'var(--color-text-muted)' }}>

@@ -55,24 +55,22 @@ SKILLS_DIRS = [
     Path("~/.deepagents/agent/skills").expanduser(),
 ]
 
+
 def resolve_plans_dir(
     project_root: Optional[Path] = None,
     agents_dir: Optional[Path] = None,
 ) -> Path:
-    """Prefer the current project's .agents/plans, fallback to the global store."""
-    resolved_project_root = project_root or PROJECT_ROOT
-    resolved_agents_dir = agents_dir or (resolved_project_root / ".agents")
-    project_plans_dir = resolved_agents_dir / "plans"
-    if project_plans_dir.exists():
-        return project_plans_dir
+    """Always use the global store (~/.ostwin/.agents/plans/).
+
+    Both the dashboard and ``ostwin run`` write to the global store,
+    so this is the single source of truth for all plans.
+    """
     return Path.home() / ".ostwin" / ".agents" / "plans"
 
 
 PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
-# Global plans store (always ~/.ostwin/.agents/plans) — plans created via the
-# installed dashboard or bot land here.  Used as a fallback when a plan file
-# is not found in the project-local PLANS_DIR.
+# Global plans store — same as PLANS_DIR now (unified).
 GLOBAL_PLANS_DIR = Path.home() / ".ostwin" / ".agents" / "plans"
 
 
@@ -89,6 +87,7 @@ def find_plan_file(plan_id: str) -> Optional[Path]:
         if global_path.exists():
             return global_path
     return None
+
 
 # Global roles storage
 GLOBAL_ROLES_DIR = _ostwin_home / ".agents" / "roles"
@@ -121,11 +120,7 @@ def read_room(
         try:
             command = ["pwsh", "-File", str(AGENTS_DIR / "debug_test.ps1")]
             result = subprocess.run(command, capture_output=True, text=True)
-            log_msg = (
-                f"STDOUT:\n{result.stdout}\n"
-                f"STDERR:\n{result.stderr}\n"
-                f"CODE: {result.returncode}"
-            )
+            log_msg = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}\nCODE: {result.returncode}"
             (room_dir / "pytest_results.txt").write_text(log_msg)
         except Exception as e:
             (room_dir / "pytest_results.txt").write_text(f"ERROR running command: {e}")
@@ -223,9 +218,7 @@ def read_room(
 
         # state_changed_at — last state transition timestamp
         sca_file = room_dir / "state_changed_at"
-        result["state_changed_at"] = (
-            sca_file.read_text().strip() if sca_file.exists() else None
-        )
+        result["state_changed_at"] = sca_file.read_text().strip() if sca_file.exists() else None
 
         # Role instance files (*_*.json except config.json)
         roles = []
@@ -244,9 +237,7 @@ def read_room(
         # artifacts/ directory listing
         artifacts_dir = room_dir / "artifacts"
         if artifacts_dir.exists() and artifacts_dir.is_dir():
-            result["artifact_files"] = sorted(
-                e.name for e in artifacts_dir.iterdir() if e.is_file()
-            )
+            result["artifact_files"] = sorted(e.name for e in artifacts_dir.iterdir() if e.is_file())
         else:
             result["artifact_files"] = []
 
@@ -416,9 +407,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
         "forked_from": meta_dict.get("forked_from"),
         "is_draft": meta_dict.get("is_draft", False),
         "enabled": meta_dict.get("enabled", True),
-        "updated_at": datetime.fromtimestamp(
-            skill_file.stat().st_mtime, tz=timezone.utc
-        ).isoformat(),
+        "updated_at": datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat(),
     }
 
 
@@ -450,9 +439,7 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
                     shutil.copy2(skill_file, snapshot_file)
         except Exception as e:
             logger = logging.getLogger("api_utils")
-            logger.warning(
-                f"Failed to archive previous version of skill {path.name}: {e}"
-            )
+            logger.warning(f"Failed to archive previous version of skill {path.name}: {e}")
 
     meta = {
         "name": skill_data["name"],
@@ -503,9 +490,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
 
             # Check status
             status_file = room_dir / "status"
-            status = (
-                status_file.read_text().strip() if status_file.exists() else "unknown"
-            )
+            status = status_file.read_text().strip() if status_file.exists() else "unknown"
             if status in ["passed", "failed", "signoff", "failed-final"]:
                 continue
 
@@ -664,7 +649,7 @@ def build_skills_list(
             except Exception:
                 pass
 
-    enriched_from_disk: set[str] = set() # track which skills have been enriched to avoid duplicate overwrite
+    enriched_from_disk: set[str] = set()  # track which skills have been enriched to avoid duplicate overwrite
     for sdir in SKILLS_DIRS:
         if not sdir.exists():
             continue
@@ -672,14 +657,16 @@ def build_skills_list(
             for skill_md in sdir.rglob("SKILL.md"):
                 path = skill_md.parent
                 rel_parts = path.relative_to(sdir).parts if path.is_relative_to(sdir) else path.parts
-                if any(p in ("references", ".versions") for p in rel_parts): # skip reference/archive copies
+                if any(p in ("references", ".versions") for p in rel_parts):  # skip reference/archive copies
                     continue
                 skill_data = parse_skill_md(path)
                 if skill_data:
                     name = skill_data["name"]
                     skill_data["usage_count"] = usage_counts.get(name, 0)
                     if name in skills_map:
-                        if name not in enriched_from_disk: # first-found wins; prevents stale duplicates from overwriting toggled state
+                        if (
+                            name not in enriched_from_disk
+                        ):  # first-found wins; prevents stale duplicates from overwriting toggled state
                             enriched_from_disk.add(name)
                             existing = skills_map[name]
                             for k, v in skill_data.items():
@@ -711,18 +698,14 @@ def build_skills_list(
         if role:
             role_l = role.lower()
             # 1. Direct applicable_roles match (preferred)
-            if s.applicable_roles and any(
-                role_l == r.lower() for r in s.applicable_roles
-            ):
+            if s.applicable_roles and any(role_l == r.lower() for r in s.applicable_roles):
                 pass
             # 2. Try exact tag match, word-boundary match in description or content
             elif any(role_l == t.lower() for t in s.tags):
                 pass
             elif bool(re.search(rf"\b{re.escape(role_l)}\b", s.description.lower())):
                 pass
-            elif s.content and bool(
-                re.search(rf"\b{re.escape(role_l)}\b", s.content.lower())
-            ):
+            elif s.content and bool(re.search(rf"\b{re.escape(role_l)}\b", s.content.lower())):
                 pass
             else:
                 continue
@@ -874,9 +857,7 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
             "description": role_obj.description or "",
             "default_model": dm,
             "timeout_seconds": ts,
-            "temperature": role_config.get(
-                "temperature", defaults.get("temperature", 0.7)
-            ),
+            "temperature": role_config.get("temperature", defaults.get("temperature", 0.7)),
             "skill_refs": plan_skill_refs,
             "disabled_skills": role_config.get("disabled_skills", []),
             "runner": "base",  # Fallback since dynamic roles don't typically have custom runners
@@ -910,22 +891,22 @@ def toggle_reaction(entity_id: str, user_id: str, reaction_type: str) -> dict:
     return {"status": "ok", "reactions": {reaction_type: [user_id]}}
 
 
-def add_comment(
-    entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None
-):
+def add_comment(entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None):
     """Stub: Add a comment."""
     ts = datetime.now(timezone.utc).isoformat()
     comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": ts}
 
     res = {"entity_id": entity_id, "stats": {"comments": 1}}
     return res, type("obj", (object,), {"model_dump": lambda: comment})()
+
+
 def generate_fallback_dag(epics: List[dict]) -> dict:
     """Generate a fallback DAG shape matching the frontend's expected DAG interface."""
     nodes = {}
     edges = []
     in_degree = {e["epic_ref"]: 0 for e in epics}
     out_edges = {e["epic_ref"]: [] for e in epics}
-    
+
     for epic in epics:
         ref = epic["epic_ref"]
         for dep in epic.get("depends_on", []):
@@ -935,9 +916,13 @@ def generate_fallback_dag(epics: List[dict]) -> dict:
             if ref in in_degree:
                 in_degree[ref] += 1
 
+    # compute dependents
+    for ref, outs in out_edges.items():
+        pass  # we have outs
+
     waves = {}
     queue = [n for n, deg in in_degree.items() if deg == 0]
-    
+
     wave_idx = 0
     topological_order = []
     depths = {n: 0 for n in in_degree}
@@ -955,12 +940,14 @@ def generate_fallback_dag(epics: List[dict]) -> dict:
                         next_queue.append(target)
         queue = next_queue
         wave_idx += 1
-        
+
     remaining = [n for n, deg in in_degree.items() if deg > 0]
     if remaining:
         # Cycle detected, log it
         logger = logging.getLogger("api_utils")
-        logger.warning(f"Cycle detected or unresolvable dependencies in fallback DAG generation. Remaining nodes: {remaining}")
+        logger.warning(
+            f"Cycle detected or unresolvable dependencies in fallback DAG generation. Remaining nodes: {remaining}"
+        )
         waves[str(wave_idx)] = remaining
         topological_order.extend(remaining)
         wave_idx += 1
@@ -974,9 +961,9 @@ def generate_fallback_dag(epics: List[dict]) -> dict:
             "depends_on": epic.get("depends_on", []),
             "dependents": out_edges.get(ref, []),
             "depth": depths.get(ref, 0),
-            "on_critical_path": True, # conservative default
+            "on_critical_path": True,  # conservative default
         }
-        
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_nodes": len(nodes),
@@ -987,5 +974,5 @@ def generate_fallback_dag(epics: List[dict]) -> dict:
         "waves": waves,
         "topological_order": topological_order,
         "max_depth": wave_idx,
-        "is_temp": True
+        "is_temp": True,
     }

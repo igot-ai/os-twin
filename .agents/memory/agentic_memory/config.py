@@ -154,12 +154,39 @@ def _extract_memory_settings(raw: dict) -> dict:
 
     if "context_aware" in flat:
         result.setdefault("evolution", {})["context_aware"] = flat["context_aware"]
+    if "context_aware_tree" in flat:
+        result.setdefault("evolution", {})["context_aware_tree"] = flat["context_aware_tree"]
+    if "max_links" in flat:
+        result.setdefault("evolution", {})["max_links"] = int(flat["max_links"])
+
     if "auto_sync" in flat:
         result.setdefault("sync", {})["auto_sync"] = flat["auto_sync"]
-    if "auto_sync_interval" in flat:
-        result.setdefault("sync", {})["auto_sync_interval"] = flat["auto_sync_interval"]
-    if "ttl_days" in flat:
-        result.setdefault("search", {})["decay_half_life_days"] = float(flat["ttl_days"])
+    # Accept both old name (auto_sync_interval) and new name (sync_interval_s)
+    sync_interval = flat.get("sync_interval_s") or flat.get("auto_sync_interval")
+    if sync_interval is not None:
+        result.setdefault("sync", {})["auto_sync_interval"] = int(sync_interval)
+    if "conflict_resolution" in flat:
+        result.setdefault("sync", {})["conflict_resolution"] = flat["conflict_resolution"]
+
+    # Accept both old name (ttl_days) and new name (decay_half_life_days)
+    decay = flat.get("decay_half_life_days") or flat.get("ttl_days")
+    if decay is not None:
+        result.setdefault("search", {})["decay_half_life_days"] = float(decay)
+    if "similarity_weight" in flat:
+        result.setdefault("search", {})["similarity_weight"] = float(flat["similarity_weight"])
+
+    # Pool settings — passed through to pool_config.py
+    pool = {}
+    if "pool_idle_timeout_s" in flat:
+        pool["idle_timeout_s"] = int(flat["pool_idle_timeout_s"])
+    if "pool_max_instances" in flat:
+        pool["max_instances"] = int(flat["pool_max_instances"])
+    if "pool_eviction_policy" in flat:
+        pool["eviction_policy"] = flat["pool_eviction_policy"]
+    if "pool_sync_interval_s" in flat:
+        pool["sync_interval_s"] = int(flat["pool_sync_interval_s"])
+    if pool:
+        result["pool"] = pool
 
     return result
 

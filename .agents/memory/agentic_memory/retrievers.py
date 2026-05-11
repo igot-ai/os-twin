@@ -1,13 +1,15 @@
 """Retriever backends for the Agentic Memory vector store.
 
 Provides ChromaDB and Zvec retriever implementations with pluggable
-embedding functions backed by the centralized ``dashboard.llm_client``
-embedding abstraction.
+embedding functions.
+
+Embedding is handled via an injected ``embed_fn`` callable or, when
+no function is injected, via KnowledgeEmbedder which supports multiple
+backends (sentence-transformer, gemini, ollama, vertex).
+The legacy per-class embedding logic has been consolidated.
 
 Memory-management design:
-- Heavy ML imports (nltk, sklearn) are lazy-loaded on first use, not at module level (F11).
-- Embedding functions delegate to ``dashboard.llm_client.create_embedding_client``
-  with singleton caching (F1/F9).
+- Heavy ML imports (nltk, sklearn) are lazy-loaded on first use (F11).
 - ZvecRetriever holds a single persistent collection handle; zvec handles concurrency internally.
 - Embedding dimension is cached per model to avoid test-embedding calls (F9).
 """
@@ -21,10 +23,10 @@ import threading
 logger = logging.getLogger(__name__)
 
 # --- Lazy imports ---------------------------------------------------------
-# Per-backend lazy loading to avoid importing all ML libraries when only
-# one backend is used.
+# Populated on first use via _ensure_retriever_imports().  Individual classes
+# also lazy-import within _ensure_model() for extra safety.
 
-_tokenizer_imports_done = False
+_retriever_imports_done = False
 _import_lock = threading.Lock()
 
 # Sentinel — the *module-level* names stay None until lazy-loaded.
@@ -34,15 +36,16 @@ cosine_similarity = None
 np = None
 
 
-def _ensure_tokenizer_imports():
-    """Import lightweight tokenizer + numpy (no PyTorch / ML models)."""
-    global _tokenizer_imports_done, BM25Okapi, word_tokenize, cosine_similarity, np
+def _ensure_retriever_imports():
+    """Import heavy ML libraries on first use (lazy pattern — F11)."""
+    global _retriever_imports_done, BM25Okapi
+    global word_tokenize, cosine_similarity, np
 
-    if _tokenizer_imports_done:
+    if _retriever_imports_done:
         return
 
     with _import_lock:
-        if _tokenizer_imports_done:
+        if _retriever_imports_done:
             return
 
         from rank_bm25 import BM25Okapi as _BM
@@ -54,7 +57,7 @@ def _ensure_tokenizer_imports():
         word_tokenize = _wt
         cosine_similarity = _cs
         np = _np
-        _tokenizer_imports_done = True
+        _retriever_imports_done = True
 
 
 @runtime_checkable
@@ -68,25 +71,41 @@ Documents = List[str]
 Embeddings = List[List[float]]
 
 
+class _WrappedEmbedFn:
+    """Wrap a plain callable to satisfy zvec's embedding function interface.
+
+    zvec internally calls ``embedding_function.name()`` which fails on
+    plain lambdas or functions.  This wrapper provides the required method.
+    """
+
+    def __init__(self, fn, label: str = "gateway"):
+        self._fn = fn
+        self._label = label
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self._fn(input)
+
+    def name(self) -> str:
+        return self._label
+
+    @property
+    def dimension(self) -> int:
+        return EMBEDDING_DIMENSION
+
+
 def simple_tokenize(text):
-    _ensure_tokenizer_imports()
+    _ensure_retriever_imports()
     return word_tokenize(text)
 
 
 # --- Global embedding dimension -------------------------------------------
-# All backends MUST produce vectors of this dimension to avoid conflicts
-# when storing / querying a single vector collection.  The centralized
-# EmbeddingClient handles truncation/normalisation to this dimension.
-#
-# Single source of truth: OSTWIN_EMBEDDING_DIM env var (default 1024).
-# This cannot be changed dynamically via settings — dimension mismatches
-# between memory and knowledge would corrupt vector collections.
-from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
+try:
+    from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
+except ImportError:
+    EMBEDDING_DIMENSION = 768  # fallback for tests / standalone mode
 
 # Native model dimensions (before truncation) — used as a fast path
-# to avoid test-embedding calls (F9).  Also stored centrally in
-# dashboard.llm_client._KNOWN_EMBEDDING_DIMENSIONS; this local copy
-# is kept for the ZvecRetriever._get_dimension() fast path.
+# to avoid test-embedding calls (F9).
 _KNOWN_DIMENSIONS: Dict[str, int] = {
     "all-MiniLM-L6-v2": 384,
     "all-MiniLM-L12-v2": 384,
@@ -96,30 +115,19 @@ _KNOWN_DIMENSIONS: Dict[str, int] = {
     "gemini-embedding-001": 1024,
     "gemini/gemini-embedding-001": 1024,
     "text-embedding-004": 1024,
-    # Ollama embedding models (native dims — truncated to 1024 at runtime)
     "leoipulsar/harrier-0.6b": 1024,
     "embeddinggemma": 1024,
     "qwen3-embedding:0.6b": 896,
-    # Vertex AI models
     "text-embedding-005": 1024,
 }
 
-
-# --- CentralizedEmbeddingFunction ----------------------------------------
-# Adapter that wraps the centralized dashboard.llm_client.EmbeddingClient
-# into the EmbeddingFunction protocol expected by the retrievers.
 
 class CentralizedEmbeddingFunction:
     """Embedding function backed by ``dashboard.llm_client.create_embedding_client``.
 
     Implements the ``EmbeddingFunction`` protocol (``__call__(input) -> list[list[float]]``).
-    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` (1024) for
+    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` for
     cross-backend consistency with existing zvec/chroma collections.
-
-    Provider mapping from the memory config's backend name:
-        - ``"ollama"``            → ``OllamaEmbeddingClient``
-        - ``"gemini"`` / ``"google"`` → ``GeminiEmbeddingClient``
-        - ``"openai-compatible"`` → ``OpenAICompatibleEmbeddingClient``
     """
 
     def __init__(
@@ -129,15 +137,9 @@ class CentralizedEmbeddingFunction:
     ):
         self._model_name = model_name
         self._embedding_backend = embedding_backend
-        self._client: Any = None  # lazy-created
+        self._client: Any = None
 
     def _get_client(self) -> Any:
-        """Lazily create the centralized EmbeddingClient.
-
-        Re-reads ``OSTWIN_EMBEDDING_DIM`` from the environment on every call
-        so that settings changes (e.g. via the dashboard UI) take effect
-        without restarting the memory system.
-        """
         if self._client is not None:
             return self._client
         from dashboard.llm_client import create_embedding_client
@@ -156,11 +158,6 @@ class CentralizedEmbeddingFunction:
         return self._client
 
     def invalidate(self):
-        """Discard the cached client so the next call re-creates it.
-
-        This should be called after settings change (model, backend, or
-        dimension) so the embedding function picks up the new configuration.
-        """
         self._client = None
 
     def __call__(self, input: Documents) -> Embeddings:
@@ -170,13 +167,8 @@ class CentralizedEmbeddingFunction:
 
     @property
     def dimension(self) -> int:
-        """Return the current embedding dimension from the environment."""
         return int(os.environ.get("OSTWIN_EMBEDDING_DIM", "1024"))
 
-
-# --- Embedding function singleton cache -----------------------------------
-# Keyed by (backend, model_name) so each unique model is loaded exactly once
-# when shared=True (default).
 
 _embedding_cache: Dict[tuple, Any] = {}
 _embedding_cache_lock = threading.Lock()
@@ -193,19 +185,6 @@ def _create_embedding_function(
 
     Delegates to ``CentralizedEmbeddingFunction`` which wraps the
     centralized ``dashboard.llm_client.EmbeddingClient``.
-
-    Args:
-        embedding_backend: "ollama", "gemini", "google", or "openai-compatible"
-        model_name: Model identifier
-        shared: If True (default), return a singleton instance cached by
-            (backend, model_name).  Set False to get a private instance.
-        fresh: If True, invalidate the existing cached singleton and create
-            a fresh one.  This forces the embedding client to re-read
-            settings (model, backend, dimension) on next use.  Only
-            meaningful when shared=True.
-
-    Returns:
-        An ``EmbeddingFunction``-compatible callable.
     """
     cache_key = (embedding_backend, model_name)
 
@@ -295,6 +274,7 @@ class ChromaRetriever:
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
         embedding_backend: str = "sentence-transformer",
+        embed_fn: Optional[Any] = None,
     ):
         """Initialize ChromaDB retriever.
 
@@ -303,6 +283,7 @@ class ChromaRetriever:
             model_name: Name of the embedding model
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
             embedding_backend: "sentence-transformer" or "gemini"
+            embed_fn: Optional external embedding function (from gateway)
         """
         import chromadb
         from chromadb.config import Settings
@@ -312,10 +293,10 @@ class ChromaRetriever:
         else:
             self.client = chromadb.Client(Settings(allow_reset=True))
         self.persist_dir = persist_dir
-        self._embedding_backend = embedding_backend
-        self._model_name = model_name
 
-        self.embedding_function = _create_embedding_function(
+        if embed_fn is not None and not hasattr(embed_fn, 'name'):
+            embed_fn = _WrappedEmbedFn(embed_fn)
+        self.embedding_function = embed_fn or _create_embedding_function(
             embedding_backend, model_name
         )
         self.collection = self.client.get_or_create_collection(
@@ -330,27 +311,6 @@ class ChromaRetriever:
         """
         self.collection = None
         self.client = None
-
-    def reload_embedding(self, backend: Optional[str] = None, model: Optional[str] = None):
-        """Force the embedding function to re-read settings on next use.
-
-        Call this after the user changes embedding settings via the dashboard
-        UI so that subsequent queries use the new model/backend/dimension.
-
-        Args:
-            backend: New embedding backend (e.g. "ollama", "gemini"). If None,
-                keeps the current backend.
-            model: New embedding model name. If None, keeps the current model.
-        """
-        current_backend = backend or getattr(self, "_embedding_backend", "sentence-transformer")
-        current_model = model or getattr(self, "_model_name", "all-MiniLM-L6-v2")
-        if backend is not None:
-            self._embedding_backend = backend
-        if model is not None:
-            self._model_name = model
-        self.embedding_function = _create_embedding_function(
-            current_backend, current_model, fresh=True
-        )
 
     def add_document(self, document: str, metadata: Dict, doc_id: str):
         """Add a document to ChromaDB with enhanced embedding using metadata.
@@ -477,13 +437,18 @@ class ZvecRetriever:
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
         embedding_backend: str = "sentence-transformer",
+        embed_fn: Optional[Any] = None,
     ):
         import zvec as _zvec
 
         self._zvec = _zvec
         self._model_name = model_name
         self._embedding_backend = embedding_backend
-        self._embedding_function: Optional[Any] = None
+        # If an external embed_fn is injected (e.g. from memory_system),
+        # wrap it so zvec can call .name() / .dimension on it.
+        if embed_fn is not None and not hasattr(embed_fn, 'name'):
+            embed_fn = _WrappedEmbedFn(embed_fn)
+        self._embedding_function: Optional[Any] = embed_fn
 
         self.persist_dir = persist_dir
         self._dimension: Optional[int] = None
@@ -522,27 +487,6 @@ class ZvecRetriever:
     def embedding_function(self, value):
         """Allow external override (used by tests)."""
         self._embedding_function = value
-
-    def reload_embedding(self, backend: Optional[str] = None, model: Optional[str] = None):
-        """Force the embedding function to re-read settings on next use.
-
-        Call this after the user changes embedding settings via the dashboard
-        UI so that subsequent queries use the new model/backend/dimension.
-
-        Args:
-            backend: New embedding backend (e.g. "ollama", "gemini"). If None,
-                keeps the current backend.
-            model: New embedding model name. If None, keeps the current model.
-        """
-        if backend is not None:
-            self._embedding_backend = backend
-        if model is not None:
-            self._model_name = model
-        self._embedding_function = None
-        self._dimension = None
-        _create_embedding_function(
-            self._embedding_backend, self._model_name, fresh=True
-        )
 
     # --- Dimension detection ------------------------------------------
 

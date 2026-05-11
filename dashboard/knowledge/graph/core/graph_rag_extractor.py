@@ -128,19 +128,37 @@ class GraphRAGExtractor(TransformComponent):
         it handles async→sync bridging internally via ``_run_sync``).
         No nested executors, no event-loop conflicts.
         """
+        import time as _time
+
         if not nodes:
             return []
         logger.info("Starting graph extraction for %d nodes", len(nodes))
         self.metrics = ExtractionMetrics()
 
+        batch_t0 = _time.monotonic()
         results: List[BaseNode] = []
         for node in nodes:
             try:
+                node_t0 = _time.monotonic()
                 result = self._extract_single_sync(node)
+                node_dt = _time.monotonic() - node_t0
+                n_entities = len(result.metadata.get(KG_NODES_KEY, []))
+                n_rels = len(result.metadata.get(KG_RELATIONS_KEY, []))
+                logger.info(
+                    "[TRACE] extractor/node: %.3fs, %s, %d entities, %d relations",
+                    node_dt, node.id_, n_entities, n_rels,
+                )
                 results.append(result)
             except Exception as exc:  # noqa: BLE001
                 logger.error("GraphRAGExtractor failed for node %s: %s", node.id_, exc)
                 results.append(self._create_empty_extraction_result(node, str(exc)))
+
+        batch_dt = _time.monotonic() - batch_t0
+        logger.info(
+            "[TRACE] extractor/batch: %.3fs, %d nodes, %d entities, %d relations",
+            batch_dt, len(nodes),
+            self.metrics.total_entities, self.metrics.total_relationships,
+        )
         return results
 
     # -- Sync extraction (no nested executors) --------------------------
@@ -164,17 +182,24 @@ class GraphRAGExtractor(TransformComponent):
             try:
                 if attempt > 0:
                     _time.sleep(self.config.retry_delay * attempt)
+                t_llm_start = _time.monotonic()
                 entities, relations = self.llm.extract_entities(
                     text,
                     self.language,
                     self.domain_prompt,
                 )
+                t_llm = _time.monotonic() - t_llm_start
+                logger.info(
+                    "[TRACE] extractor/llm_call: %.3fs, attempt=%d, node=%s, %d entities, %d relations",
+                    t_llm, attempt + 1, node.id_, len(entities), len(relations),
+                )
                 return self._create_extraction_result(node, entities, relations)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
+                t_llm = _time.monotonic() - t_llm_start
                 logger.error(
-                    "Extraction attempt %d failed for %s: %s",
-                    attempt + 1, node.id_, exc,
+                    "Extraction attempt %d failed for %s (%.3fs): %s",
+                    attempt + 1, node.id_, t_llm, exc,
                 )
 
         return self._create_empty_extraction_result(node, str(last_error))

@@ -422,14 +422,29 @@ if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
 }
 
 # --- Extract plan_id ---
-# Primary: derive from the plan filename (the stem IS the plan_id, e.g. 107240b7fe28.md → 107240b7fe28)
-$planId = [System.IO.Path]::GetFileNameWithoutExtension($PlanFile)
-# Strip .refined suffix if present (e.g. 107240b7fe28.refined → 107240b7fe28)
-$planId = $planId -replace '\.refined$', ''
-# Fallback: extract from embedded JSON config in the plan content
-if (-not $planId -or $planId -eq 'PLAN.template') {
+# If the filename is already a hex hash (12+ hex chars, from dashboard), use it directly.
+# Otherwise, generate a stable hash from working_dir + filename to avoid collisions
+# between plans with the same name in different directories.
+$planStem = [System.IO.Path]::GetFileNameWithoutExtension($PlanFile)
+$planStem = $planStem -replace '\.refined$', ''
+
+if ($planStem -match '^[0-9a-fA-F]{8,64}$') {
+    # Already a hash ID (dashboard-created plan)
+    $planId = $planStem
+} elseif ($planStem -and $planStem -ne 'PLAN.template') {
+    # CLI plan — generate stable hash from working_dir + filename
+    $hashInput = "${ProjectDir}:${planStem}"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($hashInput)
+    $hash = $sha.ComputeHash($bytes)
+    $planId = [BitConverter]::ToString($hash).Replace('-', '').Substring(0, 12).ToLower()
+    Write-Host "  Plan ID: $planId (from $planStem)" -ForegroundColor DarkGray
+} else {
+    # Fallback: extract from embedded JSON config
     if ($planContent -match '"plan_id"\s*:\s*"([^"]+)"') {
         $planId = $Matches[1]
+    } else {
+        $planId = "_global"
     }
 }
 

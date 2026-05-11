@@ -1,8 +1,15 @@
 """Base LLM wrapper for domain-specific LLM services.
 
 Provides the shared plumbing that ``MemoryLLM`` and ``KnowledgeLLM`` both
-need — API-key resolution, client creation, JSON extraction, graceful
-degradation, timeout handling, and empty-response generation.
+need — provider/model resolution, API-key resolution, client creation,
+JSON extraction, graceful degradation, timeout handling, and empty-response
+generation.
+
+Provider resolution is delegated entirely to ``dashboard.llm_client``
+via ``resolve_provider_and_model()``, which is the single source of truth
+for parsing ``provider/model`` format strings, normalising aliases, and
+deciding which transport to use (native provider vs. openai-compatible vs.
+ollama).
 
 Subclasses override ``_resolve_model_settings()`` and ``_complete()`` (or
 just add domain-specific public methods on top of the base completion
@@ -14,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import time
 from typing import Any, Optional
@@ -23,7 +29,10 @@ from dashboard.llm_client import (
     ChatMessage,
     LLMConfig,
     LLMError,
+    _TRANSPORT_PROVIDERS,
+    _resolve_transport_api_key,
     create_client,
+    resolve_provider_and_model,
     run_sync,
 )
 
@@ -39,6 +48,10 @@ class BaseLLMWrapper:
     Subclasses must set ``self.model``, ``self.provider``, and
     ``self._explicit_key`` in ``__init__`` (typically by calling
     ``super().__init__()`` then ``_resolve_model_settings()``).
+
+    Provider resolution is delegated to ``llm_client.resolve_provider_and_model``
+    so that ``provider/model`` format strings are handled consistently across
+    the entire system.
 
     Designed for graceful degradation: when no model or API key is
     configured, every method returns a sensible empty/fallback value
@@ -57,6 +70,7 @@ class BaseLLMWrapper:
         self.provider: str | None = provider
         self._explicit_key: str | None = api_key
         self._timeout = timeout
+        self._resolved: tuple[str, str, Optional[str]] | None = None
 
     # -- Subclass hook ---------------------------------------------------
 
@@ -68,6 +82,30 @@ class BaseLLMWrapper:
         during ``__init__``.
         """
 
+    # -- Provider / model resolution -------------------------------------
+
+    def _get_resolved(self) -> tuple[str, str, Optional[str]]:
+        """Return ``(effective_provider, clean_model, model_provider)``.
+
+        Cached after first call.  Delegates to
+        ``llm_client.resolve_provider_and_model``.
+        """
+        if self._resolved is None:
+            self._resolved = resolve_provider_and_model(self.model, self.provider)
+        return self._resolved
+
+    def _effective_provider(self) -> str:
+        """Return the effective provider after resolution."""
+        return self._get_resolved()[0]
+
+    def _clean_model(self) -> str:
+        """Return the model identifier with provider prefix normalised."""
+        return self._get_resolved()[1]
+
+    def _model_provider(self) -> Optional[str]:
+        """Return the provider embedded in the model string, if any."""
+        return self._get_resolved()[2] or self._get_resolved()[0]
+
     # -- Capability ------------------------------------------------------
 
     def is_available(self) -> bool:
@@ -78,60 +116,46 @@ class BaseLLMWrapper:
 
     # -- API key resolution ----------------------------------------------
 
-    def _effective_provider(self) -> str | None:
-        """Return the effective provider (explicit or auto-detected)."""
-        return self.provider
-
     def _resolve_api_key(self) -> Optional[str]:
         """Resolve an API key for the configured provider.
 
-        Priority: explicit key > env var > Settings vault > master_agent vault.
+        Priority:
+          1. Explicit key passed at construction
+          2. Key for the *effective* (transport) provider via auth.json
+          3. Key for the *model-embedded* provider — ONLY when the effective
+             provider is a native provider (not a transport like
+             ``openai-compatible`` or ``ollama``).
         """
         if self._explicit_key:
             return self._explicit_key
 
-        provider = self._effective_provider()
+        effective = self._effective_provider()
+        model_prov = self._model_provider()
 
-        from dashboard.llm_client import PROVIDER_API_KEYS
-        env_name = PROVIDER_API_KEYS.get(provider)
-        if env_name:
-            val = os.environ.get(env_name)
-            if val:
-                return val
+        key = _resolve_transport_api_key(effective)
+        if key:
+            return key
 
-        try:
-            from dashboard.lib.settings.vault import get_vault
-            key = get_vault().get("providers", provider)
+        if model_prov and model_prov != effective and effective not in _TRANSPORT_PROVIDERS:
+            key = _resolve_transport_api_key(model_prov)
             if key:
                 return key
-        except Exception as exc:
-            logger.debug("vault.get('providers', %s) failed: %s", provider, exc)
-
-        try:
-            from dashboard.master_agent import get_api_key
-            key = get_api_key(provider)
-            if key:
-                return key
-        except Exception as exc:
-            logger.debug("master_agent.get_api_key(%s) failed: %s", provider, exc)
 
         return None
 
     # -- Client creation -------------------------------------------------
 
-    def _get_client(self, max_tokens: int = _DEFAULT_MAX_TOKENS) -> Any:
+    def _get_client(self, max_tokens: int = None) -> Any:
         """Create the LLMClient via the unified factory.
 
         We do not cache this instance because it gets bound to the ephemeral
         event loop created by ``run_sync``. Reusing it across multiple
         ``run_sync`` calls would result in 'Event loop is closed' errors.
         """
-        api_key = self._resolve_api_key()
         config = LLMConfig(max_tokens=max_tokens)
         return create_client(
-            model=self.model,
-            provider=self._effective_provider(),
-            api_key=api_key,
+            model=self._clean_model(),
+            provider=self._model_provider(),
             config=config,
         )
 

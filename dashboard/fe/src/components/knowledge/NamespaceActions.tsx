@@ -139,7 +139,7 @@ export default function NamespaceActions({ namespace, onRefresh }: NamespaceActi
             </div>
             
             <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>
-              Configure automatic cleanup of import records for "{namespace}".
+              Configure automatic cleanup of import records for &quot;{namespace}&quot;.
             </p>
             
             <div className="space-y-4">

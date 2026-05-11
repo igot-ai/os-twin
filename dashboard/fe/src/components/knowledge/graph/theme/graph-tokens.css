@@ -1,0 +1,72 @@
+:root {
+  --graph-surface: #0a0a12;
+  --graph-surface-light: #12121e;
+  --graph-text-primary: rgba(200, 210, 230, 0.85);
+  --graph-text-muted: rgba(140, 150, 170, 0.6);
+  --graph-label-color: rgba(200, 210, 230, 0.85);
+  --graph-selection-ring: #ffffff;
+  --graph-path-highlight: #fbbf24;
+
+  --graph-node-entity: #3b82f6;
+  --graph-node-person: #a78bfa;
+  --graph-node-organization: #f472b6;
+  --graph-node-location: #fb923c;
+  --graph-node-event: #34d399;
+  --graph-node-concept: #22d3ee;
+  --graph-node-document: #818cf8;
+  --graph-node-date: #facc15;
+  --graph-node-product: #2dd4bf;
+  --graph-node-technology: #c084fc;
+  --graph-node-country: #fb7185;
+  --graph-node-city: #38bdf8;
+  --graph-node-money: #a3e635;
+  --graph-node-law: #e879f9;
+  --graph-node-media: #fdba74;
+  --graph-node-group: #22d3ee;
+  --graph-node-text_chunk: #475569;
+
+  --graph-edge-mentions: #60a5fa;
+  --graph-edge-knows: #a78bfa;
+  --graph-edge-related_to: #34d399;
+  --graph-edge-references: #fbbf24;
+  --graph-edge-uses: #f472b6;
+  --graph-edge-contains: #fb923c;
+  --graph-edge-relates: #6b7280;
+  --graph-edge-default: #6b7280;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --graph-surface: #000000;
+    --graph-text-primary: rgba(255, 255, 255, 0.95);
+    --graph-label-color: rgba(255, 255, 255, 0.95);
+    --graph-selection-ring: #ffffff;
+    --graph-path-highlight: #ffdd00;
+
+    --graph-node-entity: #4d94ff;
+    --graph-node-person: #b89aff;
+    --graph-node-organization: #ff80c0;
+    --graph-node-location: #ffa040;
+    --graph-node-event: #40e8a0;
+    --graph-node-concept: #30e8ff;
+    --graph-node-document: #99a0ff;
+    --graph-node-date: #ffe030;
+    --graph-node-product: #40e8d0;
+    --graph-node-technology: #d09aff;
+    --graph-node-country: #ff8090;
+    --graph-node-city: #50c8ff;
+    --graph-node-money: #b8f040;
+    --graph-node-law: #f090ff;
+    --graph-node-media: #ffa880;
+    --graph-node-group: #30e8ff;
+    --graph-node-text_chunk: #6080a0;
+
+    --graph-edge-mentions: #70b0ff;
+    --graph-edge-knows: #b89aff;
+    --graph-edge-related_to: #40e8a0;
+    --graph-edge-references: #ffe030;
+    --graph-edge-uses: #ff80c0;
+    --graph-edge-contains: #ffa040;
+    --graph-edge-default: #909090;
+  }
+}

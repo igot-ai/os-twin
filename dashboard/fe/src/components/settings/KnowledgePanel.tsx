@@ -126,7 +126,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         const { apiGet } = await import('@/lib/api-client');
         const data = await apiGet<{ models: { raw_name: string; display_name: string; is_embed: boolean }[] }>('/settings/ollama/models');
         setOllamaModels(data.models || []);
-      } catch (err) {
+      } catch {
         setOllamaModels([]);
       }
     };
@@ -147,7 +147,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           ...prev,
           [model]: { ...prev[model], ...data, pulling: prev[model]?.pulling || false },
         }));
-      } catch (err) {
+      } catch {
         setOllamaHealth((prev) => ({
           ...prev,
           [model]: { running: false, model_exists: false, pulling: false, progress: 'Could not connect to backend to check Ollama status.' },
@@ -201,7 +201,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 [model]: { ...prev[model], progress: msg },
               }));
             }
-          } catch (e) {
+          } catch {
             // parse error
           }
         }
@@ -321,8 +321,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     [allModels],
   );
 
-  const flashSavedMessage = (msg: string, isError = false, ttl = 1800) => {
-    // Legacy function, no-op since we removed auto-save toasts
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const flashSavedMessage = (_msg: string, _isError = false, _ttl = 1800) => {
   };
 
   const save = async (patch: Partial<KnowledgeSettings>) => {

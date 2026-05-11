@@ -46,12 +46,7 @@ def load_env_file(env_path):
             if not line or line.startswith('#') or '=' not in line:
                 continue
             k, _, v = line.partition('=')
-            k = k.strip()
-            # Handle shell-style 'export VAR=...' lines
-            if k.startswith('export '):
-                k = k[len('export '):].strip()
-            if k:
-                env[k] = v.strip().strip('"').strip("'")
+            env[k.strip()] = v.strip().strip('"').strip("'")
     return env
 
 
@@ -101,15 +96,12 @@ def resolve_mcp_servers(servers, env_all):
                 if resolved_headers:
                     out[key] = resolved_headers
             elif key == 'environment' and isinstance(val, dict):
-                # Resolve {env:*} in environment values, then strip still-unresolved
-                resolved_env = {}
-                for k, v in val.items():
-                    if isinstance(v, str):
-                        v = resolve_env_refs(v, env_all)
-                    if not (isinstance(v, str) and env_ref_pattern.search(v)):
-                        resolved_env[k] = v
-                if resolved_env:
-                    out[key] = resolved_env
+                cleaned = {
+                    k: v for k, v in val.items()
+                    if not (isinstance(v, str) and env_ref_pattern.search(v))
+                }
+                if cleaned:
+                    out[key] = cleaned
             elif key == 'url' and isinstance(val, str):
                 out[key] = resolve_env_refs(val, env_all)
             else:

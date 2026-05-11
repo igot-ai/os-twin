@@ -16,7 +16,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
-from dashboard.llm_client import ChatMessage, LLMConfig, LLMClient, ToolCall, create_client
+from dashboard.llm_client import ChatMessage, LLMConfig, LLMClient, ToolCall, create_client, resolve_provider_and_model
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +53,11 @@ def get_master_model() -> str:
 
 def set_master_model(model: str, provider: Optional[str] = None) -> None:
     global _master_client
-    if "/" in model:
-        provider, model = model.split("/", 1)
-    elif ":" in model:
-        provider, model = model.split(":", 1)
+    if provider is None:
+        if "/" in model:
+            provider, model = model.split("/", 1)
+        elif ":" in model:
+            provider, model = model.split(":", 1)
     _master_config.model = model
     _master_config.provider = provider
     _master_config.is_explicit = True
@@ -105,34 +106,26 @@ def get_api_key(provider: str) -> Optional[str]:
 
 
 def create_client_for_model(model: str, provider: Optional[str] = None) -> LLMClient:
-    if provider is None:
-        if "/" in model:
-            provider, model = model.split("/", 1)
-        elif ":" in model:
-            provider, model = model.split(":", 1)
+    effective, clean, model_provider = resolve_provider_and_model(model, provider)
 
-    api_key = get_api_key(provider or "openai") if provider else None
+    api_key = get_api_key(effective) or (get_api_key(model_provider) if model_provider else None)
     config = _master_config.to_llm_config()
 
-    logger.debug("[MASTER_AGENT] Creating client for model: %s (provider: %s)", model, provider)
-    return create_client(model, provider=provider, api_key=api_key, config=config)
+    logger.debug("[MASTER_AGENT] Creating client for model: %s (provider: %s)", clean, effective)
+    return create_client(clean, provider=effective, api_key=api_key, config=config)
 
 
 def _build_client() -> LLMClient:
     model = _master_config.model
     provider = _master_config.provider
 
-    if provider is None:
-        if "/" in model:
-            provider, model = model.split("/", 1)
-        elif ":" in model:
-            provider, model = model.split(":", 1)
+    effective, clean, model_provider = resolve_provider_and_model(model, provider)
 
-    api_key = get_api_key(provider or "openai") if provider else None
+    api_key = get_api_key(effective) or (get_api_key(model_provider) if model_provider else None)
     config = _master_config.to_llm_config()
 
-    logger.info("[MASTER_AGENT] Building client: model=%s, provider=%s", model, provider)
-    return create_client(model, provider=provider, api_key=api_key, config=config)
+    logger.info("[MASTER_AGENT] Building client: model=%s, provider=%s", clean, effective)
+    return create_client(clean, provider=effective, api_key=api_key, config=config)
 
 
 def get_master_client() -> LLMClient:

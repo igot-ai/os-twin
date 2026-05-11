@@ -104,9 +104,7 @@ async def get_master_settings(
 async def get_effective_settings(
     role: str = Query(..., description="Role to resolve settings for"),
     plan_id: Optional[str] = Query(None, description="Plan ID for plan-level override"),
-    task_ref: Optional[str] = Query(
-        None, description="Task ref for room-level override"
-    ),
+    task_ref: Optional[str] = Query(None, description="Task ref for room-level override"),
     user: dict = Depends(get_current_user),
 ):
     """Get effective settings for a role with provenance.
@@ -236,6 +234,27 @@ async def put_knowledge_settings(
         svc = _get_service()
         if hasattr(svc, "invalidate_model_cache"):
             svc.invalidate_model_cache()
+
+        # Clear ALL embedding singletons so settings take effect immediately
+        # (Plan 014: unified embedding config)
+        import dashboard.ai as _ai_mod
+
+        _ai_mod._embedder = None
+
+        try:
+            from dashboard.knowledge.graph.index import kuzudb
+
+            kuzudb._embedder_singleton = None
+        except Exception:
+            pass
+
+        try:
+            from dashboard.llm_client import _embedding_cache
+
+            _embedding_cache.clear()
+        except Exception:
+            pass
+
     except Exception as exc:  # noqa: BLE001
         logger.debug("Knowledge model cache invalidation skipped: %s", exc)
 
@@ -255,12 +274,15 @@ async def put_knowledge_settings(
 
 # ── Ollama Integration Endpoints ────────────────────────────────────────
 
+
 class OllamaHealthResponse(BaseModel):
     running: bool
     model_exists: bool
 
+
 class OllamaPullRequest(BaseModel):
     model: str
+
 
 @router.get("/ollama/health", response_model=OllamaHealthResponse)
 async def get_ollama_health(
@@ -274,25 +296,24 @@ async def get_ollama_health(
     resolver = get_settings_resolver()
     master = resolver.get_master_settings()
     cfg = master.providers.ollama if master.providers else None
-    base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
-    
+    base_url = (
+        cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    ).rstrip("/")
+
     try:
         client = AsyncClient(host=base_url)
         response = await client.list()
-        
-        models = [m.model for m in response.models] if hasattr(response, 'models') else []
-        
-        # Ollama models often have ":latest" suffix. 
+
+        models = [m.model for m in response.models] if hasattr(response, "models") else []
+
+        # Ollama models often have ":latest" suffix.
         # If the user asks for "llama3.2", check if it exists
-        model_exists = any(
-            m == model or 
-            m == f"{model}:latest"
-            for m in models
-        )
-        
+        model_exists = any(m == model or m == f"{model}:latest" for m in models)
+
         return OllamaHealthResponse(running=True, model_exists=model_exists)
     except (ResponseError, httpx.RequestError, ConnectionError):
         return OllamaHealthResponse(running=False, model_exists=False)
+
 
 @router.get("/ollama/models")
 async def list_ollama_models(
@@ -305,43 +326,42 @@ async def list_ollama_models(
     resolver = get_settings_resolver()
     master = resolver.get_master_settings()
     cfg = master.providers.ollama if master.providers else None
-    base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
-    
+    base_url = (
+        cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    ).rstrip("/")
+
     try:
         client = AsyncClient(host=base_url)
         response = await client.list()
-        
+
         models = []
         for m in response.models:
             raw_name = m.model
             if not raw_name:
                 continue
-            
+
             display_name = raw_name
             if display_name.endswith(":latest"):
-                display_name = display_name[:-len(":latest")]
-            
+                display_name = display_name[: -len(":latest")]
+
             # Use details attribute to determine if embed model
             details = getattr(m, "details", None)
             families = details.families if details and hasattr(details, "families") else []
-            
+
             is_embed = (
-                "bert" in families or
-                "nomic-bert" in families or
-                "embed" in display_name.lower() or
-                "e5" in display_name.lower() or
-                "bge" in display_name.lower()
+                "bert" in families
+                or "nomic-bert" in families
+                or "embed" in display_name.lower()
+                or "e5" in display_name.lower()
+                or "bge" in display_name.lower()
             )
-            
-            models.append({
-                "raw_name": raw_name,
-                "display_name": display_name,
-                "is_embed": is_embed
-            })
-            
+
+            models.append({"raw_name": raw_name, "display_name": display_name, "is_embed": is_embed})
+
         return {"models": models}
     except (ResponseError, httpx.RequestError, ConnectionError):
         return {"models": []}
+
 
 @router.post("/ollama/pull")
 async def pull_ollama_model(
@@ -353,15 +373,17 @@ async def pull_ollama_model(
     from fastapi.responses import StreamingResponse
     import json
     import httpx
-    
+
     async def stream_generator():
         model_name = request.model
 
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
         cfg = master.providers.ollama if master.providers else None
-        base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
-        
+        base_url = (
+            cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        ).rstrip("/")
+
         client = AsyncClient(host=base_url)
         try:
             async for progress in await client.pull(model_name, stream=True):
@@ -506,11 +528,7 @@ async def test_provider_connection(
             mode = (google_cfg.deployment_mode or "gemini") if google_cfg else "gemini"
         except Exception:
             mode = "gemini"
-        test_model = (
-            "google-vertex/gemini-3-flash-preview"
-            if mode == "vertex"
-            else "gemini/gemini-3-flash-preview"
-        )
+        test_model = "google-vertex/gemini-3-flash-preview" if mode == "vertex" else "gemini/gemini-3-flash-preview"
     else:
         _map = {
             "openai": "gpt-4o",
@@ -584,10 +602,7 @@ async def list_vault_keys(
     vault = get_vault()
     keys_data = vault.list_keys(scope)
 
-    keys = {
-        key: VaultStatusResponse(is_set=data.get("is_set", False))
-        for key, data in keys_data.items()
-    }
+    keys = {key: VaultStatusResponse(is_set=data.get("is_set", False)) for key, data in keys_data.items()}
     return VaultScopeResponse(keys=keys)
 
 
@@ -614,9 +629,7 @@ async def delete_vault_secret(
                 os.environ.pop(env_var, None)
                 logger.info("[SETTINGS] Removed %s from .env and os.environ", env_var)
             except Exception as exc:
-                logger.warning(
-                    "[SETTINGS] Failed to remove %s from .env: %s", env_var, exc
-                )
+                logger.warning("[SETTINGS] Failed to remove %s from .env: %s", env_var, exc)
 
     return {"status": "deleted"}
 
@@ -709,15 +722,15 @@ async def google_oauth_start(
         redirect_uri=redirect_uri,
         project_id=request.project_id,
     )
-    
+
     # Store session data in a cookie for persistence across Cloud Run instances
     session: OAuthSession = result.pop("session")
     session_json = json.dumps(session.to_dict())
     session_b64 = base64.b64encode(session_json.encode()).decode()
-    
+
     # Force secure=True on Cloud Run (even if internal protocol is http)
     is_cloud = os.environ.get("K_SERVICE") is not None
-    
+
     # Set a temporary cookie (expires in 10 mins)
     response.set_cookie(
         key="ostwin_oauth_session",
@@ -726,11 +739,10 @@ async def google_oauth_start(
         max_age=600,
         samesite="lax",
         secure=True if is_cloud else ("https" in redirect_uri),
-        path="/"  # EXPLICIT PATH is required for redirects to work
+        path="/",  # EXPLICIT PATH is required for redirects to work
     )
-    
-    return result
 
+    return result
 
 
 @router.get("/google/oauth/callback")
@@ -748,23 +760,18 @@ async def google_oauth_callback(
     Returns an HTML page that closes the popup window.
     """
     if error:
-        return _oauth_result_page(
-            success=False, message=f"Google returned error: {error}"
-        )
+        return _oauth_result_page(success=False, message=f"Google returned error: {error}")
 
     # Recover session data from the cookie
     session_b64 = request.cookies.get("ostwin_oauth_session")
     if not session_b64:
-        return _oauth_result_page(
-            success=False, 
-            message="No pending OAuth session found in cookie. Please try again."
-        )
+        return _oauth_result_page(success=False, message="No pending OAuth session found in cookie. Please try again.")
 
     try:
         session_json = base64.b64decode(session_b64).decode()
         session_data = json.loads(session_json)
         session = OAuthSession.from_dict(session_data)
-        
+
         result = exchange_code(code=code, state=state, session=session)
 
         # Sync Vertex env vars now that we have ADC
@@ -783,7 +790,6 @@ async def google_oauth_callback(
         return page
     except (ValueError, RuntimeError) as exc:
         return _oauth_result_page(success=False, message=str(exc))
-
 
 
 @router.get("/google/oauth/status")
@@ -839,7 +845,6 @@ def _oauth_result_page(
     return HTMLResponse(content=html)
 
 
-
 def _notify_bot_restart() -> None:
     """Schedule a debounced bot restart after channel-related config changes."""
     if global_state.bot_manager is not None:
@@ -881,6 +886,7 @@ def _try_opencode_sync() -> None:
                 result.removed,
             )
             from dashboard.master_agent import reset_master_client
+
             reset_master_client()
     except Exception as exc:
         logger.warning("opencode sync failed: %s", exc)
@@ -958,9 +964,7 @@ def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
                 # Clean up on-disk SA file if leftover from a previous mode
                 if _SA_FILE.exists():
                     _SA_FILE.unlink()
-                logger.info(
-                    "[SETTINGS] Vertex auth_mode=oauth — using ADC auto-discovery"
-                )
+                logger.info("[SETTINGS] Vertex auth_mode=oauth — using ADC auto-discovery")
             else:
                 # service_account mode — write SA file + env var
                 try:
@@ -973,9 +977,7 @@ def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
                         _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)
                         _SA_FILE.write_text(sa_json)
                         env_updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(_SA_FILE)
-                        logger.info(
-                            "[SETTINGS] Wrote service-account JSON to %s", _SA_FILE
-                        )
+                        logger.info("[SETTINGS] Wrote service-account JSON to %s", _SA_FILE)
                 except Exception as exc:
                     logger.warning(
                         "[SETTINGS] Could not extract service-account from vault: %s",
@@ -1069,9 +1071,7 @@ def _serialize_env_file(entries: list[dict]) -> str:
 def _upsert_env_vars(updates: Dict[str, str]) -> None:
     """Upsert env vars into ~/.ostwin/.env.  Creates the file if needed."""
     entries = _parse_env_file()
-    existing_keys = {
-        e.get("key"): i for i, e in enumerate(entries) if e.get("type") == "var"
-    }
+    existing_keys = {e.get("key"): i for i, e in enumerate(entries) if e.get("type") == "var"}
 
     for key, value in updates.items():
         if not value:
@@ -1103,11 +1103,7 @@ def _remove_env_vars(keys_to_remove: set[str]) -> None:
     entries = _parse_env_file()
     changed = False
     for e in entries:
-        if (
-            e.get("type") == "var"
-            and e.get("key") in keys_to_remove
-            and e.get("enabled")
-        ):
+        if e.get("type") == "var" and e.get("key") in keys_to_remove and e.get("enabled"):
             e["enabled"] = False
             changed = True
     if changed:
@@ -1144,9 +1140,7 @@ def _try_vertex_env_sync() -> None:
 
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
-        providers_dict = (
-            master.providers.model_dump(exclude_none=True) if master.providers else {}
-        )
+        providers_dict = master.providers.model_dump(exclude_none=True) if master.providers else {}
         _sync_vertex_env(providers_dict)
     except Exception as exc:
         logger.warning("[SETTINGS] Vertex env re-sync failed: %s", exc)
@@ -1162,11 +1156,7 @@ def _decode_if_hex(value: str) -> str:
     """
     stripped = value.strip()
     # Quick heuristic: hex strings are all [0-9a-fA-F] with even length
-    if (
-        len(stripped) > 2
-        and len(stripped) % 2 == 0
-        and all(c in "0123456789abcdefABCDEF" for c in stripped)
-    ):
+    if len(stripped) > 2 and len(stripped) % 2 == 0 and all(c in "0123456789abcdefABCDEF" for c in stripped):
         try:
             decoded = bytes.fromhex(stripped).decode("utf-8")
             # Sanity-check: if the decoded content looks like JSON, use it
