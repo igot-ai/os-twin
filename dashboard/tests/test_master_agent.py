@@ -272,6 +272,144 @@ class TestCreateMasterClient:
         reset_master_client()
 
 
+# ── init_master_from_config ─────────────────────────────────────────────────
+
+
+class TestInitMasterFromConfig:
+    def test_restores_master_model_from_config(self):
+        from dashboard.master_agent import init_master_from_config, get_master_model
+
+        mock_resolver = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.runtime.master_agent_model = "anthropic/claude-3-opus"
+        mock_settings.memory = MagicMock(
+            llm_backend="ollama", llm_model="llama3.2",
+            embedding_backend="ollama", embedding_model="leoipulsar/harrier-0.6b",
+        )
+        mock_settings.knowledge = MagicMock(
+            knowledge_llm_backend="openai-compatible",
+            knowledge_llm_model="google-vertex/gemini-3-flash-preview",
+            knowledge_embedding_backend="ollama",
+            knowledge_embedding_model="nomic-embed-text",
+        )
+        mock_resolver.get_master_settings.return_value = mock_settings
+
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            init_master_from_config()
+
+        assert get_master_model() == "claude-3-opus"
+
+    def test_sets_memory_env_vars(self, monkeypatch):
+        from dashboard.master_agent import init_master_from_config
+
+        monkeypatch.delenv("MEMORY_LLM_BACKEND", raising=False)
+        monkeypatch.delenv("MEMORY_LLM_MODEL", raising=False)
+        monkeypatch.delenv("MEMORY_EMBEDDING_BACKEND", raising=False)
+        monkeypatch.delenv("MEMORY_EMBEDDING_MODEL", raising=False)
+
+        mock_resolver = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.runtime.master_agent_model = ""
+        mock_settings.memory = MagicMock(
+            llm_backend="ollama", llm_model="llama3.2",
+            embedding_backend="ollama", embedding_model="harrier-0.6b",
+        )
+        mock_settings.knowledge = MagicMock(
+            knowledge_llm_backend="", knowledge_llm_model="",
+            knowledge_embedding_backend="", knowledge_embedding_model="",
+        )
+        mock_resolver.get_master_settings.return_value = mock_settings
+
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            init_master_from_config()
+
+        assert os.environ.get("MEMORY_LLM_BACKEND") == "ollama"
+        assert os.environ.get("MEMORY_LLM_MODEL") == "llama3.2"
+        assert os.environ.get("MEMORY_EMBEDDING_BACKEND") == "ollama"
+        assert os.environ.get("MEMORY_EMBEDDING_MODEL") == "harrier-0.6b"
+
+    def test_sets_knowledge_env_vars(self, monkeypatch):
+        from dashboard.master_agent import init_master_from_config
+
+        monkeypatch.delenv("OSTWIN_KNOWLEDGE_LLM_PROVIDER", raising=False)
+        monkeypatch.delenv("OSTWIN_KNOWLEDGE_LLM_MODEL", raising=False)
+        monkeypatch.delenv("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", raising=False)
+        monkeypatch.delenv("OSTWIN_KNOWLEDGE_EMBED_MODEL", raising=False)
+
+        mock_resolver = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.runtime.master_agent_model = ""
+        mock_settings.memory = MagicMock(
+            llm_backend="", llm_model="",
+            embedding_backend="", embedding_model="",
+        )
+        mock_settings.knowledge = MagicMock(
+            knowledge_llm_backend="gemini",
+            knowledge_llm_model="gemini-3-flash-preview",
+            knowledge_embedding_backend="gemini",
+            knowledge_embedding_model="gemini-embedding-001",
+        )
+        mock_resolver.get_master_settings.return_value = mock_settings
+
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            init_master_from_config()
+
+        assert os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER") == "gemini"
+        assert os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL") == "gemini-3-flash-preview"
+        assert os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER") == "gemini"
+        assert os.environ.get("OSTWIN_KNOWLEDGE_EMBED_MODEL") == "gemini-embedding-001"
+
+    def test_does_not_override_existing_env_vars(self, monkeypatch):
+        from dashboard.master_agent import init_master_from_config
+
+        monkeypatch.setenv("MEMORY_LLM_BACKEND", "user-explicit-choice")
+
+        mock_resolver = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.runtime.master_agent_model = ""
+        mock_settings.memory = MagicMock(
+            llm_backend="ollama", llm_model="llama3.2",
+            embedding_backend="ollama", embedding_model="harrier-0.6b",
+        )
+        mock_settings.knowledge = MagicMock(
+            knowledge_llm_backend="", knowledge_llm_model="",
+            knowledge_embedding_backend="", knowledge_embedding_model="",
+        )
+        mock_resolver.get_master_settings.return_value = mock_settings
+
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            init_master_from_config()
+
+        assert os.environ.get("MEMORY_LLM_BACKEND") == "user-explicit-choice"
+
+    def test_no_crash_when_config_missing(self):
+        from dashboard.master_agent import init_master_from_config
+
+        with patch("dashboard.lib.settings.get_settings_resolver", side_effect=Exception("no config")):
+            init_master_from_config()
+
+    def test_empty_master_model_does_not_override_default(self):
+        from dashboard.master_agent import init_master_from_config, get_master_model, DEFAULT_MODEL
+
+        mock_resolver = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.runtime.master_agent_model = ""
+        mock_settings.memory = MagicMock(
+            llm_backend="", llm_model="",
+            embedding_backend="", embedding_model="",
+        )
+        mock_settings.knowledge = MagicMock(
+            knowledge_llm_backend="", knowledge_llm_model="",
+            knowledge_embedding_backend="", knowledge_embedding_model="",
+        )
+        mock_resolver.get_master_settings.return_value = mock_settings
+
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            init_master_from_config()
+
+        assert get_master_model() == DEFAULT_MODEL
+
+
 # ── master_complete (async) ────────────────────────────────────────────────
 
 

@@ -154,3 +154,29 @@ class TestSetMasterModel:
         cfg = get_master_config()
         assert cfg.model == "gpt-4-turbo"
         assert cfg.provider == "openai"
+
+    def test_set_model_persists_to_config_json(self, client):
+        """PUT /master-model should write to config.json via resolver so settings survive restarts."""
+        mock_resolver = MagicMock()
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            resp = client.put(
+                "/api/settings/master-model",
+                json={"model": "gpt-4-turbo", "provider": "openai"},
+            )
+        assert resp.status_code == 200
+        mock_resolver.patch_namespace.assert_called_once_with(
+            "runtime", {"master_agent_model": "openai/gpt-4-turbo"}
+        )
+
+    def test_set_model_plain_persists_to_config_json(self, client):
+        """PUT /master-model with no provider should still persist to config.json."""
+        mock_resolver = MagicMock()
+        with patch("dashboard.lib.settings.get_settings_resolver", return_value=mock_resolver):
+            resp = client.put(
+                "/api/settings/master-model",
+                json={"model": "llama3.2"},
+            )
+        assert resp.status_code == 200
+        mock_resolver.patch_namespace.assert_called_once_with(
+            "runtime", {"master_agent_model": "llama3.2"}
+        )

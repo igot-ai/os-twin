@@ -118,19 +118,38 @@ class TestBaseLLMWrapperInit:
 
 
 class TestIsAvailable:
-    def test_no_model(self):
-        w = BaseLLMWrapper(model="", api_key="sk-123")
+    def test_no_model_returns_false(self):
+        w = BaseLLMWrapper(model="", provider="openai", api_key="sk-123")
         assert not w.is_available()
 
-    def test_no_api_key(self):
-        w = BaseLLMWrapper(model="gpt-4", api_key="")
+    def test_key_resolved_returns_true(self):
+        w = BaseLLMWrapper(model="gpt-4", provider="openai")
+        with patch.object(w, "_resolve_api_key", return_value="sk-123"):
+            assert w.is_available()
+
+    def test_no_key_non_ollama_returns_false(self):
+        w = BaseLLMWrapper(model="gpt-4", provider="openai")
         with patch.object(w, "_resolve_api_key", return_value=None):
             assert not w.is_available()
 
-    def test_model_and_key(self):
-        w = BaseLLMWrapper(model="gpt-4", api_key="sk-123")
-        with patch.object(w, "_resolve_api_key", return_value="sk-123"):
+    def test_ollama_no_key_returns_true(self):
+        w = BaseLLMWrapper(model="llama3.2", provider="ollama")
+        with patch.object(w, "_resolve_api_key", return_value=None):
             assert w.is_available()
+
+    def test_ollama_with_key_returns_true(self):
+        w = BaseLLMWrapper(model="llama3.2", provider="ollama", api_key="my-ollama-key")
+        with patch.object(w, "_resolve_api_key", return_value="my-ollama-key"):
+            assert w.is_available()
+
+    def test_key_checked_before_ollama_fallback(self):
+        w = BaseLLMWrapper(model="llama3.2", provider="ollama")
+        with patch.object(w, "_resolve_api_key", return_value="resolved-key"):
+            assert w.is_available()
+
+    def test_ollama_empty_model_returns_false(self):
+        w = BaseLLMWrapper(model="", provider="ollama")
+        assert not w.is_available()
 
 
 class TestResolveApiKey:

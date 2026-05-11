@@ -30,7 +30,7 @@
     "auto_draft": true
   },
   "runtime": {
-    "master_agent_model": "google/gemini-3.1-pro-preview"
+    "master_agent_model": "google-vertex/gemini-3.1-pro-preview"
   },
   "knowledge": {
     "knowledge_llm_model": "google-vertex/gemini-3.1-flash-lite-preview",
