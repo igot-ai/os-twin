@@ -367,7 +367,8 @@ async def startup_all():
 
                 # ── Initialize master agent client ────────────────────────────
                 try:
-                    from dashboard.master_agent import get_master_client
+                    from dashboard.master_agent import init_master_from_config, get_master_client
+                    init_master_from_config()
                     client = get_master_client()
                     logger.info("Master agent client initialized")
                 except Exception as e:

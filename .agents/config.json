@@ -30,7 +30,7 @@
     "auto_draft": true
   },
   "runtime": {
-    "max_concurrent_rooms": 9999
+    "master_agent_model": "google/gemini-3.1-pro-preview"
   },
   "knowledge": {
     "knowledge_llm_model": "google-vertex/gemini-3.1-flash-lite-preview",
@@ -58,5 +58,13 @@
     "custom": {},
     "openai_compatible": null,
     "ollama": null
+  },
+  "manager": {
+    "poll_interval_seconds": 5,
+    "max_concurrent_rooms": 9999,
+    "max_engineer_retries": 3,
+    "state_timeout_seconds": 900,
+    "auto_approve_tools": false,
+    "dynamic_pipelines": true
   }
 }

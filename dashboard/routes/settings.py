@@ -161,10 +161,20 @@ async def set_master_model(
     request: MasterModelRequest,
     user: dict = Depends(get_current_user),
 ):
-    """Set the master agent model configuration."""
+    """Set the master agent model configuration.
+
+    Persists to both the in-memory singleton and config.json so the
+    choice survives dashboard restarts.
+    """
     from dashboard.master_agent import set_master_model as _set_model, get_master_config
+    from dashboard.lib.settings import get_settings_resolver
 
     _set_model(request.model, request.provider)
+    model_str = request.model
+    if request.provider:
+        model_str = f"{request.provider}/{request.model}"
+    resolver = get_settings_resolver()
+    resolver.patch_namespace("runtime", {"master_agent_model": model_str})
     config = get_master_config()
     return MasterModelResponse(model=config.model, provider=config.provider)
 
