@@ -47,7 +47,7 @@ function Setup-OpenCodePermissions {
         try {
             & $pyCmd $patchScript $ocConfig 2>$null
             if ($LASTEXITCODE -eq 0) {
-                Write-Ok "OpenCode permissions patched at $ocConfig"
+                Write-Ok "OpenCode permissions ensured at $ocConfig"
             }
             else {
                 throw "Script returned exit code $LASTEXITCODE"

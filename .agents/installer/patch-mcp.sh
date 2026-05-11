@@ -97,5 +97,5 @@ patch_mcp_config() {
     "$VENV_DIR/bin/python" "${_PATCH_SCRIPTS_DIR}/merge_mcp_to_opencode.py" \
     "$mcp_config" "$opencode_home/opencode.json" "$INSTALL_DIR/.agents/mcp"
 
-  ok "MCP config patched"
+  ok "MCP config synced"
 }
