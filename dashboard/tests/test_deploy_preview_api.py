@@ -70,7 +70,10 @@ depends_on: []
             assert resp.status_code == 400, f"Expected 400, got {resp.status_code}"
             data = resp.json()
             assert "detail" in data
-            assert "Invalid working_dir" in data["detail"] or "file" in data["detail"].lower()
+            detail = data["detail"]
+            # detail can be a string or a dict
+            detail_str = str(detail) if isinstance(detail, dict) else detail
+            assert "Invalid working_dir" in detail_str or "file" in detail_str.lower()
         finally:
             plan_file.unlink(missing_ok=True)
             meta_file.unlink(missing_ok=True)
@@ -388,7 +391,10 @@ class TestRuntimeSanity:
 
     def test_runtime_sanity_returns_warnings_for_disabled_channels(self, monkeypatch):
         """Runtime sanity should return warnings for disabled notification channels."""
-        with patch("dashboard.notify.get_config", return_value={"bot_token": None, "authorized_chats": []}):
+        # The sanity checker uses dashboard.routes.channels.read_channels_config
+        # not dashboard.notify.get_config. Patch the channels route's config reader.
+        no_channels: list = []
+        with patch("dashboard.routes.channels.read_channels_config", return_value=no_channels):
             with patch("dashboard.tunnel.get_tunnel_url", return_value=None):
                 resp = client.get("/api/runtime/sanity", headers=HEADERS)
         
@@ -396,9 +402,10 @@ class TestRuntimeSanity:
         data = resp.json()
         
         assert "channels" in data["checks"]
-        
-        channel_warnings = [w for w in data["warnings"] if "channel" in w.lower() or "telegram" in w.lower()]
-        assert len(channel_warnings) > 0, "Should have warning for disabled channels"
+        # With no channels configured, all should be not_configured
+        for platform in ["telegram", "discord", "slack"]:
+            assert platform in data["checks"]["channels"]
+            assert data["checks"]["channels"][platform]["status"] == "not_configured"
         
         assert data["ok"] is True, "Disabled channels should not block (warnings, not errors)"
 

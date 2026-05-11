@@ -36,7 +36,9 @@ export default function DeployPanel({ launchResult, onClose }: DeployPanelProps)
   const previewLog = deployStatus?.log_file;
   const isRunning = deployStatus?.status === 'running';
   const isNotConfigured = deployStatus?.status === 'not_configured';
+  const isError = deployStatus?.status === 'error';
   const command = deployStatus?.command;
+  const deployError = deployStatus?.error;
 
   return (
     <div className="border-t border-border bg-surface-alt">
@@ -44,7 +46,7 @@ export default function DeployPanel({ launchResult, onClose }: DeployPanelProps)
       <div className="px-3 py-2 flex items-center justify-between border-b border-border">
         <div className="flex items-center gap-1.5">
           <span className="material-symbols-outlined text-[16px] text-primary">
-            {isRunning ? 'play_circle' : hasErrors ? 'error' : hasWarnings ? 'warning' : 'rocket_launch'}
+            {isRunning ? 'play_circle' : isError || hasErrors ? 'error' : hasWarnings ? 'warning' : 'rocket_launch'}
           </span>
           <span className="text-xs font-bold text-text-main">Deploy</span>
         </div>
@@ -68,11 +70,13 @@ export default function DeployPanel({ launchResult, onClose }: DeployPanelProps)
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
             isRunning 
               ? 'bg-emerald-100 text-emerald-700' 
+              : isError
+              ? 'bg-red-100 text-red-700'
               : isNotConfigured
               ? 'bg-gray-100 text-gray-600'
               : 'bg-amber-100 text-amber-700'
           }`}>
-            {isLoading ? 'Loading...' : isRunning ? 'Running' : isNotConfigured ? 'Not Configured' : 'Stopped'}
+            {isLoading ? 'Loading...' : isRunning ? 'Running' : isError ? 'Error' : isNotConfigured ? 'Not Configured' : 'Stopped'}
           </span>
         </div>
 
@@ -176,6 +180,19 @@ export default function DeployPanel({ launchResult, onClose }: DeployPanelProps)
                 <li key={i} className="truncate" title={e}>{e}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Deploy Error */}
+        {isError && deployError && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px] text-red-500">error</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-red-600">
+                Deploy Error
+              </span>
+            </div>
+            <p className="text-[10px] text-text-muted pl-1">{deployError}</p>
           </div>
         )}
 

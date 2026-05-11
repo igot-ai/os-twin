@@ -573,7 +573,7 @@ export interface LaunchResponse {
 
 export interface DeployStatus {
   plan_id: string;
-  status: 'running' | 'stopped' | 'not_configured';
+  status: 'running' | 'stopped' | 'not_configured' | 'error';
   pid: number | null;
   port: number | null;
   local_url: string | null;

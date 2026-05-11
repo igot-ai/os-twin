@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { DeployStatus } from '@/types';
 
 // ── Mock use-deploy hook ───────────────────────────────────────────────
 
@@ -15,7 +16,7 @@ const mockStopPreview = vi.fn();
 const mockRestartPreview = vi.fn();
 const mockRefresh = vi.fn();
 
-const mockDeployStatus = {
+const mockDeployStatus: DeployStatus = {
   plan_id: 'test-plan',
   status: 'stopped' as const,
   pid: null,
@@ -31,7 +32,7 @@ const mockDeployStatus = {
   error: null,
 };
 
-let currentDeployStatus = { ...mockDeployStatus };
+let currentDeployStatus: DeployStatus = { ...mockDeployStatus };
 
 vi.mock('@/hooks/use-deploy', () => ({
   useDeployStatus: () => ({

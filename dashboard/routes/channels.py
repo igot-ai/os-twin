@@ -155,6 +155,29 @@ async def connect_channel(platform: str, config_update: Optional[Dict[str, Any]]
     if not config.pairing_code:
         config.pairing_code = secrets.token_hex(4)
         
+    # ── Discord: extract webhook_url from credentials into settings ──
+    # The frontend SetupWizard sends credentials.token as the bot token
+    # and credentials.webhook_url as the Discord webhook URL.
+    if platform == "discord":
+        wh = config.credentials.pop("webhook_url", None)
+        if wh:
+            config.settings["webhook_url"] = wh
+        # Also accept webhook_url directly in settings update
+        if config_update and "settings" in config_update:
+            settings_wh = config_update["settings"].get("webhook_url")
+            if settings_wh:
+                config.settings["webhook_url"] = settings_wh
+
+    # ── Slack: extract webhook_url from credentials into settings ──
+    if platform == "slack":
+        wh = config.credentials.pop("webhook_url", None)
+        if wh:
+            config.settings["webhook_url"] = wh
+        if config_update and "settings" in config_update:
+            settings_wh = config_update["settings"].get("webhook_url")
+            if settings_wh:
+                config.settings["webhook_url"] = settings_wh
+
     save_channels_config(configs)
     _notify_bot_restart()
     return {"status": "ok", "message": f"{platform} connector enabled"}
@@ -184,8 +207,23 @@ class ChannelSanityResult(BaseModel):
 
 
 def _check_channel_credentials(platform: str, config: Optional[ConnectorConfig]) -> bool:
-    """Check if required credentials are present for a platform."""
-    if not config or not config.credentials:
+    """Check if required credentials are present for a platform.
+    
+    For Discord and Slack, a webhook URL in settings is also sufficient
+    for outbound notifications (even without full bot credentials).
+    """
+    if not config:
+        return False
+    
+    # Check settings-based webhook config (sufficient for outbound notifications)
+    if platform in ("discord", "slack"):
+        settings = config.settings or {}
+        credentials = config.credentials or {}
+        has_webhook = bool(settings.get("webhook_url") or credentials.get("webhook_url"))
+        if has_webhook:
+            return True
+    
+    if not config.credentials:
         return False
     
     required_keys = {
@@ -211,6 +249,7 @@ async def test_channel(platform: str, user: dict = Depends(get_current_user)):
     - Required credentials present (never exposed)
     - notification_preferences.enabled
     - Bot manager available/running (for platforms needing bot process)
+    - For Discord/Slack: actually sends a test message via webhook
     
     Returns structured sanity result without exposing secret values.
     """
@@ -246,6 +285,35 @@ async def test_channel(platform: str, user: dict = Depends(get_current_user)):
         issues.append("Bot process not running")
     else:
         status = "healthy"
+    
+    # ── Live webhook test for Discord/Slack ──
+    # These platforms can send a test message via webhook even without
+    # the bot process running, so check independently.
+    if platform in ("discord", "slack") and config and enabled:
+        settings = config.settings or {}
+        credentials = config.credentials or {}
+        webhook_url = settings.get("webhook_url") or credentials.get("webhook_url")
+        if not webhook_url:
+            if status == "healthy":
+                status = "missing_webhook"
+            issues.append("Webhook URL not configured — notifications will not be delivered")
+        else:
+            # Actually send a test notification
+            test_msg = "✅ OS-Twin test notification — channel is working!"
+            try:
+                if platform == "discord":
+                    from dashboard.notify import send_discord_notification
+                    ok = await send_discord_notification(test_msg, webhook_url)
+                else:
+                    from dashboard.notify import send_slack_notification
+                    ok = await send_slack_notification(test_msg, webhook_url)
+                if not ok and status == "healthy":
+                    status = "webhook_failed"
+                    issues.append("Webhook test message failed to deliver")
+            except Exception as exc:
+                if status == "healthy":
+                    status = "webhook_error"
+                issues.append(f"Webhook test error: {exc}")
     
     return ChannelSanityResult(
         platform=platform,

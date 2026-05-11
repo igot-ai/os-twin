@@ -3816,7 +3816,7 @@ def _resolve_working_dir_for_plan(plan_id: str) -> Path:
 @router.get("/api/plans/{plan_id}/deploy/status")
 async def get_deploy_status(plan_id: str, user: dict = Depends(get_current_user)):
     """Get preview deploy status for a plan."""
-    from dashboard.deploy_preview import get_preview_status, PreviewConfigError
+    from dashboard.deploy_preview import get_preview_status
     
     _require_plan_file(plan_id)
     

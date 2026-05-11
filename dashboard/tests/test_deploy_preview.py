@@ -680,14 +680,17 @@ class TestStartPreview:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         
+        # CREATE_NEW_PROCESS_GROUP only exists on Windows; set a mock value
+        mock_flag = 256
         with patch("platform.system", return_value="Windows"):
-            with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-                with patch("dashboard.deploy_preview.find_free_port", return_value=3100):
-                    with patch("dashboard.deploy_preview.is_process_alive", return_value=True):
-                        deploy_preview.start_preview(tmp_path)
+            with patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", mock_flag, create=True):
+                with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+                    with patch("dashboard.deploy_preview.find_free_port", return_value=3100):
+                        with patch("dashboard.deploy_preview.is_process_alive", return_value=True):
+                            deploy_preview.start_preview(tmp_path)
         
         call_kwargs = mock_popen.call_args[1]
-        assert call_kwargs.get("creationflags") == subprocess.CREATE_NEW_PROCESS_GROUP
+        assert call_kwargs.get("creationflags") == mock_flag
 
     def test_unix_start_new_session(self, tmp_path):
         pkg = {"scripts": {"dev": "vite"}}
