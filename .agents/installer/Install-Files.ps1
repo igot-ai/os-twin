@@ -64,6 +64,10 @@ function Install-Files {
             }
     }
 
+    # Backfill runtime defaults into preserved installs without overwriting
+    # any explicit user selection already saved in config.json.
+    Ensure-RuntimeConfigDefaults
+
     # Seed plans/ on first install — never overwrite
     $plansDir = Join-Path $agentsDir "plans"
     if (-not (Test-Path $plansDir)) {
@@ -100,6 +104,63 @@ function Install-Files {
 }
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
+
+function Ensure-RuntimeConfigDefaults {
+    [CmdletBinding()]
+    param()
+
+    $installedConfig = Join-Path $script:InstallDir ".agents\config.json"
+    $sourceConfig = Join-Path $script:ScriptDir "config.json"
+    $defaultModel = "google-vertex/gemini-3.1-pro-preview"
+
+    try {
+        $sourceData = @{}
+        if (Test-Path $sourceConfig) {
+            $rawSource = Get-Content $sourceConfig -Raw
+            if ($rawSource.Trim()) {
+                $sourceData = ConvertFrom-Json $rawSource -AsHashtable
+            }
+        }
+        if ($sourceData.runtime -is [hashtable] -and $sourceData.runtime.master_agent_model) {
+            $defaultModel = [string]$sourceData.runtime.master_agent_model
+        }
+
+        $configData = @{}
+        if (Test-Path $installedConfig) {
+            $rawConfig = Get-Content $installedConfig -Raw
+            if ($rawConfig.Trim()) {
+                $configData = ConvertFrom-Json $rawConfig -AsHashtable
+            }
+        }
+
+        $runtimeData = @{}
+        if ($configData.runtime -is [hashtable]) {
+            $runtimeData = $configData.runtime
+        }
+
+        $currentModel = ""
+        if ($runtimeData.ContainsKey("master_agent_model") -and $null -ne $runtimeData.master_agent_model) {
+            $currentModel = ([string]$runtimeData.master_agent_model).Trim()
+        }
+        if ($currentModel) {
+            return
+        }
+
+        $runtimeData["master_agent_model"] = $defaultModel
+        $configData["runtime"] = $runtimeData
+
+        $configDir = Split-Path $installedConfig -Parent
+        if (-not (Test-Path $configDir)) {
+            New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+        }
+
+        $json = $configData | ConvertTo-Json -Depth 100
+        Set-Content -Path $installedConfig -Value ($json + [Environment]::NewLine)
+    }
+    catch {
+        Write-Warn "Could not backfill runtime.master_agent_model in $installedConfig"
+    }
+}
 
 function Seed-McpConfig {
     [CmdletBinding()]
