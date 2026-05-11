@@ -15,7 +15,7 @@ from pathlib import Path as FSPath
 from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Path, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 import base64
 from dashboard.auth import get_current_user
@@ -411,7 +411,10 @@ async def patch_global_namespace(
         )
 
     resolver = get_settings_resolver()
-    resolver.patch_namespace(namespace, value)
+    try:
+        resolver.patch_namespace(namespace, value)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
     # Restart the bot process when channel config changes so it
     # picks up the new credentials / enabled flags on next boot.
