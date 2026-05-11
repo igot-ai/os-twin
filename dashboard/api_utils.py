@@ -309,7 +309,12 @@ def read_channel(
 
 
 async def process_notification(event_type: str, data: dict):
-    """Asynchronously process notifications."""
+    """Asynchronously process notifications.
+
+    1. Persists the event to the notifications log (existing behaviour).
+    2. Sends outbound notifications to all configured channels
+       (Telegram, Discord, Slack, Lark) via notify.notify_all_channels().
+    """
     await asyncio.sleep(0.1)
     notifications_file = PROJECT_ROOT / ".data" / "notifications.log"
     notifications_file.parent.mkdir(parents=True, exist_ok=True)
@@ -317,6 +322,17 @@ async def process_notification(event_type: str, data: dict):
     log_entry = json.dumps({"ts": timestamp, "event": event_type, "data": data})
     with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
+
+    # Send to all configured connectors (Telegram, Discord, Slack, Lark).
+    # Errors in one connector do NOT block others or the caller.
+    try:
+        from dashboard.notify import notify_all_channels
+        await notify_all_channels(event_type, data)
+    except Exception as exc:
+        # Graceful: notification failure must not break plan completion
+        logging.getLogger("api_utils").warning(
+            "Outbound notification dispatch failed (non-fatal): %s", exc
+        )
 
 
 def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str, Any]]:

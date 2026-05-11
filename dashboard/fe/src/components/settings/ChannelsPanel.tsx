@@ -175,13 +175,15 @@ function Instructions({ text, className }: { text: string, className?: string })
   );
 }
 
-function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (config: { credentials: Record<string, string> }) => void }) {
+function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (config: { credentials: Record<string, string>; settings?: Record<string, any> }) => void }) {
   const { setupSteps = [], isLoading } = useChannelSetup(platform);
   const [token, setToken] = useState('');
   const [clientId, setClientId] = useState('');
   const [guildId, setGuildId] = useState('');
   const [appToken, setAppToken] = useState('');
   const [signingSecret, setSigningSecret] = useState('');
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
 
   if (isLoading) return <div className="animate-pulse space-y-4"><div className="h-4 bg-slate-200 rounded w-3/4" /><div className="h-20 bg-slate-100 rounded" /></div>;
 
@@ -197,6 +199,16 @@ function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (
       };
     }
     return { token };
+  };
+
+  const buildSettings = (): Record<string, any> | undefined => {
+    if (platform === 'discord' && discordWebhookUrl) {
+      return { webhook_url: discordWebhookUrl };
+    }
+    if (platform === 'slack' && slackWebhookUrl) {
+      return { webhook_url: slackWebhookUrl };
+    }
+    return undefined;
   };
 
   const isValid = (): boolean => {
@@ -258,6 +270,21 @@ function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (
                 placeholder="Discord Server ID (right-click server → Copy ID)"
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">
+                Webhook URL <span className="normal-case tracking-normal font-normal text-text-faint/60">(for notifications)</span>
+              </label>
+              <input
+                type="text"
+                value={discordWebhookUrl}
+                onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+              <p className="text-[9px] text-text-faint">
+                Server Settings → Integrations → Webhooks → New Webhook → Copy URL
+              </p>
+            </div>
           </>
         )}
 
@@ -285,11 +312,31 @@ function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (
                 placeholder="Found in Basic Information → App Credentials"
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">
+                Webhook URL <span className="normal-case tracking-normal font-normal text-text-faint/60">(for notifications)</span>
+              </label>
+              <input
+                type="text"
+                value={slackWebhookUrl}
+                onChange={(e) => setSlackWebhookUrl(e.target.value)}
+                className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                placeholder="https://hooks.slack.com/services/..."
+              />
+              <p className="text-[9px] text-text-faint">
+                Create an Incoming Webhook at api.slack.com/messaging/webhooks
+              </p>
+            </div>
           </>
         )}
 
         <button
-          onClick={() => onComplete({ credentials: buildCredentials() })}
+          onClick={() => {
+            const payload: { credentials: Record<string, string>; settings?: Record<string, any> } = { credentials: buildCredentials() };
+            const settings = buildSettings();
+            if (settings) payload.settings = settings;
+            onComplete(payload);
+          }}
           disabled={!isValid()}
           className="w-full py-2.5 bg-emerald-600 disabled:opacity-50 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:brightness-105 transition-all shadow-lg shadow-emerald-600/20"
         >

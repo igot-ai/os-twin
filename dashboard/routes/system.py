@@ -268,7 +268,14 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
 
     Known secret keys (API keys, bot tokens) are blocked from being
     written as plaintext.  Use the /api/settings/vault endpoint instead.
+    
+    Immediately reloads os.environ and broadcasts env_reloaded event
+    so runtime picks up changes without dashboard restart.
+    Returns warnings for keys that require listener restart (DASHBOARD_PORT/HOST).
     """
+    from dashboard.env_watcher import reload_env_file
+    import dashboard.global_state as gs
+
     entries = request.get("entries", [])
     if not entries:
         raise HTTPException(status_code=400, detail="entries is required")
@@ -282,12 +289,36 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
                 detail=f"'{key}' is vault-managed. Use POST /api/settings/vault/... to set its value.",
             )
 
-    # Ensure ~/.ostwin directory exists
     _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)
 
     content = _serialize_env(entries)
     _ENV_FILE.write_text(content)
-    return {"status": "saved", "path": str(_ENV_FILE)}
+    
+    result = reload_env_file()
+    
+    restart_warnings = []
+    for key in result.get("changed", []):
+        if key in ("DASHBOARD_PORT", "DASHBOARD_HOST"):
+            restart_warnings.append(key)
+    
+    all_changes = result["added"] + result["changed"] + result["removed"]
+    if all_changes:
+        await gs.broadcaster.broadcast(
+            "env_reloaded",
+            {
+                "added": result["added"],
+                "changed": result["changed"],
+                "removed": result["removed"],
+                "restart_required": restart_warnings,
+            },
+        )
+    
+    response = {"status": "saved", "path": str(_ENV_FILE)}
+    if restart_warnings:
+        response["restart_required"] = restart_warnings
+        response["message"] = f"Keys {restart_warnings} changed but require dashboard restart to take effect"
+    
+    return response
 
 
 @router.post("/env/reload")

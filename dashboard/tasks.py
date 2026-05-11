@@ -3,6 +3,7 @@ import os
 import json
 import logging
 from pathlib import Path
+from typing import Dict, Set
 
 from dashboard.api_utils import (
     WARROOMS_DIR,
@@ -11,6 +12,7 @@ from dashboard.api_utils import (
     read_room,
     read_channel,
     process_notification,
+    resolve_runtime_plan_warrooms_dir,
 )
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
@@ -22,9 +24,94 @@ from dashboard.epic_manager import EpicSkillsManager
 logger = logging.getLogger(__name__)
 
 
+async def _check_plan_completions(completed_plans: Set[str], max_size: int = 1000) -> None:
+    """Check for newly completed plans and trigger deploy preview.
+    
+    A plan is considered completed when:
+    - All rooms have status "passed"
+    - Deploy has not already been triggered for this completion
+    
+    Args:
+        completed_plans: Set of plan_ids that have already been processed
+        max_size: Maximum size of completed_plans set to prevent unbounded growth
+    """
+    from dashboard.deploy_completion import (
+        read_progress_json,
+        is_plan_completed,
+        handle_plan_completion,
+    )
+    
+    plans_dir = PLANS_DIR
+    if not plans_dir.exists():
+        return
+    
+    for meta_file in plans_dir.glob("*.meta.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            plan_id = meta.get("plan_id", meta_file.stem.replace(".meta", ""))
+            
+            if plan_id in completed_plans:
+                continue
+            
+            warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+            if not warrooms_dir or not warrooms_dir.exists():
+                continue
+            
+            progress = read_progress_json(warrooms_dir)
+            if not progress:
+                continue
+            
+            if is_plan_completed(progress):
+                completed_plans.add(plan_id)
+                
+                # Trim arbitrary entries if set exceeds max size (sets don't maintain order)
+                if len(completed_plans) > max_size:
+                    excess = len(completed_plans) - max_size
+                    for _ in range(excess):
+                        completed_plans.pop()
+                
+                working_dir = meta.get("working_dir")
+                if not working_dir:
+                    continue
+                
+                working_path = Path(working_dir)
+                if not working_path.is_absolute():
+                    from dashboard.api_utils import PROJECT_ROOT
+                    working_path = PROJECT_ROOT / working_path
+                
+                plan_title = meta.get("title", plan_id)
+                
+                dashboard_url = None
+                if global_state.tunnel_url:
+                    dashboard_url = global_state.tunnel_url
+                else:
+                    port = os.environ.get("DASHBOARD_PORT", "3366")
+                    dashboard_url = f"http://localhost:{port}"
+                
+                logger.info(f"Plan {plan_id} completed, triggering deploy preview")
+                
+                try:
+                    await handle_plan_completion(
+                        plan_id=plan_id,
+                        working_dir=working_path,
+                        plan_title=plan_title,
+                        broadcaster=global_state.broadcaster,
+                        dashboard_base_url=dashboard_url,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to handle completion for plan {plan_id}: {e}")
+                    
+        except (json.JSONDecodeError, OSError, KeyError) as e:
+            logger.warning(f"Error checking plan completion for {meta_file}: {e}")
+            continue
+
+
 async def poll_war_rooms():
     """Background task to poll war-room state and broadcast changes."""
     last_snapshot: dict[str, dict] = {}
+    
+    _completed_plans: Set[str] = set()
+    _MAX_COMPLETED_PLANS = 1000  # Prevent unbounded growth
 
     _cached_warroom_dirs: list[Path] = []
     _cached_warroom_dirs_time: float = 0
@@ -252,6 +339,8 @@ async def poll_war_rooms():
 
             if plans_changed:
                 await global_state.broadcaster.broadcast("plans_updated", {})
+
+            await _check_plan_completions(_completed_plans, _MAX_COMPLETED_PLANS)
 
             last_snapshot = current
             await asyncio.sleep(1)
