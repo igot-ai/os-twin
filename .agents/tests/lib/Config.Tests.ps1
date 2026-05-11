@@ -136,6 +136,40 @@ Describe "Test-OstwinConfig" {
     }
 }
 
+Describe "Get-OstwinManagerRuntimeSettings" {
+    It "returns canonical manager runtime settings" {
+        $config = $script:ValidConfig | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        $runtime = Get-OstwinManagerRuntimeSettings -Config $config
+
+        $runtime.poll_interval_seconds | Should -Be 5
+        $runtime.max_concurrent_rooms | Should -Be 50
+        $runtime.max_engineer_retries | Should -Be 3
+        $runtime.state_timeout_seconds | Should -Be 900
+        $runtime.auto_approve_tools | Should -BeTrue
+        $runtime.dynamic_pipelines | Should -BeTrue
+    }
+
+    It "falls back to runtime namespace values and safe defaults" {
+        $config = [PSCustomObject]@{
+            version = "0.1.0"
+            runtime = [PSCustomObject]@{
+                poll_interval_seconds = 11
+                max_concurrent_rooms = 7
+                dynamic_pipelines = $false
+            }
+        }
+
+        $runtime = Get-OstwinManagerRuntimeSettings -Config $config
+
+        $runtime.poll_interval_seconds | Should -Be 11
+        $runtime.max_concurrent_rooms | Should -Be 7
+        $runtime.max_engineer_retries | Should -Be 3
+        $runtime.state_timeout_seconds | Should -Be 900
+        $runtime.auto_approve_tools | Should -BeFalse
+        $runtime.dynamic_pipelines | Should -BeFalse
+    }
+}
+
 # ─── New-RunConfig ───────────────────────────────────────────────────────────
 
 Describe "New-RunConfig" {
