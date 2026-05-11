@@ -60,11 +60,20 @@ build_frontend() {
   # shellcheck disable=SC2015
   (
     cd "$fe_dir" || exit
+
+    run_pm() {
+      if [[ "$pm" == "pnpm" ]] && [[ -n "${OSTWIN_PNPM_CMD:-}" ]]; then
+        eval "${OSTWIN_PNPM_CMD} $*"
+      else
+        "$pm" "$@"
+      fi
+    }
+
     # Install deps if node_modules missing
     if [[ ! -d node_modules ]]; then
       step "Installing npm dependencies..."
-      "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install
+      run_pm install --frozen-lockfile 2>/dev/null || run_pm install
     fi
-    "$pm" run build
+    run_pm run build
   ) && ok "$label build complete" || warn "$label build failed"
 }

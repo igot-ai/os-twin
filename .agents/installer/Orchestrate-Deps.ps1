@@ -13,6 +13,77 @@
 if ($script:_OrchestrateDepsPs1Loaded) { return }
 $script:_OrchestrateDepsPs1Loaded = $true
 
+function Ensure-Pnpm {
+    [CmdletBinding()]
+    param()
+
+    $targetPnpm = if ($script:PnpmInstallVersion) { $script:PnpmInstallVersion } else { "10.26.0" }
+    $script:PnpmExecutable = "pnpm"
+    $script:PnpmArguments = @()
+    $currentPnpm = $null
+    if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+        try {
+            $currentPnpm = (& pnpm --version 2>$null | Select-Object -First 1).ToString().Trim()
+        }
+        catch { }
+    }
+
+    if ($currentPnpm -and $currentPnpm -eq $targetPnpm) {
+        Write-Ok "pnpm $currentPnpm"
+        return $true
+    }
+
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCmd) {
+        Write-Warn "npm not found — cannot install pinned pnpm $targetPnpm"
+        return $false
+    }
+
+    if ($currentPnpm) {
+        Write-Step "Switching pnpm from $currentPnpm to pinned $targetPnpm..."
+    }
+    else {
+        Write-Step "Installing pnpm $targetPnpm..."
+    }
+
+    & npm install -g "pnpm@$targetPnpm" 2>$null | Out-Null
+
+    $resolvedPnpm = $null
+    if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+        try {
+            $resolvedPnpm = (& pnpm --version 2>$null | Select-Object -First 1).ToString().Trim()
+        }
+        catch { }
+    }
+
+    if ($resolvedPnpm -and $resolvedPnpm -eq $targetPnpm) {
+        $script:PnpmExecutable = "pnpm"
+        $script:PnpmArguments = @()
+        Write-Ok "pnpm $resolvedPnpm"
+        return $true
+    }
+
+    if (Get-Command npx -ErrorAction SilentlyContinue) {
+        $script:PnpmExecutable = "npx"
+        $script:PnpmArguments = @("-y", "pnpm@$targetPnpm")
+        if ($resolvedPnpm) {
+            Write-Warn "Pinned pnpm $targetPnpm was requested, but pnpm $resolvedPnpm is still on PATH — using npx fallback"
+        }
+        else {
+            Write-Warn "Pinned pnpm $targetPnpm was requested, but pnpm is not on PATH — using npx fallback"
+        }
+        return $true
+    }
+
+    if ($resolvedPnpm) {
+        Write-Warn "Pinned pnpm $targetPnpm was requested, but pnpm $resolvedPnpm is available and npx fallback is unavailable"
+    }
+    else {
+        Write-Warn "Pinned pnpm $targetPnpm was requested, but pnpm is still not available and npx fallback is unavailable"
+    }
+    return $false
+}
+
 function Invoke-DependencyOrchestration {
     [CmdletBinding()]
     param()
@@ -49,12 +120,7 @@ function Invoke-DependencyOrchestration {
             $nodeVer = (& node --version 2>&1) | Select-Object -First 1
             Write-Ok "Node.js $nodeVer"
 
-            if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-                if (Get-Command npm -ErrorAction SilentlyContinue) {
-                    Write-Step "Installing pnpm..."
-                    & npm install -g pnpm 2>$null
-                }
-            }
+            $null = Ensure-Pnpm
             if (-not (Get-Command clawhub -ErrorAction SilentlyContinue)) {
                 if (Get-Command npm -ErrorAction SilentlyContinue) {
                     Write-Step "Installing clawhub CLI..."
@@ -131,12 +197,7 @@ function Invoke-DependencyOrchestration {
             $nodeVer = (& node --version 2>&1) | Select-Object -First 1
             Write-Ok "Node.js $nodeVer"
 
-            if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-                if (Get-Command npm -ErrorAction SilentlyContinue) {
-                    Write-Step "Installing pnpm..."
-                    & npm install -g pnpm 2>$null
-                }
-            }
+            $null = Ensure-Pnpm
             if (-not (Get-Command clawhub -ErrorAction SilentlyContinue)) {
                 if (Get-Command npm -ErrorAction SilentlyContinue) {
                     Write-Step "Installing clawhub CLI..."
@@ -152,12 +213,7 @@ function Invoke-DependencyOrchestration {
                     $nodeVer = (& node --version 2>&1) | Select-Object -First 1
                     Write-Ok "Node.js $nodeVer installed"
 
-                    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-                        if (Get-Command npm -ErrorAction SilentlyContinue) {
-                            Write-Step "Installing pnpm..."
-                            & npm install -g pnpm 2>$null
-                        }
-                    }
+                    $null = Ensure-Pnpm
                     if (-not (Get-Command clawhub -ErrorAction SilentlyContinue)) {
                         if (Get-Command npm -ErrorAction SilentlyContinue) {
                             Write-Step "Installing clawhub CLI..."

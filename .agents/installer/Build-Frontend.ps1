@@ -57,6 +57,16 @@ function Build-Frontend {
         return
     }
 
+    $invokePm = {
+        param([string[]]$Args)
+        if ($pm -eq "pnpm" -and $script:PnpmExecutable) {
+            & $script:PnpmExecutable @($script:PnpmArguments + $Args)
+        }
+        else {
+            & $pm @Args
+        }
+    }
+
     Write-Step "Building $Label ($pm) at $feDir..."
     $originalDir = Get-Location
     try {
@@ -65,14 +75,14 @@ function Build-Frontend {
         # Install deps if node_modules missing
         if (-not (Test-Path "node_modules")) {
             Write-Step "Installing npm dependencies..."
-            & $pm install --frozen-lockfile 2>$null
+            & $invokePm @("install", "--frozen-lockfile") 2>$null
             if ($LASTEXITCODE -ne 0) {
                 # Fallback: install without frozen lockfile
-                & $pm install 2>$null
+                & $invokePm @("install") 2>$null
             }
         }
 
-        & $pm run build
+        & $invokePm @("run", "build")
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "$Label build failed (exit code $LASTEXITCODE)"
             return

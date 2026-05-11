@@ -45,7 +45,7 @@ install_channels() {
     warn "Node.js not found — cannot install channel connectors"
     info "Install Node.js and re-run"
     return
-  elif ! command -v pnpm &>/dev/null; then
+  elif [[ -z "${OSTWIN_PNPM_CMD:-}" ]] && ! command -v pnpm &>/dev/null; then
     warn "pnpm not found — cannot install channel connectors"
     info "Install pnpm and re-run"
     return
@@ -55,8 +55,9 @@ install_channels() {
     local start_time
     start_time=$(get_now)
     step "Installing channel dependencies in $CHAN_DIR with pnpm..."
+    local pnpm_cmd="${OSTWIN_PNPM_CMD:-pnpm}"
     # shellcheck disable=SC2015
-    (cd "$CHAN_DIR" && pnpm install) \
+    (cd "$CHAN_DIR" && eval "$pnpm_cmd install") \
       && ok_time "Channel dependencies installed" "$(print_duration "$start_time")" \
       || warn "Channel dependency install failed"
 

@@ -114,6 +114,21 @@ describe('NotificationRouter', () => {
     expect(mockConnector.sendMessage.called).to.be.false;
   });
 
+  it('maps dashboard broadcaster plan_completed events', async () => {
+    const handleEvent = (router as any).handleDashboardEvent.bind(router);
+    handleEvent({
+      event: 'plan_completed',
+      plan: { plan_id: 'plan-1', title: 'Ship it' },
+      progress: { passed: 3, total: 3 },
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(mockConnector.sendMessage.calledOnce).to.be.true;
+    expect(mockConnector.sendMessage.firstCall.args[1].text).to.include('Plan Completed');
+    expect(mockConnector.sendMessage.firstCall.args[1].text).to.include('plan-1');
+    expect(mockConnector.sendMessage.firstCall.args[1].text).to.include('3/3');
+  });
+
   it('maps room_removed to plan_completed', async () => {
     const handleEvent = (router as any).handleDashboardEvent.bind(router);
     handleEvent({
@@ -199,5 +214,79 @@ describe('NotificationRouter', () => {
 
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(mockConnector3.sendMessage.called).to.be.false;
+  });
+
+  it('routes plan completion notifications to every configured connector target', async () => {
+    sandbox.restore();
+    sandbox = sinon.createSandbox();
+
+    const telegramConnector = {
+      platform: 'telegram',
+      status: 'connected',
+      sendMessage: sandbox.stub().resolves(),
+    };
+    const discordConnector = {
+      platform: 'discord',
+      status: 'connected',
+      sendMessage: sandbox.stub().resolves(),
+    };
+    const slackConnector = {
+      platform: 'slack',
+      status: 'connected',
+      sendMessage: sandbox.stub().resolves(),
+    };
+    const connectors: Record<string, any> = {
+      telegram: telegramConnector,
+      discord: discordConnector,
+      slack: slackConnector,
+    };
+
+    sandbox.stub(registry, 'getConnector').callsFake((platform: any) => connectors[platform]);
+    sandbox.stub(registry, 'getAllConfigs').returns([
+      {
+        platform: 'telegram',
+        enabled: true,
+        authorized_users: ['chat-1'],
+        notification_preferences: { events: ['plan_completed'], enabled: true },
+        credentials: {},
+        settings: {},
+        pairing_code: '',
+      } as any,
+      {
+        platform: 'discord',
+        enabled: true,
+        authorized_users: [],
+        notification_preferences: { events: ['plan_completed'], enabled: true },
+        credentials: {},
+        settings: { allowed_channels: ['channel-1', 'channel-2'] },
+        pairing_code: '',
+      } as any,
+      {
+        platform: 'slack',
+        enabled: true,
+        authorized_users: [],
+        notification_preferences: { events: ['plan_completed'], enabled: true },
+        credentials: {},
+        settings: { notification_channel: 'slack-channel' },
+        pairing_code: '',
+      } as any,
+    ]);
+
+    const router4 = new NotificationRouter(registry);
+    const handleEvent = (router4 as any).handleDashboardEvent.bind(router4);
+    handleEvent({
+      event: 'plan_completed',
+      plan_id: 'plan-1',
+      passed: 1,
+      total: 1,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(telegramConnector.sendMessage.calledOnceWith('chat-1')).to.be.true;
+    expect(discordConnector.sendMessage.callCount).to.equal(2);
+    expect(discordConnector.sendMessage.firstCall.args[0]).to.equal('channel-1');
+    expect(discordConnector.sendMessage.secondCall.args[0]).to.equal('channel-2');
+    expect(slackConnector.sendMessage.calledOnceWith('slack-channel')).to.be.true;
   });
 });

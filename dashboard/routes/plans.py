@@ -22,6 +22,12 @@ from dashboard.api_utils import (
     resolve_runtime_plan_warrooms_dir,
     process_notification
 )
+from dashboard.plan_completion import (
+    is_completed_status,
+    mark_plan_completed,
+    progress_is_completed,
+    reset_plan_completion_broadcast,
+)
 import dashboard.global_state as global_state
 from dashboard.auth import get_current_user
 
@@ -2534,13 +2540,21 @@ async def compile_plan(request: RunRequest, user: dict = Depends(get_current_use
 
 @router.post("/api/plans/{plan_id}/status")
 async def update_plan_status(plan_id: str, request: dict):
-    plans_dir = PLANS_DIR
-    meta_file = plans_dir / f"{plan_id}.meta.json"
+    meta_file = _plan_meta_path(plan_id)
     if not meta_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     meta = json.loads(meta_file.read_text())
-    meta["status"] = request.get("status", meta["status"])
-    meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+    meta["status"] = request.get("status", meta.get("status", "draft"))
+
+    if is_completed_status(meta["status"]):
+        await mark_plan_completed(
+            plan_id,
+            meta=meta,
+            meta_path=meta_file,
+            source="status_update",
+        )
+    else:
+        reset_plan_completion_broadcast(plan_id, meta, meta_file)
     
     # Update zvec if available
     store = global_state.store
@@ -3233,7 +3247,16 @@ async def update_epic_state(plan_id: str, epic_ref: str, body: dict, user: dict 
     status_file.write_text(new_status + "\n")
 
     # Recalculate progress.json by scanning all rooms
-    _recalculate_progress(warrooms_dir)
+    progress_data = _recalculate_progress(warrooms_dir)
+    if progress_is_completed(progress_data):
+        try:
+            await mark_plan_completed(
+                plan_id,
+                progress=progress_data,
+                source="epic_state",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to broadcast completion for plan %s: %s", plan_id, exc)
 
     return {
         "status": "updated",
@@ -3244,7 +3267,7 @@ async def update_epic_state(plan_id: str, epic_ref: str, body: dict, user: dict 
     }
 
 
-def _recalculate_progress(warrooms_dir: Path):
+def _recalculate_progress(warrooms_dir: Path) -> Dict[str, Any]:
     """Rebuild progress.json by scanning all room-* directories.
 
     Mirrors the logic from ``.agents/plan/Update-Progress.ps1``.
@@ -3315,6 +3338,7 @@ def _recalculate_progress(warrooms_dir: Path):
 
     prog_file = warrooms_dir / "progress.json"
     prog_file.write_text(json.dumps(progress_data, indent=2) + "\n")
+    return progress_data
 
 
 @router.get("/api/plans/{plan_id}/dag")

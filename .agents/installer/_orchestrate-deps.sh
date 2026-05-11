@@ -9,6 +9,62 @@
 # Not a standalone module — requires all globals set by install.sh.
 # ──────────────────────────────────────────────────────────────────────────────
 
+ensure_pnpm() {
+  local current_pnpm=""
+  local target_pnpm="${PNPM_INSTALL_VERSION:-10.26.0}"
+  export OSTWIN_PNPM_CMD="pnpm"
+  if command -v pnpm &>/dev/null; then
+    current_pnpm="$(pnpm --version 2>/dev/null | head -1 || true)"
+  fi
+
+  if [[ -n "$current_pnpm" ]] && [[ "$current_pnpm" == "$target_pnpm" ]]; then
+    ok "pnpm $current_pnpm"
+    return 0
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    warn "npm not found — cannot install pinned pnpm ${PNPM_INSTALL_VERSION:-10.26.0}"
+    return 1
+  fi
+
+  if [[ -n "$current_pnpm" ]]; then
+    step "Switching pnpm from $current_pnpm to pinned $target_pnpm..."
+  else
+    step "Installing pnpm $target_pnpm..."
+  fi
+
+  npm install -g "pnpm@${target_pnpm}" 2>/dev/null || sudo npm install -g "pnpm@${target_pnpm}" 2>/dev/null || true
+  hash -r 2>/dev/null || rehash 2>/dev/null || true
+
+  current_pnpm=""
+  if command -v pnpm &>/dev/null; then
+    current_pnpm="$(pnpm --version 2>/dev/null | head -1 || true)"
+  fi
+
+  if [[ -n "$current_pnpm" ]] && [[ "$current_pnpm" == "$target_pnpm" ]]; then
+    export OSTWIN_PNPM_CMD="pnpm"
+    ok "pnpm $current_pnpm"
+    return 0
+  fi
+
+  if command -v npx &>/dev/null; then
+    export OSTWIN_PNPM_CMD="npx -y pnpm@${target_pnpm}"
+    if [[ -n "$current_pnpm" ]]; then
+      warn "Pinned pnpm $target_pnpm was requested, but pnpm $current_pnpm is still on PATH; using npx fallback"
+    else
+      warn "Pinned pnpm $target_pnpm was requested, but pnpm is not on PATH; using npx fallback"
+    fi
+    return 0
+  fi
+
+  if [[ -n "$current_pnpm" ]]; then
+    warn "Pinned pnpm $target_pnpm was requested, but pnpm $current_pnpm is available and npx fallback is unavailable"
+  else
+    warn "Pinned pnpm $target_pnpm was requested, but pnpm is still not available and npx fallback is unavailable"
+  fi
+  return 1
+}
+
 if $DASHBOARD_ONLY; then
   header "2. Checking dependencies (dashboard-only — minimal)"
   # Only ensure uv + Python are available (needed for dashboard venv)
@@ -32,10 +88,7 @@ if $DASHBOARD_ONLY; then
   if check_node; then
     NODE_VERSION=$(node --version 2>&1 | head -1)
     ok "Node.js $NODE_VERSION"
-    if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-      step "Installing pnpm..."
-      npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-    fi
+    ensure_pnpm || true
     if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
       step "Installing clawhub CLI..."
       npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
@@ -132,10 +185,7 @@ fi
 if check_node; then
   NODE_VERSION=$(node --version 2>&1 | head -1)
   ok "Node.js $NODE_VERSION"
-  if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-    step "Installing pnpm..."
-    npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-  fi
+  ensure_pnpm || true
   if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
     step "Installing clawhub CLI..."
     npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
@@ -147,10 +197,7 @@ else
     if check_node; then
       NODE_VERSION=$(node --version 2>&1 | head -1)
       ok "Node.js $NODE_VERSION installed"
-      if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-        step "Installing pnpm..."
-        npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-      fi
+      ensure_pnpm || true
       if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
         step "Installing clawhub CLI..."
         npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true

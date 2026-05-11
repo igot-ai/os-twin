@@ -95,6 +95,44 @@ async def test_plan_queue_updates_broadcast(mock_dirs):
                 
         assert found, "Plan queue update did not trigger broadcast"
 
+@pytest.mark.asyncio
+async def test_plan_completed_broadcast_when_all_rooms_pass(mock_dirs):
+    """A plan_completed event is emitted once all rooms under a plan pass."""
+    with patch.object(broadcaster, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+        task = asyncio.create_task(poll_war_rooms())
+        await asyncio.sleep(0.5)
+
+        plan_file = api_utils.AGENTS_DIR / "plans" / "agent-os-plan-test.md"
+        plan_file.write_text("# Plan: Test Completion")
+        meta_file = api_utils.AGENTS_DIR / "plans" / "agent-os-plan-test.meta.json"
+        meta_file.write_text(json.dumps({
+            "plan_id": "agent-os-plan-test",
+            "title": "Test Completion",
+            "warrooms_dir": str(api_utils.WARROOMS_DIR),
+        }))
+
+        room_dir = api_utils.WARROOMS_DIR / "room-test1"
+        room_dir.mkdir()
+        (room_dir / "status").write_text("passed")
+        (room_dir / "task-ref").write_text("EPIC-001")
+
+        await asyncio.sleep(1.5)
+        task.cancel()
+
+        found = False
+        for call in mock_broadcast.mock_calls:
+            args, _ = call[1], call[2]
+            if args[0] == "plan_completed":
+                data = args[1]
+                found = (
+                    data["plan"]["plan_id"] == "agent-os-plan-test"
+                    and data["plan"]["title"] == "Test Completion"
+                    and data["progress"]["passed"] == 1
+                    and data["progress"]["total"] == 1
+                )
+
+        assert found, "Plan completion did not trigger plan_completed broadcast"
+
 def test_websocket_endpoint():
     """TASK-003: Ensure WebSocket endpoint correctly accepts connections."""
     with client.websocket_connect("/api/ws") as websocket:

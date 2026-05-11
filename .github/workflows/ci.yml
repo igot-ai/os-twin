@@ -357,7 +357,7 @@ jobs:
 
       - name: Install pnpm
         shell: bash
-        run: npm install -g pnpm
+        run: npm install -g pnpm@10.26.0
 
       - name: Install bot dependencies
         shell: bash

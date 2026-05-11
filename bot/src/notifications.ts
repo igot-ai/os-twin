@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { ConnectorRegistry } from './connectors/registry';
+import type { ConnectorConfig } from './connectors/base';
 
 
 export type NotificationEvent =
@@ -67,7 +68,8 @@ export class NotificationRouter {
   }
 
   private handleDashboardEvent(event: any) {
-    const { type, data } = event;
+    const type = event.type || event.event;
+    const data = event.data ?? event ?? {};
     let notification: NotificationEvent | null = null;
     let messageBody = '';
     let roomId = data?.room?.room_id || data?.room_id;
@@ -103,8 +105,17 @@ export class NotificationRouter {
         messageBody = `🏁 *War-Room Removed:* \`${roomId}\`\nCleaned up successfully.`;
         break;
 
-      case 'plans_updated':
-        // Optional: Notify if a whole plan is completed
+      case 'plan_completed':
+        const plan = data.plan || data;
+        const progress = data.progress || data;
+        notification = 'plan_completed';
+        messageBody = [
+          `🏁 *Plan Completed:* \`${plan.plan_id || 'unknown'}\``,
+          plan.title ? `Title: ${plan.title}` : null,
+          typeof progress.passed === 'number' && typeof progress.total === 'number'
+            ? `Progress: ${progress.passed}/${progress.total} epics passed`
+            : null,
+        ].filter(Boolean).join('\n');
         break;
     }
 
@@ -119,7 +130,7 @@ export class NotificationRouter {
     for (const config of configs) {
       if (!config.enabled) continue;
 
-      const prefs = config.notification_preferences;
+      const prefs = config.notification_preferences || { events: [], enabled: true };
       if (!prefs.enabled) continue;
 
       // If events list is empty, treat as "all enabled" or check specific mapping
@@ -129,14 +140,53 @@ export class NotificationRouter {
 
       const connector = this.registry.getConnector(config.platform);
       if (connector && connector.status === 'connected') {
-        for (const userId of config.authorized_users) {
+        for (const targetId of this.getNotificationTargets(config)) {
           try {
-            await connector.sendMessage(userId, { text });
+            await connector.sendMessage(targetId, { text });
           } catch (err) {
-            console.error(`[NOTIFICATIONS] Failed to send to ${config.platform}:${userId}:`, err);
+            console.error(`[NOTIFICATIONS] Failed to send to ${config.platform}:${targetId}:`, err);
           }
         }
       }
     }
+  }
+
+  private getNotificationTargets(config: ConnectorConfig): string[] {
+    const targets = new Set<string>();
+    const settings = config.settings || {};
+
+    const add = (value: unknown) => {
+      if (Array.isArray(value)) {
+        for (const item of value) add(item);
+        return;
+      }
+      if (value === undefined || value === null) return;
+      const target = String(value).trim();
+      if (target) targets.add(target);
+    };
+
+    add(config.authorized_users || []);
+    add(settings.notification_targets);
+    add(settings.target_ids);
+    add(settings.channel_ids);
+    add(settings.channels);
+
+    if (config.platform === 'telegram') {
+      add(settings.chat_id);
+      add(settings.chat_ids);
+    }
+
+    if (config.platform === 'discord') {
+      add(settings.allowed_channels);
+    }
+
+    if (config.platform === 'slack') {
+      add(settings.notification_channel);
+      add(settings.default_channel);
+      add(settings.default_channels);
+      add(settings.channel_id);
+    }
+
+    return Array.from(targets);
   }
 }

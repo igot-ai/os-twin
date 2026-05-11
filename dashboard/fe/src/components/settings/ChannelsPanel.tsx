@@ -351,7 +351,7 @@ function SettingsView({ config, onUpdate, onRegenerate, onBack }: { config: Conn
   const [events, setEvents] = useState<string[]>(config.notification_preferences?.events || []);
   const [notificationsEnabled, setNotificationsEnabled] = useState(config.notification_preferences?.enabled ?? true);
 
-  const allEvents = ['plan_started', 'epic_passed', 'epic_failed', 'task_completed', 'escalation_required'];
+  const allEvents = ['plan_started', 'plan_completed', 'epic_passed', 'epic_failed', 'task_completed', 'escalation_required'];
 
   const toggleEvent = (event: string) => {
     setEvents(prev => prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]);

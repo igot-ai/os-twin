@@ -9,12 +9,14 @@ from dashboard.api_utils import (
     WARROOMS_DIR,
     AGENTS_DIR,
     PLANS_DIR,
+    GLOBAL_PLANS_DIR,
     read_room,
     read_channel,
     process_notification,
     resolve_runtime_plan_warrooms_dir,
 )
 import dashboard.global_state as global_state
+from dashboard.plan_completion import mark_plan_completed, progress_is_completed
 from dashboard.epic_manager import EpicSkillsManager
 # Heavy imports moved to background thread to prevent startup blocking
 
@@ -117,6 +119,19 @@ async def poll_war_rooms():
     _cached_warroom_dirs_time: float = 0
     _WARROOM_CACHE_TTL = 10  # seconds
 
+    def _iter_plan_meta_files() -> list[Path]:
+        meta_files: list[Path] = []
+        seen: set[Path] = set()
+        for plans_dir in (PLANS_DIR, GLOBAL_PLANS_DIR):
+            if not plans_dir.exists():
+                continue
+            for meta_file in plans_dir.glob("*.meta.json"):
+                resolved = meta_file.resolve()
+                if resolved not in seen:
+                    meta_files.append(meta_file)
+                    seen.add(resolved)
+        return meta_files
+
     def _discover_warroom_dirs() -> list[Path]:
         """Discover all war-room directories: global + plan-specific.
 
@@ -138,31 +153,27 @@ async def poll_war_rooms():
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
         # Scan plans meta for plan-specific war-room dirs
-        plans_dir = PLANS_DIR
-        if plans_dir.exists():
-            for meta_file in plans_dir.glob("*.meta.json"):
-                try:
-                    meta = json.loads(meta_file.read_text())
-                    wd = meta.get("working_dir") or meta.get("warrooms_dir")
-                    if wd:
-                        warrooms_path = Path(wd)
-                        if warrooms_path.name != ".war-rooms":
-                            warrooms_path = warrooms_path / ".war-rooms"
-                        if warrooms_path.exists():
-                            dirs.add(warrooms_path)
-                except (json.JSONDecodeError, KeyError):
-                    pass
+        for meta_file in _iter_plan_meta_files():
+            try:
+                meta = json.loads(meta_file.read_text())
+                wd = meta.get("working_dir") or meta.get("warrooms_dir")
+                if wd:
+                    warrooms_path = Path(wd)
+                    if warrooms_path.name != ".war-rooms":
+                        warrooms_path = warrooms_path / ".war-rooms"
+                    if warrooms_path.exists():
+                        dirs.add(warrooms_path)
+            except (json.JSONDecodeError, KeyError):
+                pass
 
         _cached_warroom_dirs = list(dirs)
         _cached_warroom_dirs_time = now
         return _cached_warroom_dirs
 
-    def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
-        """Find the plan_id whose warrooms_dir matches."""
-        if not PLANS_DIR.exists():
-            return None
+    def _find_plan_meta_for_warroom_dir(warroom_dir: Path) -> tuple[str, Path, dict] | None:
+        """Find the plan metadata whose warrooms_dir matches."""
         resolved = warroom_dir.resolve()
-        for meta_file in PLANS_DIR.glob("*.meta.json"):
+        for meta_file in _iter_plan_meta_files():
             try:
                 meta = json.loads(meta_file.read_text())
                 wd = meta.get("warrooms_dir") or meta.get("working_dir")
@@ -171,10 +182,121 @@ async def poll_war_rooms():
                     if wd_path.name != ".war-rooms":
                         wd_path = wd_path / ".war-rooms"
                     if wd_path.resolve() == resolved:
-                        return meta.get("plan_id", meta_file.stem.replace(".meta", ""))
+                        return (
+                            meta.get("plan_id", meta_file.stem.replace(".meta", "")),
+                            meta_file,
+                            meta,
+                        )
             except (json.JSONDecodeError, KeyError):
                 continue
         return None
+
+    def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
+        """Find the plan_id whose warrooms_dir matches."""
+        found = _find_plan_meta_for_warroom_dir(warroom_dir)
+        return found[0] if found else None
+
+    def _build_progress_from_warroom_dir(warroom_dir: Path) -> dict:
+        total = passed = failed = blocked = active = pending = 0
+        rooms = []
+
+        for room_dir in sorted(warroom_dir.glob("room-*")):
+            if not room_dir.is_dir():
+                continue
+
+            total += 1
+            status_file = room_dir / "status"
+            status = status_file.read_text().strip() if status_file.exists() else "pending"
+            task_ref_file = room_dir / "task-ref"
+            task_ref = task_ref_file.read_text().strip() if task_ref_file.exists() else "?"
+
+            if status == "passed":
+                passed += 1
+            elif status == "failed-final":
+                failed += 1
+            elif status == "blocked":
+                blocked += 1
+            elif status == "pending":
+                pending += 1
+            else:
+                active += 1
+
+            rooms.append({"room_id": room_dir.name, "task_ref": task_ref, "status": status})
+
+        pct_complete = round((passed / total) * 100, 1) if total > 0 else 0
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "blocked": blocked,
+            "active": active,
+            "pending": pending,
+            "pct_complete": pct_complete,
+            "rooms": rooms,
+        }
+
+    async def _maybe_mark_plan_completed_from_warrooms(warroom_dir: Path) -> None:
+        found = _find_plan_meta_for_warroom_dir(warroom_dir)
+        if not found:
+            return
+        plan_id, meta_path, meta = found
+
+        progress = _build_progress_from_warroom_dir(warroom_dir)
+        if not progress_is_completed(progress):
+            return
+
+        try:
+            await mark_plan_completed(
+                plan_id,
+                meta=meta,
+                meta_path=meta_path,
+                progress=progress,
+                source="warroom_poll",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to broadcast completion for plan %s: %s", plan_id, exc)
+
+    def _read_plan_title(plan_id: str | None) -> str | None:
+        if not plan_id or not PLANS_DIR.exists():
+            return None
+        plan_file = PLANS_DIR / f"{plan_id}.md"
+        if not plan_file.exists():
+            matches = list(PLANS_DIR.glob(f"{plan_id}*.md"))
+            plan_file = matches[0] if matches else plan_file
+        if not plan_file.exists():
+            return None
+        try:
+            first_line = plan_file.read_text().splitlines()[0].strip()
+        except (OSError, IndexError):
+            return None
+        for prefix in ("# Plan:", "# PLAN:", "# "):
+            if first_line.startswith(prefix):
+                return first_line[len(prefix):].strip()
+        return first_line.lstrip("#").strip() or None
+
+    async def _broadcast_completed_plans() -> None:
+        for warroom_dir in _discover_warroom_dirs():
+            progress = _build_progress_from_warroom_dir(warroom_dir)
+            if not progress.get("total"):
+                continue
+
+            found = _find_plan_meta_for_warroom_dir(warroom_dir)
+            if not found:
+                continue
+            plan_id, meta_path, meta = found
+
+            is_complete = progress_is_completed(progress)
+            if is_complete and plan_id not in completed_plan_ids:
+                completed_plan_ids.add(plan_id)
+                await mark_plan_completed(
+                    plan_id,
+                    meta=meta,
+                    meta_path=meta_path,
+                    progress=progress,
+                    source="warroom_poll",
+                )
+            elif not is_complete:
+                completed_plan_ids.discard(plan_id)
 
     # Initialize snapshot
     for warroom_dir in _discover_warroom_dirs():
@@ -195,6 +317,19 @@ async def poll_war_rooms():
             last_snapshot[f"__plan_{plan_file.name}__"] = {
                 "mtime": plan_file.stat().st_mtime
             }
+
+    for warroom_dir in _discover_warroom_dirs():
+        rooms = [p for p in sorted(warroom_dir.glob("room-*")) if p.is_dir()]
+        if not rooms:
+            continue
+        statuses = [
+            (room_dir / "status").read_text().strip()
+            if (room_dir / "status").exists()
+            else "pending"
+            for room_dir in rooms
+        ]
+        if statuses and all(status == "passed" for status in statuses):
+            completed_plan_ids.add(_find_plan_id_for_warroom_dir(warroom_dir) or warroom_dir.name)
 
     while True:
         try:
@@ -299,6 +434,8 @@ async def poll_war_rooms():
                                             )
                                 except Exception:
                                     pass
+                    if room_parent and prev["status"] != room["status"]:
+                        await _maybe_mark_plan_completed_from_warrooms(room_parent)
 
             # Detect removed rooms
             for room_id in last_snapshot:

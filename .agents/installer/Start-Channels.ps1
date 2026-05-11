@@ -10,6 +10,21 @@
 if ($script:_StartChannelsPs1Loaded) { return }
 $script:_StartChannelsPs1Loaded = $true
 
+function Invoke-PinnedPnpm {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+
+    if ($script:PnpmExecutable) {
+        & $script:PnpmExecutable @($script:PnpmArguments + $Args)
+        return
+    }
+
+    & pnpm @Args
+}
+
 function Install-Channels {
     [CmdletBinding()]
     param()
@@ -40,7 +55,7 @@ function Install-Channels {
         return
     }
 
-    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    if (-not $script:PnpmExecutable -and -not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
         Write-Warn "pnpm not found — cannot install channel connectors"
         Write-Info "Install pnpm and re-run"
         return
@@ -50,7 +65,7 @@ function Install-Channels {
     $originalDir = Get-Location
     try {
         Set-Location $script:ChanDir
-        & pnpm install --silent 2>&1 | Out-Null
+        Invoke-PinnedPnpm install --silent 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "Channel dependency install failed (exit $LASTEXITCODE)"
             return

@@ -981,6 +981,7 @@ async function cmdSubscriptions(_userId: string, platform: string): Promise<BotR
   const prefs = config.notification_preferences || { events: [], enabled: true };
   const events: { id: string; label: string }[] = [
     { id: 'plan_started', label: '🚀 Plan Started' },
+    { id: 'plan_completed', label: '🏁 Plan Completed' },
     { id: 'epic_passed', label: '✅ EPIC Passed' },
     { id: 'epic_failed', label: '❌ EPIC Failed' },
     { id: 'epic_retry', label: '🔄 EPIC Retry' },

@@ -20,3 +20,6 @@ $script:PwshInstallVersion = "7.4.7"
 
 # Node.js
 $script:NodeVersion        = "v25.8.1"
+
+# pnpm
+$script:PnpmInstallVersion = "10.26.0"
