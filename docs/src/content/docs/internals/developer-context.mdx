@@ -1,0 +1,215 @@
+---
+title: Developer Context
+description: Deep internals — run.sh call chain, source vs installed mode, 3-zone path model, plan execution, and memory design.
+sidebar:
+  order: 1
+  badge:
+    text: Advanced
+    variant: caution
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This document provides deep technical context for developers working on OSTwin internals. It covers the execution architecture, path resolution, plan processing pipeline, and memory subsystem.
+
+## run.sh Call Chain
+
+The `run.sh` script is the entry point for plan execution. Here is the full call chain:
+
+<Steps>
+1. **run.sh** — Entry point
+   - Sources `config.sh` for environment variables
+   - Validates the plan file exists and is readable
+   - Determines source vs installed mode
+
+2. **config.sh** — Environment setup
+   - Sets `AGENTS_ROOT` to the `.agents/` directory
+   - Resolves `AGENTS_BIN` for CLI tools
+   - Exports model configuration
+   - Sets up PATH for PowerShell and Python
+
+3. **Start-ManagerLoop.ps1** — PowerShell manager
+   - Parses `PLAN.md` into structured data
+   - Runs the DAG builder (Kahn's algorithm)
+   - Creates war-room directories
+   - Enters the polling loop
+
+4. **Per-room agent spawning**
+   - Manager reads room status files
+   - For rooms ready to activate, spawns the role's runner script
+   - Runner builds the prompt, injects skills, launches the CLI agent
+   - Agent output is captured and routed to `channel.jsonl`
+
+5. **State transitions**
+   - Manager reads channel messages
+   - Matches messages to lifecycle signals
+   - Updates room state files
+   - Checks guards and executes actions
+</Steps>
+
+## Source vs Installed Mode
+
+OSTwin operates in two modes depending on how it was set up:
+
+<Tabs>
+<TabItem label="Source Mode">
+Used during development. The `.agents/` directory lives inside the project:
+
+```
+my-project/
+├── .agents/
+│   ├── bin/
+│   ├── roles/
+│   ├── skills/
+│   └── config.json
+└── src/
+```
+
+- Scripts resolve paths relative to the git root
+- `AGENTS_ROOT` is `$(git rev-parse --show-toplevel)/.agents`
+- Changes take effect immediately (no install step)
+</TabItem>
+<TabItem label="Installed Mode">
+Used in production. OSTwin is installed to `~/.ostwin/`:
+
+```
+~/.ostwin/
+├── .agents/
+│   ├── bin/
+│   ├── roles/
+│   └── skills/
+```
+
+- Project has a lightweight `.agents/config.json` only
+- Roles and skills are resolved from `~/.ostwin/.agents/`
+- CLI binary is on the system PATH
+- Updates require re-running `install.sh`
+</TabItem>
+</Tabs>
+
+## 3-Zone Path Model
+
+OSTwin resolves files across three zones, checked in order:
+
+<Steps>
+1. **Room Zone** — `war-rooms/room-NNN/`
+
+   Room-local overrides. Skills, config, and artifacts specific to one room.
+
+   ```
+   .agents/war-rooms/room-001/skills/my-skill/SKILL.md
+   .agents/war-rooms/room-001/config.json
+   ```
+
+2. **Project Zone** — `.agents/`
+
+   Project-level definitions. Roles, skills, and config shared across all rooms.
+
+   ```
+   .agents/roles/engineer/role.json
+   .agents/skills/global/lang/SKILL.md
+   .agents/config.json
+   ```
+
+3. **System Zone** — `~/.ostwin/.agents/`
+
+   System-wide defaults. Installed roles and skills available to all projects.
+
+   ```
+   ~/.ostwin/.agents/roles/engineer/ROLE.md
+   ~/.ostwin/.agents/skills/global/war-room-communication/SKILL.md
+   ```
+</Steps>
+
+When resolving a file (e.g., a skill), the system checks Room → Project → System and uses the first match. This allows room-level overrides without modifying project or system files.
+
+## Plan Execution Pipeline
+
+<Steps>
+1. **Parse** — Extract Config, Goal, and Epics from PLAN.md
+2. **Validate** — Check epic references, role availability, dependency graph
+3. **DAG Build** — Run Kahn's algorithm to produce topological order and waves
+4. **Room Creation** — Create `room-NNN/` directories with config.json, lifecycle.json, brief.md
+5. **PLAN-REVIEW** — Activate room-000 with the architect role
+6. **Wave Dispatch** — For each wave, activate rooms whose dependencies have passed
+7. **Polling Loop** — Every `poll_interval_seconds`, scan all active rooms for state changes
+8. **Completion** — When all rooms reach terminal state, generate RELEASE.md if configured
+</Steps>
+
+## Memory 3-Tier Design
+
+The memory system enables cross-room knowledge sharing through a structured ledger:
+
+<Tabs>
+<TabItem label="Tier 1: Room Memory">
+Scoped to a single war-room. Published by agents during execution.
+
+```json
+{
+  "kind": "artifact",
+  "summary": "Created GridView.cs with pooled dot rendering",
+  "tags": ["grid", "rendering"],
+  "room_id": "room-001",
+  "ref": "EPIC-001"
+}
+```
+
+Kinds: `artifact`, `decision`, `interface`, `convention`, `warning`, `code`
+</TabItem>
+<TabItem label="Tier 2: Cross-Room Context">
+Aggregated view for agents entering a new room. The `memory_get_context` tool retrieves relevant memories from other rooms.
+
+- Excludes the requesting room's own memories
+- Filters by brief keywords for relevance
+- Returns up to `max_context_entries` (default 15)
+- Formatted as markdown for prompt injection
+</TabItem>
+<TabItem label="Tier 3: Persistent Ledger">
+The `memory-ledger.jsonl` file stores all published memories. It supports:
+
+- Full-text search across summaries and tags
+- Supersede chains (new entries replace old ones)
+- Kind-based filtering
+- Room and role filtering
+</TabItem>
+</Tabs>
+
+### Memory Configuration
+
+```json
+{
+  "memory": {
+    "enabled": true,
+    "max_summary_bytes": 4096,
+    "max_detail_bytes": 16384,
+    "max_context_entries": 15,
+    "auto_publish_on_done": true
+  }
+}
+```
+
+When `auto_publish_on_done` is true, the system automatically creates an `artifact` memory entry whenever an agent posts a `done` message.
+
+## Strengths
+
+- **No external orchestrator** — PowerShell engine runs locally, no cloud dependency
+- **File-based state** — Every state is a plain file, inspectable with standard tools
+- **Pluggable roles** — New personas via config, no code changes required
+- **Memory sharing** — Cross-room context prevents redundant work
+- **Retry resilience** — Automatic retry with exponential backoff via guard conditions
+
+## Known Risks
+
+- **PowerShell dependency** — Requires `pwsh` 7+, uncommon on some Linux distros
+- **File lock contention** — High concurrency can bottleneck on `channel.jsonl` writes
+- **Prompt bloat** — Aggressive skill injection can exceed model context windows
+- **No distributed execution** — All rooms run on a single machine
+- **State file corruption** — Abrupt termination can leave inconsistent state
+
+:::caution
+The 3-zone resolution order means a room-level config.json can shadow project-level settings. This is intentional but can cause confusion when debugging.
+:::
+
+:::note
+The memory daemon runs as a separate process via `start-memory-daemon.sh`. If it crashes, memory operations fail silently and agents continue without cross-room context.
+:::

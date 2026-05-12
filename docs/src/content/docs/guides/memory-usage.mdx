@@ -1,0 +1,186 @@
+---
+title: Memory Usage
+description: Cross-room memory system — publishing entries, querying, searching, tag strategies, monitoring, debugging, and memory bounds.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The memory system lets agents **share knowledge across war-rooms**. Since each room is isolated, memory is the only way for one agent to know what another has built or decided.
+
+## Memory tiers
+
+| Tier | Scope | Lifetime | Mechanism |
+|------|-------|----------|-----------|
+| **Session** | Single agent run | Ephemeral | Context window |
+| **War-room** | One epic | Plan duration | `channel.jsonl`, files |
+| **Global** | All rooms | Persistent | Shared memory ledger |
+
+## Entry kinds
+
+Every memory entry has a `kind`. OSTwin supports six:
+
+<Tabs>
+  <TabItem label="artifact">
+    Files created or modified. Tells other agents what exists.
+
+    ```json
+    {"kind": "artifact", "summary": "Created src/models/user.py with User, Role models", "tags": ["models", "user"]}
+    ```
+  </TabItem>
+  <TabItem label="decision">
+    Architectural choices with rationale.
+
+    ```json
+    {"kind": "decision", "summary": "Chose PostgreSQL over MongoDB — need ACID for billing", "tags": ["database"]}
+    ```
+  </TabItem>
+  <TabItem label="interface">
+    API contracts, function signatures, module boundaries.
+
+    ```json
+    {"kind": "interface", "summary": "POST /api/v1/users — accepts {email, password}, returns {id, token}", "tags": ["api", "users"]}
+    ```
+  </TabItem>
+  <TabItem label="convention">
+    Patterns all agents should follow.
+
+    ```json
+    {"kind": "convention", "summary": "All API endpoints use /api/v1/ prefix. Errors use {error: {code, message}}", "tags": ["api"]}
+    ```
+  </TabItem>
+  <TabItem label="warning">
+    Things to avoid or be careful about.
+
+    ```json
+    {"kind": "warning", "summary": "Do not modify src/config/database.ts — race condition being fixed in EPIC-005", "tags": ["database"]}
+    ```
+  </TabItem>
+  <TabItem label="code">
+    Code snippets other rooms need to consume.
+
+    ```json
+    {"kind": "code", "summary": "AuthMiddleware — validates JWT, attaches user to request", "detail": "class AuthMiddleware:\n  ...", "tags": ["auth"]}
+    ```
+  </TabItem>
+</Tabs>
+
+## Publishing entries
+
+Use the `memory_publish` MCP tool:
+
+```json
+{
+  "kind": "interface",
+  "summary": "UserService.create_user(email: str, password: str) returns User",
+  "tags": ["service", "users"],
+  "room_id": "room-002",
+  "author_role": "engineer",
+  "ref": "EPIC-002",
+  "detail": "Full method signature with error handling..."
+}
+```
+
+The `detail` field supports up to 16KB — use it for full schemas or code. The `summary` (max 4KB) appears in search results.
+
+### Superseding entries
+
+When an interface changes, publish a new entry with `supersedes`:
+
+```json
+{"kind": "interface", "summary": "POST /api/v1/users — now requires {email, password, name}", "supersedes": "mem-001-abc"}
+```
+
+Superseded entries are excluded from queries.
+
+## Querying memory
+
+<Tabs>
+  <TabItem label="Filtered query">
+    `memory_query` with structured filters:
+
+    ```json
+    {"kind": "interface", "tags": ["api", "users"], "room_id": "room-002"}
+    ```
+
+    All filters are optional and combinable.
+  </TabItem>
+  <TabItem label="Text search">
+    `memory_search` for fuzzy matching across summaries and tags:
+
+    ```json
+    {"text": "authentication flow login", "max_results": 10}
+    ```
+
+    Results ranked by word overlap.
+  </TabItem>
+  <TabItem label="Cross-room context">
+    `memory_get_context` returns a curated summary from other rooms:
+
+    ```json
+    {"room_id": "room-003", "brief_keywords": ["billing", "stripe"]}
+    ```
+
+    Returns markdown filtered by relevance to the room's brief.
+  </TabItem>
+</Tabs>
+
+## Tag strategies
+
+| Pattern | Example | Purpose |
+|---------|---------|---------|
+| Module name | `auth`, `billing` | Find domain-related entries |
+| Artifact type | `model`, `route` | Find specific file types |
+| Technology | `postgresql`, `redis` | Find tech decisions |
+| Boundary | `api-contract`, `schema` | Find shared interfaces |
+
+:::tip
+Use lowercase, hyphenated tags. Prefer specific terms: `user-model` over `data`. Aim for 2-4 tags per entry.
+:::
+
+## Monitoring
+
+List all entries with `memory_list_memories`:
+
+```json
+{"kind": "interface"}
+```
+
+Returns `{id, ts, kind, room_id, ref, tags, summary_preview}` without the full detail.
+
+Watch the ledger for real-time changes:
+
+```bash
+watch -n 5 'cat .agents/memory/ledger.jsonl | jq -c "{kind, room_id, summary}" | tail -20'
+```
+
+## Debugging
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Agent can't find interface | Wrong tags | Match tags between publisher and consumer |
+| Stale data | Entry not superseded | Publish with `supersedes` field |
+| Too many results | Broad query | Add `kind` or `tags` filters |
+| Empty results | Wrong room filter | Use `memory_search` (searches all rooms) |
+
+## Bounds
+
+| Limit | Value |
+|-------|-------|
+| Summary max | 4 KB |
+| Detail max | 16 KB |
+| Max query results | 50 |
+| Default search results | 10 |
+
+:::caution
+Memory is append-only with supersede semantics. There is no delete. Use `supersedes` to mark outdated entries as replaced.
+:::
+
+## Best practices
+
+1. **Publish early.** Other rooms wait for your interfaces. Publish API contracts at design time, not after implementation.
+2. **Use the detail field.** A summary like "created user model" is useless without the actual schema.
+3. **Tag for consumers.** Think about what the searching agent would type.
+4. **Supersede, don't duplicate.** Changed interfaces need `supersedes`, not new entries alongside old ones.
+5. **Query before coding.** Every epic should start by checking memory for existing conventions and schemas.

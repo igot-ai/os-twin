@@ -1,0 +1,157 @@
+---
+title: Defining Roles
+description: Creating custom agent roles — role.json schema, ROLE.md writing, capability tagging, quality gates, and forking existing roles.
+sidebar:
+  order: 2
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Roles define **who** an agent is. Every agent session is composed from a role definition that sets personality, constraints, and communication style. A role lives in `.agents/roles/<name>/` with two files: `role.json` and `ROLE.md`.
+
+## The role.json schema
+
+```json
+{
+  "name": "engineer",
+  "description": "Software engineer — implements features, writes tests, fixes bugs",
+  "capabilities": ["code-generation", "file-editing", "testing", "refactoring"],
+  "prompt_file": "ROLE.md",
+  "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"],
+  "skill_refs": [],
+  "cli": "agent",
+  "model": "claude-sonnet-4-20250514",
+  "timeout": 600
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Unique identifier, matches directory name |
+| `description` | yes | One-line summary shown in role listings |
+| `capabilities` | yes | Tags for skill matching and task routing |
+| `prompt_file` | yes | System prompt markdown, relative to role dir |
+| `quality_gates` | no | Checks QA applies when reviewing output |
+| `skill_refs` | no | Skills auto-loaded for every session |
+| `cli` | no | CLI tool to spawn the agent (`agent`, `opencode`) |
+| `model` | no | Default LLM model, overridden by plan config |
+| `timeout` | no | Max seconds per session (default: 600) |
+
+## Creating a role
+
+<Steps>
+
+1. **Create the directory.** `mkdir -p .agents/roles/security-auditor`
+
+2. **Write `role.json`** with name, capabilities, and quality gates.
+
+3. **Write `ROLE.md`** — this becomes the agent's system prompt.
+
+4. **Test the role** by referencing it in a plan epic.
+
+</Steps>
+
+## Writing effective ROLE.md files
+
+<Tabs>
+  <TabItem label="Structure">
+    ```markdown
+    ---
+    name: security-auditor
+    description: You are a Security Auditor...
+    tags: [security, audit, review]
+    trust_level: core
+    ---
+    # Your Responsibilities
+    Primary job description.
+    ## Workflow
+    Step-by-step process.
+    ## Communication
+    How to use channel tools.
+    ## Quality Standards
+    Non-negotiable rules.
+    ```
+  </TabItem>
+  <TabItem label="Do">
+    - Be specific: "Read the `fix` message, address every point"
+    - Include example tool calls with realistic parameters
+    - Define what "done" means for this role
+    - Reference MCP tools by name: `post_message`, `report_progress`
+    - Set constraints: "Never modify files outside working_dir"
+  </TabItem>
+  <TabItem label="Don't">
+    - Use vague instructions like "be helpful"
+    - Assume context — spell out message formats
+    - Mix responsibilities — QA should not write implementation code
+    - Skip the frontmatter — it is used for role resolution
+  </TabItem>
+</Tabs>
+
+## Capability tags
+
+Capabilities control **skill matching** and **task routing**:
+
+| Capability | Typical roles |
+|-----------|---------------|
+| `code-generation` | engineer, architect |
+| `code-review` | qa, security-auditor |
+| `testing` | engineer, qa |
+| `architecture` | architect |
+| `documentation` | technical-writer |
+
+:::tip
+Keep capabilities broad enough for reuse but specific enough for routing. `code-review` is better than `advanced-static-analysis`.
+:::
+
+## Quality gates
+
+Quality gates tell QA what to check when reviewing this role's output:
+
+```json
+"quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets", "api-docs-updated"]
+```
+
+## Forking an existing role
+
+<Steps>
+
+1. **Copy the role directory.** `cp -r .agents/roles/engineer .agents/roles/backend-engineer`
+
+2. **Update `role.json`.** Change `name`, `description`, and adjust capabilities.
+
+3. **Customize `ROLE.md`.** Remove irrelevant instructions, add domain-specific workflows.
+
+4. **Reference in your plan.**
+
+   ```markdown
+   ## Epic 2: API Layer
+   ### Roles
+   - backend-engineer
+   ```
+
+</Steps>
+
+## Built-in roles
+
+| Role | Purpose |
+|------|---------|
+| `engineer` | General-purpose implementation |
+| `architect` | System design and technical decisions |
+| `qa` | Testing and quality validation |
+| `manager` | Orchestration, triage, coordination |
+| `reporter` | Documentation and report generation |
+| `technical-writer` | Documentation specialist |
+
+## Role resolution order
+
+The engine resolves role names in this order:
+
+1. Project `.agents/roles/<name>/` (local override)
+2. Global `~/.ostwin/.agents/roles/<name>/` (installed roles)
+3. Built-in roles shipped with OSTwin
+
+The first match wins, letting you override global roles per-project.
+
+:::note
+Roles are composable with skills. The same `engineer` role can load Unity skills or web skills depending on which plan it runs. Role defines identity; skills define expertise.
+:::

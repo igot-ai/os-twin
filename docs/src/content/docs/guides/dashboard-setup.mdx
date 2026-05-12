@@ -1,0 +1,164 @@
+---
+title: Dashboard Setup
+description: Setting up the OSTwin dashboard — FastAPI backend, Next.js frontend, custom ports, SSE real-time updates, and troubleshooting.
+sidebar:
+  order: 6
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The dashboard provides **real-time visibility** into plan execution, war-room status, memory, and agent activity. It consists of a FastAPI backend and a Next.js frontend.
+
+## Architecture
+
+```
+Browser ──► Next.js (:3000) ──► FastAPI Backend (:9000)
+                                      │
+                                      ├── War-room file polling
+                                      ├── Memory ledger queries
+                                      ├── SSE event streams
+                                      └── Plan management API
+```
+
+## Quick start
+
+<Steps>
+
+1. **Install backend dependencies.**
+
+   ```bash
+   cd dashboard
+   pip install -r requirements.txt
+   ```
+
+2. **Install frontend dependencies.**
+
+   ```bash
+   cd dashboard/frontend
+   npm install
+   ```
+
+3. **Configure environment.** Create or edit `~/.ostwin/.env`:
+
+   ```bash
+   ANTHROPIC_API_KEY="sk-ant-..."
+   OSTWIN_API_KEY="your-dashboard-api-key"
+   ```
+
+4. **Start the backend.** `python dashboard/api.py` — serves on `http://localhost:9000`.
+
+5. **Start the frontend.** `cd dashboard/frontend && npm run dev` — serves on `http://localhost:3000`.
+
+</Steps>
+
+## Custom ports
+
+<Tabs>
+  <TabItem label="Backend">
+    ```bash
+    PORT=8080 python dashboard/api.py
+    ```
+  </TabItem>
+  <TabItem label="Frontend">
+    ```bash
+    DASHBOARD_URL=http://localhost:8080 npm run dev
+    ```
+    Update `DASHBOARD_URL` whenever you change the backend port.
+  </TabItem>
+</Tabs>
+
+## API routes
+
+| Route group | Prefix | Purpose |
+|------------|--------|---------|
+| Plans | `/api/plans` | Create, list, run, inspect plans |
+| Rooms | `/api/rooms` | War-room status, progress, artifacts |
+| Channels | `/api/channels` | Read/post channel messages |
+| Memory | `/api/memory` | Query and search memory ledger |
+| Skills | `/api/skills` | List, search, toggle skills |
+| Roles | `/api/roles` | List and inspect role definitions |
+| MCP | `/api/mcp` | MCP server config and status |
+| Settings | `/api/settings` | Dashboard and engine configuration |
+| System | `/api/system` | Health checks, version info |
+
+## SSE real-time updates
+
+The dashboard uses Server-Sent Events for live updates:
+
+| Event | Description |
+|-------|-------------|
+| `room:status` | War-room state changed |
+| `room:progress` | Progress updated |
+| `channel:message` | New channel message |
+| `plan:complete` | Plan finished execution |
+
+:::tip
+SSE connections auto-reconnect on failure. If the backend restarts, the frontend picks up the stream again within seconds.
+:::
+
+## Dashboard features
+
+<Tabs>
+  <TabItem label="Plan view">
+    - DAG visualization with dependency edges
+    - Wave grouping showing parallel execution
+    - Per-epic status badges and progress bars
+  </TabItem>
+  <TabItem label="Room inspector">
+    - Live channel message feed with role colors
+    - Progress bar with percentage and status
+    - Artifact file browser with content preview
+  </TabItem>
+  <TabItem label="Memory search">
+    - Full-text search across all entries
+    - Filter by kind, room, tags, or role
+    - Superseded entry tracking
+  </TabItem>
+</Tabs>
+
+## Authentication
+
+```bash
+# Set in ~/.ostwin/.env
+OSTWIN_API_KEY="your-secret-key"
+```
+
+All API requests require this key in the `X-API-Key` header.
+
+:::note
+If `OSTWIN_API_KEY` is not set, the dashboard runs in open mode with no authentication. Fine for local dev, not for exposed deployments.
+:::
+
+## Production deployment
+
+<Steps>
+
+1. **Build the frontend.** `cd dashboard/frontend && npm run build`
+
+2. **Serve static files.** The backend auto-detects `dashboard/frontend/out/` and serves it.
+
+3. **Set environment variables.** `OSTWIN_API_KEY="strong-random-key"` and `PORT=9000`.
+
+4. **Run behind a reverse proxy** (nginx/Caddy) for TLS and domain routing.
+
+</Steps>
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Backend 404s | Wrong working directory | Run from project root |
+| Frontend can't reach API | Port mismatch | Check `DASHBOARD_URL` |
+| SSE not updating | Proxy buffering | Disable response buffering |
+| Empty room list | No war-rooms | Run a plan first |
+| Import errors | Missing deps | `pip install -r dashboard/requirements.txt` |
+
+## Environment loading
+
+The backend loads env vars from (first match wins):
+
+1. `~/.ostwin/.env` — global install config
+2. `./.env` — current working directory
+3. OS environment — already set in shell
+
+Set `ANTHROPIC_API_KEY` once in `~/.ostwin/.env` and it works for both the engine and dashboard.

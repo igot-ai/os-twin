@@ -205,7 +205,7 @@ export default function NamespaceOverview({
 
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'raw' | 'graph' | 'summarized'>('summarized');
-  const [topK, setTopK] = useState(10);
+  const [topK] = useState(10);
   const [selectedNode, setSelectedNode] = useState<GraphNodeResponse | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState<number>(-1);
@@ -242,12 +242,14 @@ export default function NamespaceOverview({
   const relationCount = graphCounts?.relations ?? stats.relations;
 
   // Reset local state when namespace changes
-  useEffect(() => {
+  const [prevNamespace, setPrevNamespace] = useState(ns.name);
+  if (ns.name !== prevNamespace) {
+    setPrevNamespace(ns.name);
     setQuery('');
     setSelectedNode(null);
     setHistory([]);
     setActiveHistoryIdx(-1);
-  }, [ns.name]);
+  }
 
   useEffect(() => {
     if (hasContent) {

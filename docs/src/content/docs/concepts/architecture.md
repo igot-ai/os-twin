@@ -1,0 +1,245 @@
+---
+title: "System Architecture"
+description: "Four subsystems, filesystem coordination, and data flow patterns that compose the OSTwin runtime."
+sidebar:
+  order: 8
+---
+
+OSTwin is built from four independent subsystems that communicate through the filesystem. There is no central process, no message broker, and no shared database. This section maps the complete system architecture.
+
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                      User / CLI                          │
+└──────────────┬───────────────────────────┬───────────────┘
+               │                           │
+    ┌──────────▼──────────┐     ┌──────────▼──────────┐
+    │   Engine (.agents/)       │     │  Dashboard (Py+JS)  │
+    │                     │     │                     │
+    │  Invoke-Agent.ps1   │     │  FastAPI backend    │
+    │  Build-PlanningDAG.ps1      │◄───►│  Next.js frontend   │
+    │  New-WarRoom.ps1    │     │  SSE streaming      │
+    │  Resolve-*.ps1      │     │                     │
+    └──────────┬──────────┘     └──────────┬──────────┘
+               │                           │
+    ┌──────────▼───────────────────────────▼──────────┐
+    │              Filesystem (.agents/)               │
+    │  plans/ war-rooms/ roles/ skills/ ledger.jsonl   │
+    └──────────┬───────────────────────────┬──────────┘
+               │                           │
+    ┌──────────▼──────────┐     ┌──────────▼──────────┐
+    │  MCP Servers (Py)   │     │     Bot (TS)        │
+    │                     │     │                     │
+    │  memory server      │     │  Discord adapter    │
+    │  warroom server     │     │  Telegram adapter   │
+    │  dashboard server   │     │  Slack adapter      │
+    │  skills server      │     │                     │
+    └─────────────────────┘     └─────────────────────┘
+```
+
+## Subsystem 1: Engine (PowerShell)
+
+The engine is the orchestration core. Written in PowerShell, it manages plan execution, agent invocation, and lifecycle enforcement.
+
+### Key Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `roles/_base/Invoke-Agent.ps1` | Universal agent runner -- assembles prompt, resolves role/skills/MCP, launches LLM session |
+| `plan/Build-PlanningDAG.ps1` | Kahn's algorithm -- converts epic dependencies into executable waves |
+| `war-rooms/New-WarRoom.ps1` | War-room scaffolding -- creates directory structure, config, lifecycle |
+| `plan/Start-Plan.ps1` | Wave resolution -- determines which epics can execute next |
+| `roles/_base/Resolve-Role.ps1` | 5-tier role discovery |
+| `roles/_base/Resolve-RoleSkills.ps1` | 3-tier skill resolution with union merge |
+| `mcp/config_resolver.py` | 4-tier MCP configuration merge |
+| `war-rooms/Get-WarRoomStatus.ps1` | Lifecycle transition with validation |
+| `plan/Start-Plan.ps1` | Timeout enforcement loop |
+| `roles/_base/New-DynamicRole.ps1` | Dynamic role creation |
+| `plan/Start-Plan.ps1` | Plan review orchestration and DAG generation |
+
+:::note[Why PowerShell?]
+PowerShell provides native JSON handling, cross-platform support (runs on macOS, Linux, Windows via PowerShell Core), pipeline composition, and robust error handling. It also integrates cleanly with both Python (MCP servers) and Node.js (dashboard) processes.
+:::
+
+### Engine Responsibilities
+
+- Parse `PLAN.md` and build the DAG
+- Create war-rooms for each wave of epics
+- Invoke agents in the correct sequence within each room
+- Monitor timeouts and enforce lifecycle transitions
+- Handle retries and escalations
+- Coordinate cross-room memory injection
+
+## Subsystem 2: Dashboard (FastAPI + Next.js)
+
+The dashboard provides real-time visibility into plan execution.
+
+### Backend (FastAPI)
+
+The Python backend exposes REST and SSE endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/plans` | GET | List all plans with status |
+| `/api/plans/{id}/dag` | GET | DAG visualization data |
+| `/api/rooms` | GET | List all war-rooms with current state |
+| `/api/rooms/{id}/channel` | GET | Read room's message channel |
+| `/api/rooms/{id}/progress` | GET | Current progress snapshot |
+| `/api/stream` | SSE | Real-time updates for all rooms |
+| `/api/search` | POST | Semantic search across memories |
+| `/api/stats` | GET | Aggregate statistics |
+
+### Frontend (Next.js)
+
+The Next.js frontend renders:
+
+- **Plan overview** -- DAG visualization with wave grouping
+- **War-room dashboard** -- grid of active rooms with status badges
+- **Room detail** -- channel messages, progress bars, artifact list
+- **Memory explorer** -- search and browse the shared ledger
+- **Settings** -- role registry, skill index, MCP configuration
+
+### Features
+
+- Real-time updates via SSE (no polling)
+- DAG rendered as an interactive graph
+- Channel messages displayed as a chat timeline
+- Progress bars driven by `progress.json` from each room
+- Error highlighting with escalation status
+
+## Subsystem 3: Bot (TypeScript)
+
+The bot subsystem provides chat platform integrations for human interaction with OSTwin.
+
+| Platform | Adapter | Status |
+|----------|---------|--------|
+| Discord | `bot/discord/` | Production |
+| Telegram | `bot/telegram/` | Production |
+| Slack | `bot/slack/` | Beta |
+
+The bot enables users to:
+
+- Start plans from chat messages
+- Monitor room progress in real-time
+- Receive alerts on failures and escalations
+- Override lifecycle states manually
+- Query the memory ledger via natural language
+
+## Subsystem 4: MCP Servers (Python)
+
+Four Python-based MCP servers provide tool interfaces for agents:
+
+| Server | Module | Key Tools |
+|--------|--------|-----------|
+| **Memory** | `.agents/mcp/global-memory-server.py` | `publish`, `query`, `search`, `get_context`, `list_memories` |
+| **War-Room** | `.agents/mcp/warroom-server.py` | `post_message`, `read_messages`, `get_latest`, `update_status`, `report_progress`, `list_artifacts` |
+| **Channel** | `.agents/mcp/channel-server.py` | `post_message`, `read_messages`, `get_latest` |
+| **Knowledge** | `.agents/mcp/global-knowledge-server.py` | `search_knowledge`, `read_knowledge` |
+
+Each server runs as a separate process, launched by `roles/_base/Invoke-Agent.ps1` with room-specific arguments. Servers communicate with agents over stdio using the MCP protocol.
+
+:::tip[Process Isolation]
+Each MCP server process is isolated. A crash in the memory server doesn't affect the war-room server. The engine detects crashed servers and can restart them without interrupting the agent session.
+:::
+
+## Filesystem as Coordination Layer
+
+The filesystem is OSTwin's coordination backbone. All state is stored as files:
+
+| File/Directory | Purpose | Format |
+|----------------|---------|--------|
+| `.agents/plans/*/PLAN.md` | Plan definitions | Markdown |
+| `.agents/plans/*/DAG.json` | Dependency graphs | JSON |
+| `.agents/war-rooms/*/config.json` | Room contracts | JSON |
+| `.agents/war-rooms/*/channel.jsonl` | Message channels | JSON Lines |
+| `.agents/war-rooms/*/status.txt` | Current lifecycle state | Plain text |
+| `.agents/war-rooms/*/progress.json` | Completion tracking | JSON |
+| `.agents/war-rooms/*/lifecycle.json` | State machine definition | JSON |
+| `.agents/ledger.jsonl` | Shared memory | JSON Lines |
+| `.agents/roles/*/role.json` | Role configurations | JSON |
+| `.agents/skills/*/SKILL.md` | Skill definitions | Markdown |
+| `.agents/roles/registry.json` | Role catalog | JSON |
+| `.agents/vault.json` | Secrets (gitignored) | JSON |
+
+### Why Filesystem?
+
+:::note[Design Decision]
+OSTwin chose the filesystem over a database or message broker for five reasons:
+
+1. **Inspectability** -- debug with `ls`, `cat`, `grep`, not SQL queries
+2. **Portability** -- copy a `.agents/` directory to reproduce any state
+3. **Version control** -- git tracks every state change automatically
+4. **Simplicity** -- no database migrations, no broker configuration
+5. **Resilience** -- no single point of failure; files survive process crashes
+:::
+
+The tradeoff is that concurrent writes require file locking (handled by `fcntl.LOCK_EX` in MCP servers) and cross-machine coordination requires shared filesystem access or synchronization.
+
+## Concurrency Model
+
+| Component | Concurrency | Mechanism |
+|-----------|------------|-----------|
+| War-rooms | Up to 50 parallel | Wave-based scheduling from DAG |
+| Agents within a room | Sequential | Manager orchestrates turn order |
+| MCP servers | 1 per agent session | Process-per-session isolation |
+| Channel writes | Serialized | fcntl.LOCK_EX file locking |
+| Ledger writes | Serialized | fcntl.LOCK_EX file locking |
+| Dashboard reads | Concurrent | Read-only polling, no locks needed |
+| Bot commands | Queued | Event loop with sequential dispatch |
+
+:::caution[Sequential Agent Turns]
+Agents within a single war-room do not run concurrently. The manager invokes engineer, waits for completion, then invokes QA. This is intentional -- concurrent agents in the same room would create race conditions on shared files.
+:::
+
+## Data Flow
+
+```
+User Input
+    │
+    ▼
+PLAN.md ──► Build-PlanningDAG.ps1 ──► DAG.json
+                                  │
+                                  ▼
+                           Start-Plan.ps1
+                                  │
+                                  ▼
+                           New-WarRoom.ps1 ──► room directories
+                                  │
+                                  ▼
+                           Invoke-Agent.ps1
+                            │         │
+                     ┌──────┘         └──────┐
+                     ▼                       ▼
+              LLM Session              MCP Servers
+                     │                       │
+                     ├── channel.jsonl ◄──────┤
+                     ├── artifacts/ ──────────┤
+                     ├── progress.json ◄──────┤
+                     └── ledger.jsonl ◄───────┘
+                                  │
+                                  ▼
+                           Dashboard (SSE)
+                                  │
+                                  ▼
+                           Next.js Frontend
+```
+
+## Key Source Locations
+
+| Directory | Language | Purpose |
+|-----------|----------|---------|
+| `.agents/` | PowerShell | Orchestration scripts |
+| `.agents/mcp/` | Python | MCP server implementations |
+| `dashboard/api/` | Python (FastAPI) | REST + SSE backend |
+| `dashboard/web/` | TypeScript (Next.js) | Frontend application |
+| `bot/` | TypeScript | Chat platform adapters |
+| `.agents/` | Config files | Runtime state and configuration |
+| `.agents/roles/` | JSON + Markdown | Role definitions |
+| `.agents/skills/` | Markdown | Skill documents |
+| `.agents/plans/` | Mixed | Plan files and DAGs |
+| `.agents/war-rooms/` | Mixed | Room state and artifacts |
+
+:::tip[Getting Started]
+To understand the system, start with `.agents/roles/_base/Invoke-Agent.ps1` -- it is the single entry point that ties all four subsystems together. Every agent invocation flows through this script, making it the best place to trace the complete execution path.
+:::

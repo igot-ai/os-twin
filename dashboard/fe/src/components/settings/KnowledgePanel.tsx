@@ -23,13 +23,11 @@ interface BackendOption {
 }
 
 const LLM_BACKENDS: BackendOption[] = [
-  { value: '',          label: '— Use server default —', description: 'Uses env-var / hardcoded default', icon: 'settings' },
   { value: 'ollama',    label: 'Ollama (Local)',          description: 'Local Ollama server', icon: 'dns' },
   { value: 'openai-compatible', label: 'OpenAI-Compatible', description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
-  { value: '',                    label: '— Use server default —',     description: 'Uses env-var / hardcoded default', icon: 'settings' },
   { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
   { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
@@ -126,7 +124,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         const { apiGet } = await import('@/lib/api-client');
         const data = await apiGet<{ models: { raw_name: string; display_name: string; is_embed: boolean }[] }>('/settings/ollama/models');
         setOllamaModels(data.models || []);
-      } catch (err) {
+      } catch {
         setOllamaModels([]);
       }
     };
@@ -147,7 +145,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           ...prev,
           [model]: { ...prev[model], ...data, pulling: prev[model]?.pulling || false },
         }));
-      } catch (err) {
+      } catch {
         setOllamaHealth((prev) => ({
           ...prev,
           [model]: { running: false, model_exists: false, pulling: false, progress: 'Could not connect to backend to check Ollama status.' },
@@ -201,7 +199,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 [model]: { ...prev[model], progress: msg },
               }));
             }
-          } catch (e) {
+          } catch {
             // parse error
           }
         }
@@ -321,8 +319,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     [allModels],
   );
 
-  const flashSavedMessage = (msg: string, isError = false, ttl = 1800) => {
-    // Legacy function, no-op since we removed auto-save toasts
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const flashSavedMessage = (_msg: string, _isError = false, _ttl = 1800) => {
   };
 
   const save = async (patch: Partial<KnowledgeSettings>) => {
@@ -444,6 +442,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                           <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                             Local
                           </span>
+                        )}
+                        {b.requiresKey === undefined && b.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
@@ -611,6 +612,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                           <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                             Local
                           </span>
+                        )}
+                        {b.requiresKey === undefined && b.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{b.description}</p>

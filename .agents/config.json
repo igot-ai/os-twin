@@ -33,11 +33,11 @@
     "max_concurrent_rooms": 9999
   },
   "knowledge": {
-    "knowledge_llm_model": "google-vertex/gemini-3.1-flash-lite-preview",
-    "knowledge_embedding_model": "leoipulsar/harrier-0.6b",
+    "knowledge_llm_model": "",
+    "knowledge_embedding_model": "gemini-embedding-001",
     "knowledge_embedding_dimension": 1024,
-    "knowledge_llm_backend": "openai-compatible",
-    "knowledge_embedding_backend": "ollama"
+    "knowledge_llm_backend": "",
+    "knowledge_embedding_backend": "gemini"
   },
   "providers": {
     "openai": null,

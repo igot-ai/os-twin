@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Room(BaseModel):
@@ -264,8 +264,12 @@ class RoleSettings(BaseModel):
 
 
 class RuntimeSettings(BaseModel):
-    poll_interval: int = Field(default=5, ge=1, le=300)
+    model_config = ConfigDict(extra="forbid")
+
+    poll_interval_seconds: int = Field(default=5, ge=1, le=300)
     max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
+    max_engineer_retries: int = Field(default=3, ge=0, le=100)
+    state_timeout_seconds: int = Field(default=900, ge=1, le=86400)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
     # Master agent default model — format: "provider/model_id" or plain "model_id".

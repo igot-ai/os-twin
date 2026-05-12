@@ -52,37 +52,28 @@ export default function PlanKnowledgeTab() {
   
   // Track whether we've attempted auto-create (prevents infinite loops)
   const hasAttemptedCreate = useRef(false);
-  
-  // Track if namespace is ready (exists or was created)
-  const [isNamespaceReady, setIsNamespaceReady] = useState(false);
+  const [creationDone, setCreationDone] = useState(false);
   
   // Fetch namespaces to check if plan namespace exists
-  const { namespaces, isLoading, createNamespace, refresh } = useKnowledgeNamespaces();
+  const { namespaces, isLoading, createNamespace } = useKnowledgeNamespaces();
+
+  // Derive namespace readiness without setState in effect
+  const namespaceExists = !isLoading && namespaces?.some(ns => ns.name === namespaceName);
+  const isNamespaceReady = namespaceExists || creationDone;
   
   // Auto-create namespace if it doesn't exist (lazy creation)
   useEffect(() => {
-    // Skip if still loading or already attempted
-    if (isLoading || hasAttemptedCreate.current) return;
+    if (isLoading || hasAttemptedCreate.current || namespaceExists) return;
     
-    // Check if namespace already exists
-    const namespaceExists = namespaces?.some(ns => ns.name === namespaceName);
-    
-    if (namespaceExists) {
-      setIsNamespaceReady(true);
-      return;
-    }
-    
-    // Mark as attempted to prevent race conditions
     hasAttemptedCreate.current = true;
     
-    // Create the namespace
     const createPlanNamespace = async () => {
       try {
         await createNamespace({
           name: namespaceName,
           description: `Knowledge for plan ${planId}`,
         });
-        setIsNamespaceReady(true);
+        setCreationDone(true);
         addToast({
           type: 'success',
           title: 'Namespace Created',
@@ -90,10 +81,8 @@ export default function PlanKnowledgeTab() {
           autoDismiss: true,
         });
       } catch (err) {
-        // Log error but don't block the UI - user can still use other namespaces
         console.error('Failed to create plan namespace:', err);
-        // Still mark as ready so the UI doesn't hang
-        setIsNamespaceReady(true);
+        setCreationDone(true);
         addToast({
           type: 'warning',
           title: 'Namespace Creation Failed',
@@ -104,7 +93,7 @@ export default function PlanKnowledgeTab() {
     };
     
     createPlanNamespace();
-  }, [namespaces, isLoading, namespaceName, planId, createNamespace, addToast]);
+  }, [isLoading, namespaceExists, namespaceName, planId, createNamespace, addToast]);
   
   // Handle clicking a memory note from the BacklinkBadge - switch to Memory tab
   const handleNoteClick = useCallback((noteId: string) => {
