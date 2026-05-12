@@ -308,11 +308,9 @@ class MemorySettings(BaseModel):
     pool_eviction_policy: str = "lru"  # lru | oldest | none
     pool_sync_interval_s: int = 60  # per-slot sync interval
 
-    # -- Legacy compat (read by agentic_memory/config.py, will be removed) --
-    llm_backend: str = ""
-    llm_model: str = ""
-    embedding_backend: str = ""
-    embedding_model: str = ""
+    # -- Embedding (memory-specific, overrides knowledge embedding if set) --
+    embedding_provider: str = ""  # gemini | vertex | ollama | sentence-transformers
+    embedding_model: str = ""  # e.g. gemini-embedding-001 (empty = use knowledge config)
 
 
 class ChannelPlatformSettings(BaseModel):

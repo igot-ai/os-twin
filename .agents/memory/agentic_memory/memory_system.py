@@ -101,6 +101,7 @@ class AgenticMemorySystem:
         # Load dashboard config first so we use the user's configured defaults
         # rather than hardcoded fallbacks.
         from .config import load_config
+
         try:
             cfg = load_config()
         except Exception:
@@ -108,17 +109,33 @@ class AgenticMemorySystem:
 
         # Resolve embedding settings: explicit arg > dashboard config > hardcoded default
         if cfg is not None:
-            self.model_name = model_name if model_name is not None else cfg.embedding.model
-            self.embedding_backend = embedding_backend if embedding_backend is not None else cfg.embedding.backend
-            self.vector_backend = vector_backend if vector_backend is not None else cfg.vector.backend
+            self.model_name = (
+                model_name if model_name is not None else cfg.embedding.model
+            )
+            self.embedding_backend = (
+                embedding_backend
+                if embedding_backend is not None
+                else cfg.embedding.backend
+            )
+            self.vector_backend = (
+                vector_backend if vector_backend is not None else cfg.vector.backend
+            )
             _llm_backend = llm_backend if llm_backend is not None else cfg.llm.backend
             _llm_model = llm_model if llm_model is not None else cfg.llm.model
         else:
-            self.model_name = model_name if model_name is not None else "gemini-embedding-001"
-            self.embedding_backend = embedding_backend if embedding_backend is not None else "gemini"
-            self.vector_backend = vector_backend if vector_backend is not None else "zvec"
+            self.model_name = (
+                model_name if model_name is not None else "gemini-embedding-001"
+            )
+            self.embedding_backend = (
+                embedding_backend if embedding_backend is not None else "gemini"
+            )
+            self.vector_backend = (
+                vector_backend if vector_backend is not None else "zvec"
+            )
             _llm_backend = llm_backend if llm_backend is not None else "gemini"
-            _llm_model = llm_model if llm_model is not None else "gemini-3-flash-preview"
+            _llm_model = (
+                llm_model if llm_model is not None else "gemini-3-flash-preview"
+            )
 
         self.memories = {}
         self.persist_dir = persist_dir
@@ -204,10 +221,13 @@ class AgenticMemorySystem:
         if embed_fn is None:
             try:
                 from dashboard.ai import get_embedding as _gw_embed
-                embed_fn = lambda texts: _gw_embed(texts)
+
+                embed_fn = lambda texts: _gw_embed(texts, purpose="memory")
                 logger.info("Using dashboard.ai gateway for embeddings")
             except ImportError:
-                logger.info("dashboard.ai not available — retriever will use internal embedding")
+                logger.info(
+                    "dashboard.ai not available — retriever will use internal embedding"
+                )
 
         if self.vector_backend == "zvec":
             return ZvecRetriever(
@@ -265,7 +285,9 @@ class AgenticMemorySystem:
             old_retriever = self.retriever
             self.retriever = self._create_retriever()
             # Migrate any in-memory data if possible
-            if hasattr(old_retriever, 'collection') and hasattr(self.retriever, 'add_document'):
+            if hasattr(old_retriever, "collection") and hasattr(
+                self.retriever, "add_document"
+            ):
                 try:
                     pass  # Vector data will be rebuilt incrementally on next sync
                 except Exception:

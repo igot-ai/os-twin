@@ -32,6 +32,8 @@ const DEFAULTS = {
   pool_max_instances: 10,
   pool_eviction_policy: 'lru',
   pool_sync_interval_s: 60,
+  embedding_provider: '',
+  embedding_model: '',
 };
 
 export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelProps) {
@@ -107,7 +109,84 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
         </div>
       </section>
 
-      {/* Section 2: Vector Storage */}
+      {/* Section 2: Embedding */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="material-symbols-outlined text-purple-600 text-lg">layers</span>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Embedding</h3>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">embedding_provider / embedding_model</span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Provider selector — matches Knowledge panel style */}
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              Embedding Provider
+            </label>
+            <div className="space-y-1.5">
+              {[
+                { value: '', label: 'Same as Knowledge', description: 'Use the Knowledge embedding config', icon: 'link' },
+                { value: 'gemini', label: 'Gemini', description: 'Google Gemini embedding API', icon: 'auto_awesome' },
+                { value: 'vertex', label: 'Vertex AI', description: 'Google Cloud Vertex AI embeddings', icon: 'cloud' },
+                { value: 'ollama', label: 'Ollama (Local)', description: 'Local Ollama embedding server', icon: 'dns' },
+                { value: 'sentence-transformers', label: 'Sentence Transformers', description: 'Local HuggingFace models', icon: 'memory' },
+              ].map((b) => {
+                const isActive = (effective.embedding_provider || '') === b.value;
+                return (
+                  <button
+                    key={b.value}
+                    type="button"
+                    onClick={() => onUpdate({ embedding_provider: b.value })}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
+                      isActive
+                        ? 'bg-purple-50 border-2 border-purple-500 shadow-sm'
+                        : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
+                    }`}
+                  >
+                    <span className={`material-symbols-outlined text-lg ${isActive ? 'text-purple-600' : 'text-slate-400'}`}>
+                      {b.icon}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-xs font-semibold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>
+                        {b.label}
+                      </span>
+                      <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
+                    </div>
+                    {isActive && (
+                      <span className="material-symbols-outlined text-purple-600 text-sm">check_circle</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Model input */}
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              Embedding Model
+            </label>
+            <div className="bg-white border border-slate-200 rounded-lg p-3">
+              <input
+                type="text"
+                value={effective.embedding_model || ''}
+                onChange={(e) => onUpdate({ embedding_model: e.target.value })}
+                placeholder={effective.embedding_provider ? 'e.g. gemini-embedding-001' : 'Using Knowledge model'}
+                disabled={!effective.embedding_provider}
+                className="w-full px-2 py-1.5 rounded text-xs font-mono disabled:opacity-40"
+                style={inputStyle}
+              />
+              <p className="text-[9px] text-slate-400 mt-2">
+                {effective.embedding_provider
+                  ? 'Model name for the selected provider'
+                  : 'Select a provider to override the Knowledge embedding model'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 3: Vector Storage */}
       <section>
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-emerald-600 text-lg">database</span>
