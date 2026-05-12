@@ -1,5 +1,1 @@
-name = "ostwin-docs"
-compatibility_date = "2025-04-01"
-
-[pages]
-build_output_dir = "dist"
+name = "os-twin"
