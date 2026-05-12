@@ -148,7 +148,6 @@ export function AgentCostsPanel() {
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-lg text-amber-600">payments</span>
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Agent Costs</h3>
-            <span className="text-[9px] text-slate-400">(from OpenCode sessions)</span>
           </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[10px] text-slate-500 cursor-pointer">

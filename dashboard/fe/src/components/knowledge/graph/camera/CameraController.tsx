@@ -16,7 +16,7 @@ interface CameraControllerProps {
 
 const FOCUS_LERP = 0.06;
 
-export default function CameraController({ nodes, width, height, selectedId, is2D = false, simGetIsRunning }: CameraControllerProps) {
+export default function CameraController({ nodes, width, height, is2D = false }: CameraControllerProps) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
   const initialFitDone = useRef(false);
@@ -98,55 +98,17 @@ export default function CameraController({ nodes, width, height, selectedId, is2
     animating.current = true;
   }, [nodes, width, height, is2D, camera]);
 
+  // Only fit the graph to screen on the very first render — then user is free
   useEffect(() => {
     if (nodes.length === 0 || initialFitDone.current) return;
     initialFitDone.current = true;
 
     const timer = setTimeout(() => {
       frameGraph();
-    }, 1500); // Give the 3D layout a bit more time to spread out on initial load
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [nodes.length, frameGraph]);
-
-  useEffect(() => {
-    if (!selectedId) return;
-
-    const node = nodes.find(n => n.id === selectedId);
-    if (!node || node.x == null || node.y == null || node.z == null) return;
-
-    const nx = node.x;
-    const ny = -(node.y);
-    const nz = node.z;
-    const roleScale = node.roleScale ?? 1.0;
-    
-    const degree = node.degree ?? 0;
-    const rawSize = degree > 0 ? degree * 10 : 5;
-    const base = rawSize * 25;
-    const scale = base * roleScale;
-    const focusDist = is2D ? 0 : Math.max(40, scale * 6);
-
-    if (is2D) {
-      targetPosition.current = new THREE.Vector3(nx, ny, 1000);
-    } else {
-      const dir = new THREE.Vector3(nx, ny, nz);
-      if (dir.length() < 0.001) dir.set(0, 0, 1);
-      dir.normalize();
-      targetPosition.current = new THREE.Vector3(
-        nx + dir.x * focusDist,
-        ny + dir.y * focusDist,
-        nz + dir.z * focusDist
-      );
-    }
-    targetLookAt.current.set(nx, ny, nz);
-
-    if (controlsRef.current) {
-      controlsRef.current.target.set(nx, ny, nz);
-      controlsRef.current.update();
-    }
-
-    animating.current = true;
-  }, [selectedId, nodes, is2D]);
 
   useFrame((state) => {
     if (is2D) {
