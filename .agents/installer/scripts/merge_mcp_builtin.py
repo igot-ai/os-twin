@@ -33,6 +33,21 @@ def merge_builtin(cfg_path: str, builtin_path: str) -> None:
         if not isinstance(existing, dict) or not isinstance(server, dict):
             continue
 
+        # Update transport type when builtin changes it (e.g. stdio → HTTP)
+        if "type" in server and existing.get("type") != server["type"]:
+            cfg_servers[name] = server
+            updated.append(f"{name} (type: {existing.get('type')} → {server['type']})")
+            continue
+
+        # Update URL when builtin changes it
+        if "url" in server and existing.get("url") != server.get("url"):
+            existing["url"] = server["url"]
+            # Also update headers if builtin has them
+            if "headers" in server:
+                existing["headers"] = server["headers"]
+            updated.append(f"{name} (url)")
+            continue
+
         if "environment" in server:
             env = existing.get("environment")
             if not isinstance(env, dict):

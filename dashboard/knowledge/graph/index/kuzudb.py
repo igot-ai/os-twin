@@ -1023,16 +1023,22 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
 
     def add_nodes(self, nodes: List[LabelledNode]) -> None:
         """Bulk insert nodes for better performance."""
+        import time as _time
+
         if not nodes:
             return
 
-        # Use batch processing for better performance
-        # Reduced batch size to prevent memory issues with large embedding models
-        batch_size = 25  # Reduced from 100 to 25
+        t0 = _time.monotonic()
+        batch_size = 25
         for i in range(0, len(nodes), batch_size):
             batch = nodes[i : i + batch_size]
             for node in batch:
                 self.add_node(node)
+        dt = _time.monotonic() - t0
+        logger.info(
+            "[TRACE] kuzu/add_nodes: %.3fs, %d nodes",
+            dt, len(nodes),
+        )
 
     def _from_record_to_node(self, record: Dict[str, Any], load_entity: str = None) -> LabelledNode:
         """Convert a Kuzu record to a LabelledNode."""
@@ -1098,7 +1104,10 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
     @kuzu_retry_decorator
     def add_relation(self, relation: Relation) -> None:
         """Add a relation between two nodes."""
+        import time as _time
+
         conn = self.connection
+        t0 = _time.monotonic()
         try:
             # Convert properties to JSON string
             properties_json = json.dumps(relation.properties) if relation.properties else "{}"
@@ -1124,9 +1133,15 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                     "ws_id": self.ws_id,
                 },
             )
+            dt = _time.monotonic() - t0
+            logger.debug(
+                "[TRACE] kuzu/add_relation: %.3fs, %s -[%s]-> %s",
+                dt, relation.source_id, relation.label, relation.target_id,
+            )
 
         except Exception as e:
-            logger.error(f"Failed to add relation: {e}")
+            dt = _time.monotonic() - t0
+            logger.error("Failed to add relation (%.3fs): %s", dt, e)
 
     @kuzu_retry_decorator
     def add_triplet(self, triplet: Triplet) -> None:

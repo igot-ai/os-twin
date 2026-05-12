@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+from copy import deepcopy
 
 
 def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
@@ -106,6 +107,23 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
                     resolved_hdrs[k] = v
             _cfg["headers"] = resolved_hdrs
 
+    # Resolve {env:*} in headers (for remote servers like knowledge)
+    for _name, _cfg in validated_mcp.items():
+        _hdrs = _cfg.get("headers")
+        if isinstance(_hdrs, dict):
+            resolved_hdrs = {}
+            for k, v in _hdrs.items():
+                if isinstance(v, str):
+                    v = _env_ref.sub(
+                        lambda m: _env_known.get(
+                            m.group(1), os.environ.get(m.group(1), m.group(0))
+                        ),
+                        v,
+                    )
+                if not (isinstance(v, str) and _env_ref.search(v)):
+                    resolved_hdrs[k] = v
+            _cfg["headers"] = resolved_hdrs
+
     # Build tools deny + agent config:
     #   - Global tools deny: blocks all MCP tools EXCEPT core servers
     #     (channel, warroom, memory are available to ALL agents)
@@ -121,12 +139,17 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
                 existing = json.load(f)
         except (json.JSONDecodeError, ValueError):
             existing = {}
+    original_existing = deepcopy(existing)
 
     # Merge: replace only the managed keys (mcp, tools, agent)
     existing["$schema"] = "https://opencode.ai/config.json"
     existing["mcp"] = validated_mcp
     existing["tools"] = tools_deny
     existing["agent"] = agent_config
+
+    if existing == original_existing:
+        print(f"    OpenCode MCP config already up to date at {opencode_file}")
+        return
 
     with open(opencode_file, "w") as f:
         json.dump(existing, f, indent=2)

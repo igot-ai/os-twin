@@ -1,51 +1,51 @@
 """Centralized configuration for the Agentic Memory system.
 
-Loads defaults from ``config.default.json`` (shipped with the package),
-then lets environment variables override any value.
+Loads defaults from ``config.default.json`` (shipped with the package).
 
-Env-var mapping (all prefixed with ``MEMORY_``):
-    MEMORY_LLM_BACKEND         → config.llm.backend
-    MEMORY_LLM_MODEL           → config.llm.model
-    MEMORY_EMBEDDING_BACKEND   → config.embedding.backend
-    MEMORY_EMBEDDING_MODEL     → config.embedding.model
-    MEMORY_VECTOR_BACKEND      → config.vector.backend
-    MEMORY_SIMILARITY_WEIGHT   → config.search.similarity_weight
-    MEMORY_DECAY_HALF_LIFE     → config.search.decay_half_life_days
-    MEMORY_MAX_LINKS           → config.evolution.max_links
-    MEMORY_CONTEXT_AWARE       → config.evolution.context_aware
-    MEMORY_CONTEXT_AWARE_TREE  → config.evolution.context_aware_tree
-    MEMORY_AUTO_SYNC           → config.sync.auto_sync
-    MEMORY_AUTO_SYNC_INTERVAL  → config.sync.auto_sync_interval
-    MEMORY_DISABLED_TOOLS      → config.disabled_tools (comma-separated)
+Config file resolution order (later wins):
+    1. config.default.json  — bundled package defaults
+    2. <project_root>/.agents/config.json  — project-level settings
+    3. ~/.ostwin/.agents/config.json  — user-level dashboard settings
+
+Note: Environment variable overrides have been disabled. All settings will
+be managed via the backend in future versions.
 """
 
 from __future__ import annotations
 
 import json
-import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent
 
 
 @dataclass
 class LLMConfig:
-    backend: str = "ollama"
-    model: str = "llama3.2"
+    """LLM configuration.
+
+    Defaults match ``config.default.json`` so there is a single source of truth.
+    Valid backends: ``"ollama"``, ``"gemini"``, ``"openai"``, ``"openai-compatible"``,
+    ``"anthropic"``, or any provider supported by ``dashboard.llm_client``.
+    """
+    backend: str = "openai-compatible"
+    model: str = "google-vertex/gemini-3-flash-preview"
 
 
 @dataclass
 class EmbeddingConfig:
     """Embedding configuration.
 
-    Valid backends: ``"ollama"``, ``"gemini"``, ``"openai-compatible"``,
-    ``"vertex"``.
+    Defaults match ``config.default.json`` so there is a single source of truth.
+    Valid backends: ``"ollama"``, ``"gemini"``, ``"openai-compatible"``.
     """
 
-    backend: str = "ollama"
-    model: str = "leoipulsar/harrier-0.6b"
+    backend: str = "openai-compatible"
+    model: str = "gemini-embedding-2"
 
 
 @dataclass
@@ -93,51 +93,42 @@ def _load_json_defaults() -> dict:
     return {}
 
 
-def _env_str(key: str, default: str) -> str:
-    return os.getenv(key, default)
 
 
-def _env_float(key: str, default: float) -> float:
-    val = os.getenv(key)
-    return float(val) if val is not None else default
 
-
-def _env_int(key: str, default: int) -> int:
-    val = os.getenv(key)
-    return int(val) if val is not None else default
-
-
-def _env_bool(key: str, default: bool) -> bool:
-    val = os.getenv(key)
-    if val is None:
-        return default
-    return val.lower() in ("true", "1", "yes")
-
-
-def _load_system_settings() -> dict:
-    """Load memory settings from the dashboard's system config.
-
-    The dashboard writes user-configured memory settings (backend, model, etc.)
-    into ``~/.ostwin/.agents/config.json`` under the ``memory`` key using a
-    **flat** schema::
-
-        { "memory": { "llm_backend": "ollama", "llm_model": "...", ... } }
-
-    This function reads that file fresh on every call so the MCP server always
-    reflects the latest dashboard settings without a restart.
-
-    Returns a nested dict matching the shape of ``config.default.json`` so it
-    can be merged directly into the defaults dict.
+def _find_project_root() -> Optional[Path]:
+    """Find the project root by looking for .git or .agents directory.
+    
+    Walks up from current working directory to find the project root.
+    Returns None if no project root is found.
     """
-    config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    cwd = Path.cwd()
+    for parent in [cwd] + list(cwd.parents):
+        if (parent / ".git").exists() or (parent / ".agents").exists():
+            return parent
+    return None
+
+
+def _load_json_config(config_path: Path) -> dict:
+    """Load and parse a JSON config file, returning empty dict on failure."""
     if not config_path.exists():
         return {}
     try:
         with open(config_path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-    except (json.JSONDecodeError, OSError):
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.debug("Failed to load config from %s: %s", config_path, e)
         return {}
 
+
+def _extract_memory_settings(raw: dict) -> dict:
+    """Extract and map memory settings from a flat config schema.
+    
+    The config has a flat ``memory`` key with settings like:
+        { "memory": { "llm_backend": "ollama", "llm_model": "...", ... } }
+    
+    Returns a nested dict matching the shape of ``config.default.json``.
+    """
     flat = raw.get("memory", {})
     if not isinstance(flat, dict) or not flat:
         return {}
@@ -163,30 +154,93 @@ def _load_system_settings() -> dict:
 
     if "context_aware" in flat:
         result.setdefault("evolution", {})["context_aware"] = flat["context_aware"]
+    if "context_aware_tree" in flat:
+        result.setdefault("evolution", {})["context_aware_tree"] = flat["context_aware_tree"]
+    if "max_links" in flat:
+        result.setdefault("evolution", {})["max_links"] = int(flat["max_links"])
+
     if "auto_sync" in flat:
         result.setdefault("sync", {})["auto_sync"] = flat["auto_sync"]
-    if "auto_sync_interval" in flat:
-        result.setdefault("sync", {})["auto_sync_interval"] = flat["auto_sync_interval"]
-    if "ttl_days" in flat:
-        result.setdefault("search", {})["decay_half_life_days"] = float(flat["ttl_days"])
+    # Accept both old name (auto_sync_interval) and new name (sync_interval_s)
+    sync_interval = flat.get("sync_interval_s") or flat.get("auto_sync_interval")
+    if sync_interval is not None:
+        result.setdefault("sync", {})["auto_sync_interval"] = int(sync_interval)
+    if "conflict_resolution" in flat:
+        result.setdefault("sync", {})["conflict_resolution"] = flat["conflict_resolution"]
+
+    # Accept both old name (ttl_days) and new name (decay_half_life_days)
+    decay = flat.get("decay_half_life_days") or flat.get("ttl_days")
+    if decay is not None:
+        result.setdefault("search", {})["decay_half_life_days"] = float(decay)
+    if "similarity_weight" in flat:
+        result.setdefault("search", {})["similarity_weight"] = float(flat["similarity_weight"])
+
+    # Pool settings — passed through to pool_config.py
+    pool = {}
+    if "pool_idle_timeout_s" in flat:
+        pool["idle_timeout_s"] = int(flat["pool_idle_timeout_s"])
+    if "pool_max_instances" in flat:
+        pool["max_instances"] = int(flat["pool_max_instances"])
+    if "pool_eviction_policy" in flat:
+        pool["eviction_policy"] = flat["pool_eviction_policy"]
+    if "pool_sync_interval_s" in flat:
+        pool["sync_interval_s"] = int(flat["pool_sync_interval_s"])
+    if pool:
+        result["pool"] = pool
+
+    return result
+
+
+def _load_system_settings() -> dict:
+    """Load memory settings from dashboard/system config files.
+
+    Resolution order (later wins):
+      1. Project-level config: ``<project_root>/.agents/config.json``
+      2. User-level config: ``~/.ostwin/.agents/config.json`` (dashboard UI settings)
+
+    This function reads files fresh on every call so the MCP server always
+    reflects the latest configuration without a restart.
+
+    Returns a nested dict matching the shape of ``config.default.json`` so it
+    can be merged directly into the defaults dict.
+    """
+    result: dict = {}
+    
+    # Layer 1: Project-level config (if running in a project context)
+    project_root = _find_project_root()
+    if project_root:
+        project_config_path = project_root / ".agents" / "config.json"
+        project_raw = _load_json_config(project_config_path)
+        project_settings = _extract_memory_settings(project_raw)
+        for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+            if section_key in project_settings:
+                result.setdefault(section_key, {}).update(project_settings[section_key])
+    
+    # Layer 2: User-level config (dashboard settings)
+    user_config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    user_raw = _load_json_config(user_config_path)
+    user_settings = _extract_memory_settings(user_raw)
+    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+        if section_key in user_settings:
+            result.setdefault(section_key, {}).update(user_settings[section_key])
 
     return result
 
 
 def load_config() -> MemoryConfig:
-    """Build a MemoryConfig by merging: defaults file → system settings → env vars.
+    """Build a MemoryConfig by merging multiple config sources.
 
     Resolution order (later wins):
       1. ``config.default.json``  — bundled package defaults
-      2. ``~/.ostwin/.agents/config.json``  — dashboard / UI settings
-      3. ``MEMORY_*`` environment variables  — explicit overrides
+      2. ``<project_root>/.agents/config.json``  — project-level settings
+      3. ``~/.ostwin/.agents/config.json``  — user-level dashboard settings
 
-    The system settings file is re-read on every call so the MCP server always
-    reflects the latest dashboard configuration.
+    All config files are re-read on every call so the MCP server always
+    reflects the latest configuration without a restart.
     """
     d = _load_json_defaults()
 
-    # Layer 2: merge dashboard system settings on top of defaults
+    # Layer 2 & 3: merge project and user settings on top of defaults
     sys_settings = _load_system_settings()
     for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
         if section_key in sys_settings:
@@ -201,69 +255,31 @@ def load_config() -> MemoryConfig:
 
     config = MemoryConfig(
         llm=LLMConfig(
-            backend=_env_str("MEMORY_LLM_BACKEND", llm_d.get("backend", "ollama")),
-            model=_env_str(
-                "MEMORY_LLM_MODEL", llm_d.get("model", "llama3.2")
-            ),
+            backend=llm_d.get("backend", "gemini"),
+            model=llm_d.get("model", "gemini-3-flash-preview"),
         ),
         embedding=EmbeddingConfig(
-            backend=_env_str(
-                "MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "ollama")
-            ),
-            model=_env_str(
-                "MEMORY_EMBEDDING_MODEL",
-                embedding_d.get("model", "leoipulsar/harrier-0.6b"),
-            ),
+            backend=embedding_d.get("backend", "gemini"),
+            model=embedding_d.get("model", "gemini-embedding-001"),
         ),
         vector=VectorConfig(
-            backend=_env_str("MEMORY_VECTOR_BACKEND", vector_d.get("backend", "zvec")),
+            backend=vector_d.get("backend", "zvec"),
         ),
         search=SearchConfig(
-            similarity_weight=_env_float(
-                "MEMORY_SIMILARITY_WEIGHT",
-                search_d.get("similarity_weight", 0.8),
-            ),
-            decay_half_life_days=_env_float(
-                "MEMORY_DECAY_HALF_LIFE",
-                search_d.get("decay_half_life_days", 30.0),
-            ),
+            similarity_weight=search_d.get("similarity_weight", 0.8),
+            decay_half_life_days=search_d.get("decay_half_life_days", 30.0),
         ),
         evolution=EvolutionConfig(
-            max_links=_env_int(
-                "MEMORY_MAX_LINKS",
-                evo_d.get("max_links", 3),
-            ),
-            context_aware=_env_bool(
-                "MEMORY_CONTEXT_AWARE",
-                evo_d.get("context_aware", True),
-            ),
-            context_aware_tree=_env_bool(
-                "MEMORY_CONTEXT_AWARE_TREE",
-                evo_d.get("context_aware_tree", False),
-            ),
+            max_links=evo_d.get("max_links", 3),
+            context_aware=evo_d.get("context_aware", True),
+            context_aware_tree=evo_d.get("context_aware_tree", False),
         ),
         sync=SyncConfig(
-            auto_sync=_env_bool(
-                "MEMORY_AUTO_SYNC",
-                sync_d.get("auto_sync", True),
-            ),
-            auto_sync_interval=_env_int(
-                "MEMORY_AUTO_SYNC_INTERVAL",
-                sync_d.get("auto_sync_interval", 60),
-            ),
-            conflict_resolution=_env_str(
-                "MEMORY_CONFLICT_RESOLUTION",
-                sync_d.get("conflict_resolution", "last_modified"),
-            ),
+            auto_sync=sync_d.get("auto_sync", True),
+            auto_sync_interval=sync_d.get("auto_sync_interval", 60),
+            conflict_resolution=sync_d.get("conflict_resolution", "last_modified"),
         ),
-        disabled_tools=_parse_disabled_tools(d),
+        disabled_tools=d.get("disabled_tools", []),
     )
     return config
 
-
-def _parse_disabled_tools(d: dict) -> List[str]:
-    """Parse disabled tools from env var (comma-separated) or JSON default."""
-    env_val = os.getenv("MEMORY_DISABLED_TOOLS")
-    if env_val is not None:
-        return [t.strip() for t in env_val.split(",") if t.strip()]
-    return d.get("disabled_tools", [])

@@ -407,7 +407,18 @@ if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
 if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
 if ($SessionTitle) { $extraCliArgs += "--title"; $extraCliArgs += $SessionTitle }
 if ($SessionId) { $extraCliArgs += "--session"; $extraCliArgs += $SessionId }
-if ($ContinueSession) { $extraCliArgs += "--continue" }
+
+# --- Detect if this is a lifecycle retry ---
+$isLifecycleRetry = $false
+$retriesFile = Join-Path $absRoomDir "retries"
+if (Test-Path $retriesFile) {
+    try { 
+        $roomRetries = [int](Get-Content $retriesFile -Raw).Trim()
+        if ($roomRetries -gt 0) { $isLifecycleRetry = $true }
+    } catch {}
+}
+
+if ($ContinueSession -or $isLifecycleRetry) { $extraCliArgs += "--continue" }
 if ($ForkSession) { $extraCliArgs += "--fork" }
 if ($ShareSession) { $extraCliArgs += "--share" }
 if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
@@ -432,13 +443,19 @@ if (-not $NoMcp -and $ProjectDir) {
 $extraCliArgs += $ExtraArgs
 $extraCliArgs += "--dangerously-skip-permissions"
 
-$argsLine = ($extraCliArgs | ForEach-Object {
-        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-    }) -join ' '
-
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
     $wrapperScript = $null  # Initialize before try block
+
+    $attemptArgs = $extraCliArgs.Clone()
+    if ($processAttempt -gt 1 -and $attemptArgs -notcontains "--continue") {
+        $attemptArgs += "--continue"
+    }
+
+    $argsLine = ($attemptArgs | ForEach-Object {
+            if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+        }) -join ' '
+
     try {
         # Detect if running on Windows
         # NOTE: Cannot use $isWindows because PowerShell is case-insensitive and
@@ -560,9 +577,18 @@ if (Test-Path `$envSh) { . `$envSh }
             
             # Launch PowerShell wrapper
             $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "pwsh"
-            if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
-                $psi.FileName = "powershell"
+            # Resolve absolute path for shell executable to avoid PATH issues
+            $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+            if ($pwshPath) {
+                $psi.FileName = $pwshPath
+            } else {
+                $psPath = (Get-Command powershell -ErrorAction SilentlyContinue).Source
+                if ($psPath) {
+                    $psi.FileName = $psPath
+                } else {
+                    # Fallback to default paths
+                    $psi.FileName = if ($runningOnWindows) { "powershell.exe" } else { "pwsh" }
+                }
             }
             $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$psWrapperScript`""
             $psi.UseShellExecute = $false
@@ -612,7 +638,14 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
             # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
             # (no console to attach to in headless runspace). Direct Process API works.
             $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "bash"
+            # Resolve absolute path for bash to avoid PATH issues in headless processes
+            $bashPath = (Get-Command bash -ErrorAction SilentlyContinue).Source
+            if ($bashPath) {
+                $psi.FileName = $bashPath
+            } else {
+                # Fallback to standard default
+                $psi.FileName = "/bin/bash"
+            }
             $psi.Arguments = "`"$wrapperScript`""
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true

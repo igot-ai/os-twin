@@ -147,12 +147,13 @@ class MemoryPool:
         cfg = load_config()
         from agentic_memory.memory_system import AgenticMemorySystem
 
+        # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
+        # model/provider from MasterSettings. No explicit llm_backend/llm_model
+        # params needed here.
         return AgenticMemorySystem(
             model_name=cfg.embedding.model,
             embedding_backend=cfg.embedding.backend,
             vector_backend=cfg.vector.backend,
-            llm_backend=cfg.llm.backend,
-            llm_model=cfg.llm.model,
             persist_dir=persist_dir,
             context_aware_analysis=cfg.evolution.context_aware,
             context_aware_tree=cfg.evolution.context_aware_tree,

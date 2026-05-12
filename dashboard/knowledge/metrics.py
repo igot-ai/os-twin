@@ -517,6 +517,11 @@ class MetricsRegistry:
         MetricDefinition("llm_errors_total", "counter", "Total number of LLM errors"),
         # Histograms
         MetricDefinition("ingest_latency_seconds", "histogram", "Ingestion latency in seconds"),
+        MetricDefinition("ingest_parse_seconds", "histogram", "Per-file parse (MarkItDown + chunk) latency in seconds"),
+        MetricDefinition("ingest_insert_nodes_seconds", "histogram", "Per-file PropertyGraphIndex.insert_nodes latency in seconds"),
+        MetricDefinition("ingest_embed_seconds", "histogram", "Per-file chunk embedding latency in seconds"),
+        MetricDefinition("ingest_vstore_write_seconds", "histogram", "Per-file vector store write latency in seconds"),
+        MetricDefinition("ingest_extract_and_embed_seconds", "histogram", "Per-file full extract+embed pipeline latency in seconds"),
         MetricDefinition("query_latency_seconds", "histogram", "Query latency in seconds"),
         MetricDefinition("llm_latency_seconds", "histogram", "LLM call latency in seconds"),
         # Gauges

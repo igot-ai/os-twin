@@ -1916,6 +1916,89 @@ Context "PLAN-REVIEW Verdict Logic" {
     }
 
     # ==========================================================================
+    # max_retries resolution chain (NEW: plan.roles.json → config.json → role.json)
+    # ==========================================================================
+    Context "max_retries resolution chain — plan.roles.json priority" {
+        It "Start-ManagerLoop.ps1 resolves max_retries from plan.roles.json when present" {
+            # Static analysis: the manager's default handler must contain the
+            # plan-roles max_retries resolution chain.
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # Must read plan_id from room config.json
+            $content | Should -Match 'rcData\.plan_id' `
+                -Because "max_retries resolution must read plan_id from room config.json"
+
+            # Must construct plan roles file path
+            $content | Should -Match 'planRolesFile' `
+                -Because "max_retries resolution must look up {plan_id}.roles.json"
+
+            # Must read max_retries from plan roles config
+            $content | Should -Match 'planRolesConfig\.\$baseRole\.max_retries' `
+                -Because "per-role max_retries must be read from plan.roles.json"
+        }
+
+        It "Start-ManagerLoop.ps1 falls back to config.json max_retries when plan.roles.json absent" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # The elseif chain must include config.json fallback
+            $content | Should -Match 'elseif \(\$config\.\$baseRole.*max_retries\)' `
+                -Because "when plan.roles.json has no max_retries, config.json must be consulted"
+        }
+
+        It "Start-ManagerLoop.ps1 falls back to role.json max_retries as last config source" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # Must also check role.json
+            $content | Should -Match 'roleJson\.max_retries' `
+                -Because "when neither plan.roles.json nor config.json have max_retries, role.json must be checked"
+        }
+
+        It "Start-ManagerLoop.ps1 uses plan.roles.json max_retries over config.json max_retries (priority order)" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # Plan roles resolution must appear BEFORE config.json resolution
+            $planPos = $content.IndexOf('planRolesConfig.$baseRole.max_retries')
+            $configPos = $content.IndexOf('elseif ($config.$baseRole')
+
+            $planPos | Should -BeGreaterThan 0
+            $configPos | Should -BeGreaterThan 0
+            $planPos | Should -BeLessThan $configPos `
+                -Because "plan.roles.json max_retries must be checked before config.json (higher priority)"
+        }
+
+        It "lifecycle.max_retries still has final override over per-role max_retries" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # The last line must still be: lifecycle.max_retries ?? $roleMaxRetries
+            $content | Should -Match '\$v2MaxRetries = if \(\$lifecycle.*max_retries\).*\$roleMaxRetries' `
+                -Because "lifecycle.max_retries must be the final override, with per-role as fallback"
+        }
+
+        It "OSTWIN_HOME resolution is consistent between Invoke-Agent and ManagerLoop" {
+            # Both scripts must resolve OSTWIN_HOME the same way:
+            # $env:OSTWIN_HOME → Join-Path $HOME ".ostwin"
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $invokeScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+
+            $mgrContent = Get-Content $managerScript -Raw
+            $invContent = Get-Content $invokeScript -Raw
+
+            # Both must have OSTWIN_HOME env var check
+            $mgrContent | Should -Match 'OSTWIN_HOME'
+            $invContent | Should -Match 'OSTWIN_HOME'
+
+            # Both must have the same HOME fallback
+            $mgrContent | Should -Match 'Join-Path \$env:HOME "\.ostwin"|Join-Path \$_homeDir "\.ostwin"'
+            $invContent | Should -Match 'Join-Path \$env:HOME "\.ostwin"|Join-Path \$_homeDir "\.ostwin"'
+        }
+    }
+
+    # ==========================================================================
     # run-agent.ps1 role validation against sample/room-001/lifecycle.json
     # ==========================================================================
     # These tests verify the CONTRACT that run-agent.ps1 content (AGENT_OS_ROLE,

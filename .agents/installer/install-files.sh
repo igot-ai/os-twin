@@ -186,12 +186,14 @@ _migrate_mcp_config() {
 
 _sync_dashboard() {
   local dash_src=""
+  local repo_root=""
   for candidate in \
     "${SOURCE_DIR}/dashboard" \
     "${SCRIPT_DIR}/../dashboard" \
     "${SCRIPT_DIR}/dashboard"; do
     if [[ -n "$candidate" ]] && [[ -f "$candidate/api.py" ]]; then
       dash_src="$(cd "$candidate" && pwd)"
+      repo_root="$(cd "$dash_src/.." && pwd)"
       break
     fi
   done
@@ -210,6 +212,12 @@ _sync_dashboard() {
       --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
       "$dash_src/" "$INSTALL_DIR/dashboard/"
     ok "Dashboard → $INSTALL_DIR/dashboard/"
+
+    # Sync provider_urls.json (dashboard/llm_client.py reads it from $INSTALL_DIR/)
+    if [[ -n "$repo_root" ]] && [[ -f "$repo_root/provider_urls.json" ]]; then
+      cp "$repo_root/provider_urls.json" "$INSTALL_DIR/provider_urls.json"
+      ok "provider_urls.json → $INSTALL_DIR/provider_urls.json"
+    fi
   else
     warn "Dashboard source not found — dashboard/ not updated"
     info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"

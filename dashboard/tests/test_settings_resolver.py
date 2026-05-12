@@ -8,6 +8,7 @@ skill_refs union, vault deref (success + not-found), atomic writes.
 import json
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+from pydantic import ValidationError
 
 from dashboard.lib.settings.resolver import SettingsResolver
 from dashboard.models import MasterSettings
@@ -29,7 +30,7 @@ def temp_project(tmp_path):
             "skill_refs": ["engine-skill"],
         },
         "runtime": {
-            "poll_interval": 10,
+            "poll_interval_seconds": 10,
             "max_concurrent_rooms": 5,
         },
     }
@@ -112,6 +113,7 @@ def test_save_config_atomic(resolver, temp_project):
 def test_get_master_settings(resolver):
     ms = resolver.get_master_settings()
     assert isinstance(ms, MasterSettings)
+    assert ms.runtime.poll_interval_seconds == 10
     assert ms.runtime.max_concurrent_rooms == 5
 
 
@@ -262,13 +264,20 @@ def test_atomic_write_cleanup_on_error(tmp_path):
 def test_patch_namespace(resolver, temp_project):
     resolver.patch_namespace("runtime", {"max_concurrent_rooms": 100})
     cfg = json.loads((temp_project / ".agents" / "config.json").read_text())
-    assert cfg["runtime"]["max_concurrent_rooms"] == 100
+    assert cfg["manager"]["max_concurrent_rooms"] == 100
+    assert "max_concurrent_rooms" not in cfg.get("runtime", {})
+
+
+def test_patch_namespace_rejects_legacy_poll_interval(resolver):
+    with pytest.raises(ValidationError):
+        resolver.patch_namespace("runtime", {"poll_interval": 42})
 
 
 def test_reset_namespace(resolver, temp_project):
     resolver.reset_namespace("runtime")
     cfg = json.loads((temp_project / ".agents" / "config.json").read_text())
     assert "runtime" not in cfg
+    assert "manager" not in cfg
 
 
 def test_patch_plan_role(resolver, temp_project):

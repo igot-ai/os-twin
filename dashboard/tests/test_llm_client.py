@@ -18,6 +18,7 @@ sys.modules["google.genai.types"] = mock_google_types
 from dashboard.llm_client import (
     ToolCall,
     ChatMessage,
+    LLMClient,
     LLMConfig,
     LLMError,
     OpenAIClient,
@@ -440,3 +441,62 @@ class TestProviderUrlsIntegration:
     def test_provider_urls_has_base_url(self):
         for provider, config in PROVIDER_URLS.items():
             assert "base" in config, f"Missing base URL for {provider}"
+
+
+class TestTruncateMessagesThinWrapper:
+    def test_returns_unchanged_when_no_context(self):
+        with patch("openai.AsyncOpenAI") as MockAsyncOpenAI:
+            MockAsyncOpenAI.return_value = MagicMock()
+            client = OpenAIClient(model="gpt-4", api_key="test")
+
+        with patch("dashboard.lib.settings.models_dev_loader.truncate_messages_for_model", return_value=[{"role": "user", "content": "hi"}]):
+            with patch("dashboard.lib.settings.models_dev_loader.get_context_limit", return_value=(0, 0)):
+                msgs = [ChatMessage(role="user", content="hi")]
+                result = client._truncate_messages(msgs)
+        assert len(result) == 1
+        assert result[0].content == "hi"
+
+    def test_preserves_chat_message_fields_on_truncation(self):
+        with patch("openai.AsyncOpenAI") as MockAsyncOpenAI:
+            MockAsyncOpenAI.return_value = MagicMock()
+            client = OpenAIClient(model="gpt-4", api_key="test", provider="openai")
+
+        original = ChatMessage(
+            role="assistant",
+            content="long content that will be trimmed",
+            tool_calls=[ToolCall(id="tc1", name="fn", arguments={"a": 1})],
+            tool_call_id="tc1",
+            name="fn",
+            thought_signature="sig",
+            images=["http://img.png"],
+        )
+        truncated_dicts = [{"role": "assistant", "content": "long content"}]
+
+        with patch("dashboard.lib.settings.models_dev_loader.truncate_messages_for_model", return_value=truncated_dicts):
+            result = client._truncate_messages([original])
+        assert result[0].content == "long content"
+        assert len(result[0].tool_calls) == 1
+        assert result[0].tool_call_id == "tc1"
+        assert result[0].name == "fn"
+        assert result[0].thought_signature == "sig"
+        assert result[0].images == ["http://img.png"]
+
+    def test_returns_same_objects_when_no_change(self):
+        with patch("openai.AsyncOpenAI") as MockAsyncOpenAI:
+            MockAsyncOpenAI.return_value = MagicMock()
+            client = OpenAIClient(model="gpt-4", api_key="test")
+
+        msg = ChatMessage(role="user", content="short")
+        with patch("dashboard.lib.settings.models_dev_loader.truncate_messages_for_model", return_value=[{"role": "user", "content": "short"}]):
+            result = client._truncate_messages([msg])
+        assert result[0] is msg
+
+    def test_exception_returns_original_messages(self):
+        with patch("openai.AsyncOpenAI") as MockAsyncOpenAI:
+            MockAsyncOpenAI.return_value = MagicMock()
+            client = OpenAIClient(model="gpt-4", api_key="test")
+
+        msgs = [ChatMessage(role="user", content="hello")]
+        with patch("dashboard.lib.settings.models_dev_loader.truncate_messages_for_model", side_effect=RuntimeError("boom")):
+            result = client._truncate_messages(msgs)
+        assert result == msgs

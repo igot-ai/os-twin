@@ -147,7 +147,7 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
     if (headerMatch) {
       const level = headerMatch[1].length;
       const text = headerMatch[2];
-      const Tag = `h${Math.min(level + 2, 6)}` as React.ElementType; // Offset because these are usually inside cards
+      const Tag = `h${Math.min(level + 2, 6)}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
       const sizeClasses = [
         '',
         'text-lg font-bold mb-3 mt-5',

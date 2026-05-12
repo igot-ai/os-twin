@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Room(BaseModel):
@@ -68,7 +68,9 @@ class RefineRequest(BaseModel):
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
     asset_context: List[Dict[str, Any]] = Field(default_factory=list)
-    images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
+    images: List[Dict[str, Any]] = Field(
+        default_factory=list
+    )  # [{url: "data:image/...;base64,...", name, contentType}]
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):
@@ -133,15 +135,13 @@ class Role(BaseModel):
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
-    instance_type: str = "worker" # 'worker' | 'evaluator'
+    instance_type: str = "worker"  # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
 
 
 class CreateRoleRequest(BaseModel):
-    name: str = Field(
-        ..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$"
-    )
+    name: str = Field(..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$")
     description: str = Field("", max_length=500)
     instructions: str = ""
     provider: str
@@ -230,16 +230,13 @@ class ProviderSettings(BaseModel):
     org_id: Optional[str] = None
     enabled: bool = True
     default_model: Optional[str] = None
-    deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
-    project_id: Optional[str] = None        # Vertex AI project ID (Google only)
-    vertex_location: Optional[str] = None   # Vertex AI region (Google only, default: global)
+    deployment_mode: Optional[str] = None  # 'gemini' | 'vertex' (Google only)
+    project_id: Optional[str] = None  # Vertex AI project ID (Google only)
+    vertex_location: Optional[str] = None  # Vertex AI region (Google only, default: global)
     vertex_auth_mode: Optional[str] = None  # 'service_account' | 'oauth' (Vertex only, default: service_account)
     enabled_models: List[str] = Field(
         default_factory=list,
-        description=(
-            "List of allowed model IDs. "
-            "If empty, all models from this provider are allowed."
-        ),
+        description=("List of allowed model IDs. If empty, all models from this provider are allowed."),
     )
     dismissed: Optional[bool] = False
 
@@ -267,8 +264,12 @@ class RoleSettings(BaseModel):
 
 
 class RuntimeSettings(BaseModel):
-    poll_interval: int = Field(default=5, ge=1, le=300)
+    model_config = ConfigDict(extra="forbid")
+
+    poll_interval_seconds: int = Field(default=5, ge=1, le=300)
     max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
+    max_engineer_retries: int = Field(default=3, ge=0, le=100)
+    state_timeout_seconds: int = Field(default=900, ge=1, le=86400)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
     # Master agent default model — format: "provider/model_id" or plain "model_id".
@@ -277,21 +278,41 @@ class RuntimeSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    # -- Processing LLM --
-    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
-    llm_model: str = "llama3.2"           # model name (provider-specific)
-    # -- Embedding --
-    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
-    embedding_model: str = "leoipulsar/harrier-0.6b"
+    """Memory system settings.
+
+    LLM and embedding model selection is handled by the AI gateway
+    (``dashboard/ai/`` + Provider Config).  These fields control the
+    memory system's own behaviour, search tuning, and pool management.
+    """
+
     # -- Vector store --
-    vector_backend: str = "zvec"              # zvec | chroma
+    vector_backend: str = "zvec"  # zvec | chroma
+
     # -- Behaviour --
-    context_aware: bool = True                # include similar memories in LLM analysis
-    auto_sync: bool = True                    # periodic disk sync
-    auto_sync_interval: int = 60              # seconds between syncs
-    ttl_days: int = 30                        # auto-delete entries older than N days
-    # Legacy alias — readers should prefer vector_backend
-    vector_store: str = "zvec"
+    context_aware: bool = True  # include similar memories in LLM analysis
+    context_aware_tree: bool = False  # include directory tree in analysis context
+    max_links: int = 3  # max links created per note during evolution
+
+    # -- Search tuning --
+    similarity_weight: float = 0.8  # weight for cosine similarity vs time decay
+    decay_half_life_days: float = 30.0  # older notes rank lower in search
+
+    # -- Sync --
+    auto_sync: bool = True  # periodic disk sync
+    sync_interval_s: int = 60  # seconds between syncs
+    conflict_resolution: str = "last_modified"
+
+    # -- Pool (HTTP transport) --
+    pool_idle_timeout_s: int = 300  # kill slot after N seconds idle
+    pool_max_instances: int = 10  # max concurrent memory systems
+    pool_eviction_policy: str = "lru"  # lru | oldest | none
+    pool_sync_interval_s: int = 60  # per-slot sync interval
+
+    # -- Legacy compat (read by agentic_memory/config.py, will be removed) --
+    llm_backend: str = ""
+    llm_model: str = ""
+    embedding_backend: str = ""
+    embedding_model: str = ""
 
 
 class ChannelPlatformSettings(BaseModel):
@@ -328,18 +349,36 @@ class KnowledgeSettings(BaseModel):
     settings namespace and avoid field-name collisions across namespaces.
 
     Empty strings mean "no override; use the env-var / hardcoded default".
-    ``knowledge_embedding_dimension`` is informational and read-only on the
-    frontend (the actual dim is determined by the embedding model that gets
-    loaded).
+    ``knowledge_embedding_dimension`` is read-only — fixed at startup from
+    ``OSTWIN_EMBEDDING_DIM`` env var.  Changing it dynamically would cause
+    dimension conflicts between memory and knowledge vector collections.
     """
 
     # -- LLM --
-    knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
-    knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
+    knowledge_llm_backend: str = ""  # empty = use config.LLM_PROVIDER
+    knowledge_llm_model: str = ""  # empty = use config.LLM_MODEL
     # -- Embedding --
-    knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
-    knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
-    knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
+    knowledge_embedding_backend: str = ""  # empty = use config.EMBEDDING_PROVIDER
+    knowledge_embedding_model: str = ""  # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 1024  # read-only: reflects OSTWIN_EMBEDDING_DIM
+
+    def model_post_init(self, __context) -> None:
+        """Override embedding dimension with the fixed env-var value."""
+        from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION
+
+        self.knowledge_embedding_dimension = DEFAULT_EMBEDDING_DIMENSION
+
+
+class AISettings(BaseModel):
+    """AI gateway settings — per-purpose model overrides."""
+
+    completion_model: str = ""
+    knowledge_model: str = ""
+    memory_model: str = ""
+    cloud_embedding_model: str = ""
+    local_embedding_model: str = ""
+    timeout_seconds: int = 120
+    max_retries: int = 2
 
 
 class MasterSettings(BaseModel):
@@ -351,6 +390,7 @@ class MasterSettings(BaseModel):
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    ai: AISettings = Field(default_factory=AISettings)
 
 
 class EffectiveResolution(BaseModel):

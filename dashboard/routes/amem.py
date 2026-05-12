@@ -44,13 +44,31 @@ def _resolve_memory_dir(plan_id: str) -> Optional[Path]:
     """Resolve the centralized memory directory for a plan.
 
     Resolution order:
-    1. ~/.ostwin/memory/memory-{plan_id}/  (centralized store, mirrors memory_mcp.py)
-    2. None — callers should raise HTTPException themselves if needed.
+    1. ~/.ostwin/memory/{plan_id}/          (Plan 009 format — no prefix)
+    2. ~/.ostwin/memory/memory-{plan_id}/   (legacy format)
+    3. Plan's working_dir/.memory/          (follows symlink)
+    4. None
     """
-    namespace = f"memory-{plan_id}"
-    centralized = MEMORY_BASE_DIR / namespace
-    if centralized.exists():
-        return centralized
+    # Plan 009: direct plan_id directory
+    direct = MEMORY_BASE_DIR / plan_id
+    if direct.exists():
+        return direct
+    # Legacy: memory-{plan_id} prefix
+    legacy = MEMORY_BASE_DIR / f"memory-{plan_id}"
+    if legacy.exists():
+        return legacy
+    # Fallback: look up plan's working_dir and follow .memory symlink
+    plan_meta = PLANS_DIR / f"{plan_id}.meta.json"
+    if plan_meta.exists():
+        try:
+            meta = json.loads(plan_meta.read_text())
+            wdir = meta.get("working_dir")
+            if wdir:
+                mem_path = Path(wdir) / ".memory"
+                if mem_path.exists():
+                    return mem_path.resolve()
+        except Exception:
+            pass
     return None
 
 
@@ -145,11 +163,7 @@ def _resolve_title(note_name: Optional[str], body: str, md_file: Path) -> str:
     title = (note_name or "").strip()
     if not title:
         h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-        title = (
-            h1.group(1).strip()
-            if h1
-            else md_file.stem.replace("-", " ").replace("_", " ").title()
-        )
+        title = h1.group(1).strip() if h1 else md_file.stem.replace("-", " ").replace("_", " ").title()
     return title
 
 
@@ -177,9 +191,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
 
     body = (note.content or "").strip()
     title = _resolve_title(note.name, body, md_file)
-    category_val = (
-        note.category if note.category and note.category != "Uncategorized" else None
-    )
+    category_val = note.category if note.category and note.category != "Uncategorized" else None
 
     return {
         "id": note.id,
@@ -239,7 +251,8 @@ def _build_graph(notes: list) -> dict:
     note_ids = {n["id"] for n in notes}
 
     for note in notes:
-        path_parts = note["path"].split("/") if note["path"] != "." else ["unfiled"]
+        note_path = note.get("path") or "."
+        path_parts = note_path.split("/") if note_path != "." else ["unfiled"]
         group_key = path_parts[0] if path_parts else "unfiled"
 
         if group_key not in groups:
@@ -303,9 +316,7 @@ def _build_graph(notes: list) -> dict:
 
 
 @router.get("/api/amem/{plan_id}/graph", responses={404: {"description": "Not found"}})
-async def get_memory_graph(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-):
+async def get_memory_graph(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None):
     """Get the memory graph for a plan's project."""
     mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -370,9 +381,7 @@ def _render_graph_png(graph_data: dict) -> bytes:
 
     legend_handles = []
     for group in graph_data["groups"]:
-        legend_handles.append(
-            Patch(facecolor=group["color"], label=group["label"], alpha=0.9)
-        )
+        legend_handles.append(Patch(facecolor=group["color"], label=group["label"], alpha=0.9))
     if legend_handles:
         legend = ax.legend(
             handles=legend_handles,
@@ -405,9 +414,7 @@ def _render_graph_png(graph_data: dict) -> bytes:
     "/api/amem/{plan_id}/graph-image",
     responses={404: {"description": "Not found"}},
 )
-async def get_memory_graph_image(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-):
+async def get_memory_graph_image(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None):
     """Render the memory graph as a PNG image."""
     import asyncio
     import io
@@ -433,9 +440,7 @@ async def get_memory_graph_image(
 
 
 @router.get("/api/amem/{plan_id}/tree", responses={404: {"description": "Not found"}})
-async def get_memory_tree(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+async def get_memory_tree(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a tree-like directory structure of all memory notes."""
     mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -471,9 +476,7 @@ async def get_memory_tree(
 
 
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
-async def list_memory_notes(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> list:
+async def list_memory_notes(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> list:
     """List all memory notes for a plan's project."""
     mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -483,12 +486,8 @@ async def list_memory_notes(
     return notes
 
 
-@router.get(
-    "/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}}
-)
-async def get_memory_note(
-    plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+@router.get("/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}})
+async def get_memory_note(plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a single memory note by ID."""
     mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -500,9 +499,7 @@ async def get_memory_note(
 
 
 @router.get("/api/amem/{plan_id}/stats", responses={404: {"description": "Not found"}})
-async def get_memory_stats(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+async def get_memory_stats(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get memory statistics for a plan's project."""
     mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -525,3 +522,215 @@ async def get_memory_stats(
         "tags": sorted(tags),
         "paths": sorted(paths),
     }
+
+
+# ── Lifecycle Management (Plan 010) ──────────────────────────────────────────
+
+import os
+import shutil
+import tarfile
+import io
+import time
+from datetime import datetime
+from fastapi.responses import StreamingResponse
+
+
+MEMORY_BASE_DIR = Path(os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory")))
+
+
+@router.get("/api/amem/namespaces")
+async def list_namespaces(user: Annotated[dict, Depends(get_current_user)]):
+    """List all memory namespaces with stats."""
+    if not MEMORY_BASE_DIR.exists():
+        return []
+
+    namespaces = []
+    for entry in sorted(MEMORY_BASE_DIR.iterdir()):
+        if not entry.is_dir():
+            continue
+        # Skip archived namespaces in listing (they have .archive- in name)
+        if ".archive-" in entry.name:
+            continue
+
+        plan_id = entry.name
+        notes_dir = entry / "notes"
+        notes_count = len(list(notes_dir.rglob("*.md"))) if notes_dir.exists() else 0
+
+        # Disk usage
+        disk_bytes = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+
+        # Plan title from registry
+        title = plan_id
+        meta_file = PLANS_DIR / f"{plan_id}.meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+                title = meta.get("title", plan_id)
+            except Exception:
+                pass
+        if plan_id == "_global":
+            title = "(Global)"
+
+        # Archived versions count
+        archived = len(
+            [d for d in MEMORY_BASE_DIR.iterdir() if d.is_dir() and d.name.startswith(f"{plan_id}.archive-")]
+        )
+
+        # Timestamps
+        created_at = None
+        last_modified = None
+        if notes_dir.exists():
+            md_files = list(notes_dir.rglob("*.md"))
+            if md_files:
+                times = [f.stat().st_mtime for f in md_files]
+                created_at = datetime.fromtimestamp(min(times)).isoformat()
+                last_modified = datetime.fromtimestamp(max(times)).isoformat()
+
+        namespaces.append(
+            {
+                "plan_id": plan_id,
+                "title": title,
+                "notes_count": notes_count,
+                "disk_bytes": disk_bytes,
+                "created_at": created_at,
+                "last_modified": last_modified,
+                "archived_versions": archived,
+            }
+        )
+
+    return namespaces
+
+
+@router.delete("/api/amem/{plan_id}")
+async def clear_namespace(
+    plan_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    """Clear all notes for a plan namespace."""
+    ns_dir = MEMORY_BASE_DIR / plan_id
+    if not ns_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Namespace '{plan_id}' not found")
+
+    notes_dir = ns_dir / "notes"
+    vectordb_dir = ns_dir / "vectordb"
+    count = len(list(notes_dir.rglob("*.md"))) if notes_dir.exists() else 0
+
+    # Kill the pool slot if active (forces sync + cleanup)
+    try:
+        from dashboard.routes.memory_mcp import get_pool
+
+        pool = get_pool()
+        pool.kill_slot(str(ns_dir))
+    except Exception:
+        pass
+
+    # Clear contents but keep the directory
+    if notes_dir.exists():
+        shutil.rmtree(notes_dir)
+        notes_dir.mkdir()
+    if vectordb_dir.exists():
+        shutil.rmtree(vectordb_dir)
+
+    return {"plan_id": plan_id, "cleared": count, "action": "cleared"}
+
+
+@router.delete("/api/amem/{plan_id}/notes/{note_id}")
+async def delete_note(
+    plan_id: str,
+    note_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    """Delete a single note by ID."""
+    mem_dir = _resolve_memory_dir(plan_id)
+    notes_dir = mem_dir / "notes"
+
+    # Find the note file by ID in frontmatter
+    for md_file in notes_dir.rglob("*.md"):
+        try:
+            text = md_file.read_text(encoding="utf-8")
+            if MemoryNote:
+                note = MemoryNote.from_markdown(text)
+                if note and note.id == note_id:
+                    md_file.unlink()
+                    # Clean up empty parent dirs
+                    parent = md_file.parent
+                    while parent != notes_dir:
+                        if not any(parent.iterdir()):
+                            parent.rmdir()
+                            parent = parent.parent
+                        else:
+                            break
+                    return {"plan_id": plan_id, "note_id": note_id, "action": "deleted"}
+            elif f'id: "{note_id}"' in text or f"id: '{note_id}'" in text:
+                md_file.unlink()
+                return {"plan_id": plan_id, "note_id": note_id, "action": "deleted"}
+        except Exception:
+            continue
+
+    raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found")
+
+
+@router.post("/api/amem/{plan_id}/archive")
+async def archive_namespace(
+    plan_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    """Archive a namespace: rename to <plan_id>.archive-<date>, create fresh empty one."""
+    ns_dir = MEMORY_BASE_DIR / plan_id
+    if not ns_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Namespace '{plan_id}' not found")
+
+    notes_dir = ns_dir / "notes"
+    count = len(list(notes_dir.rglob("*.md"))) if notes_dir.exists() else 0
+
+    # Kill pool slot first
+    try:
+        from dashboard.routes.memory_mcp import get_pool
+
+        pool = get_pool()
+        pool.kill_slot(str(ns_dir))
+    except Exception:
+        pass
+
+    # Rename to archive
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_name = f"{plan_id}.archive-{timestamp}"
+    archive_dir = MEMORY_BASE_DIR / archive_name
+    ns_dir.rename(archive_dir)
+
+    # Create fresh empty namespace
+    ns_dir.mkdir(parents=True)
+    (ns_dir / "notes").mkdir()
+
+    return {
+        "plan_id": plan_id,
+        "archived_to": archive_name,
+        "notes_archived": count,
+        "action": "archived",
+    }
+
+
+@router.get("/api/amem/{plan_id}/export")
+async def export_namespace(
+    plan_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    """Export a namespace as a .tar.gz download."""
+    ns_dir = MEMORY_BASE_DIR / plan_id
+    if not ns_dir.exists():
+        # Try via plan working_dir symlink
+        try:
+            ns_dir = _resolve_memory_dir(plan_id)
+        except HTTPException:
+            raise HTTPException(status_code=404, detail=f"Namespace '{plan_id}' not found")
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(str(ns_dir), arcname=f"memory-{plan_id}")
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="memory-{plan_id}.tar.gz"'},
+    )

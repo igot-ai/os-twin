@@ -76,10 +76,10 @@ const DEFAULTS: Required<Pick<MemorySettings,
   'llm_backend' | 'llm_model' | 'embedding_backend' | 'embedding_model' |
   'vector_backend' | 'context_aware' | 'auto_sync' | 'auto_sync_interval' | 'ttl_days'
 >> = {
-  llm_backend: 'ollama',
-  llm_model: 'llama3.2',
-  embedding_backend: 'ollama',
-  embedding_model: 'leoipulsar/harrier-0.6b',
+  llm_backend: '',
+  llm_model: '',
+  embedding_backend: '',
+  embedding_model: '',
   vector_backend: 'zvec',
   context_aware: true,
   auto_sync: true,
@@ -91,10 +91,10 @@ const DEFAULTS: Required<Pick<MemorySettings,
 
 export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] }: MemoryPanelProps) {
   const [availableProviders, setAvailableProviders] = useState<Set<string>>(new Set());
-  
+
   // Merge with defaults
   const effective = { ...DEFAULTS, ...memory };
-  
+
   // Local state for all inputs - initialized from effective settings
   const [draft, setDraft] = useState<MemorySettings>(effective);
   const [hasChanges, setHasChanges] = useState(false);
@@ -104,12 +104,12 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
   const [embeddingModelInput, setEmbeddingModelInput] = useState(draft.embedding_model ?? '');
   const [syncIntervalInput, setSyncIntervalInput] = useState(String(draft.auto_sync_interval ?? 60));
   const [ttlDaysInput, setTtlDaysInput] = useState(String(draft.ttl_days ?? 30));
-  
+
   // OpenAI-compatible specific fields
-  const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(draft.llm_compatible_url ?? '');
-  const [llmCompatibleKey, setLlmCompatibleKey] = useState(draft.llm_compatible_key ?? '');
-  const [embeddingCompatibleUrl, setEmbeddingCompatibleUrl] = useState(draft.embedding_compatible_url ?? '');
-  const [embeddingCompatibleKey, setEmbeddingCompatibleKey] = useState(draft.embedding_compatible_key ?? '');
+  const [llmCompatibleUrl, setLlmCompatibleUrl] = useState<string>((draft.llm_compatible_url as string) ?? '');
+  const [llmCompatibleKey, setLlmCompatibleKey] = useState<string>((draft.llm_compatible_key as string) ?? '');
+  const [embeddingCompatibleUrl, setEmbeddingCompatibleUrl] = useState<string>((draft.embedding_compatible_url as string) ?? '');
+  const [embeddingCompatibleKey, setEmbeddingCompatibleKey] = useState<string>((draft.embedding_compatible_key as string) ?? '');
 
   // Sync draft if external memory settings change (but don't overwrite if user is editing)
   useEffect(() => {
@@ -119,10 +119,10 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
       setEmbeddingModelInput(memory.embedding_model ?? '');
       setSyncIntervalInput(String(memory.auto_sync_interval ?? 60));
       setTtlDaysInput(String(memory.ttl_days ?? 30));
-      setLlmCompatibleUrl(memory.llm_compatible_url ?? '');
-      setLlmCompatibleKey(memory.llm_compatible_key ?? '');
-      setEmbeddingCompatibleUrl(memory.embedding_compatible_url ?? '');
-      setEmbeddingCompatibleKey(memory.embedding_compatible_key ?? '');
+      setLlmCompatibleUrl((memory.llm_compatible_url as string) ?? '');
+      setLlmCompatibleKey((memory.llm_compatible_key as string) ?? '');
+      setEmbeddingCompatibleUrl((memory.embedding_compatible_url as string) ?? '');
+      setEmbeddingCompatibleKey((memory.embedding_compatible_key as string) ?? '');
     }
   }, [memory, hasChanges]);
 
@@ -156,7 +156,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
         setOllamaModels([]);
       }
     };
-    
+
     if (draft.llm_backend === 'ollama' || draft.embedding_backend === 'ollama') {
       fetchModels();
     }
@@ -224,11 +224,11 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const lines = decoder.decode(value).split('\n').filter(Boolean);
         for (const line of lines) {
           try {
@@ -250,7 +250,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
           }
         }
       }
-      
+
       // Success! Re-check health
       const { apiGet } = await import('@/lib/api-client');
       const data = await apiGet<{ running: boolean; model_exists: boolean }>(`/settings/ollama/health?model=${model}`);
@@ -382,7 +382,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
           Configure the agentic memory system: processing model, embeddings, and vector storage.
           Settings map to <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">MEMORY_*</code> environment variables.
         </p>
-        
+
         {renderOllamaBanner()}
       </div>
 
@@ -424,20 +424,13 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                         <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>
                           {opt.label}
                         </span>
-                        {keyAvailable === true && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                            Key Set
-                          </span>
-                        )}
-                        {keyAvailable === false && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                            No Key
-                          </span>
-                        )}
-                        {keyAvailable === null && (
+                        {!opt.requiresKey && opt.value !== '' && (
                           <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                             Local
                           </span>
+                        )}
+                        {opt.requiresKey === undefined && opt.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{opt.description}</p>
@@ -492,7 +485,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                 style={inputStyle}
               />
             </div>
-            
+
             {/* Installed Ollama Models Dropdown */}
             {draft.llm_backend === 'ollama' && ollamaModels.length > 0 && (
               <div className="mt-3">
@@ -515,9 +508,9 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                 </select>
               </div>
             )}
-            
+
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
-            
+
             {/* Model picker from configured providers */}
             {draft.llm_backend === 'openai-compatible' && chatModels.length > 0 && (
               <div className="mt-3">
@@ -567,7 +560,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                 </div>
               </div>
             )}
-            
+
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
           </div>
         </div>
@@ -611,14 +604,13 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                         <span className={`text-xs font-semibold ${isSelected ? 'text-purple-700' : 'text-slate-700'}`}>
                           {opt.label}
                         </span>
-                        {keyAvailable === true && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-100 text-green-700">Key Set</span>
+                        {!opt.requiresKey && opt.value !== '' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                            Local
+                          </span>
                         )}
-                        {keyAvailable === false && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">No Key</span>
-                        )}
-                        {keyAvailable === null && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Local</span>
+                        {opt.requiresKey === undefined && opt.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{opt.description}</p>
@@ -694,9 +686,9 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                 </select>
               </div>
             )}
-            
+
             {provenance.embedding_model && <ProvenanceChip source={provenance.embedding_model} />}
-            
+
             {/* Model picker from configured providers */}
             {draft.embedding_backend === 'openai-compatible' && allModels.length > 0 && (
               <div className="mt-3">
@@ -917,10 +909,10 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
               setEmbeddingModelInput(memory.embedding_model ?? '');
               setSyncIntervalInput(String(memory.auto_sync_interval ?? 60));
               setTtlDaysInput(String(memory.ttl_days ?? 30));
-              setLlmCompatibleUrl(memory.llm_compatible_url ?? '');
-              setLlmCompatibleKey(memory.llm_compatible_key ?? '');
-              setEmbeddingCompatibleUrl(memory.embedding_compatible_url ?? '');
-              setEmbeddingCompatibleKey(memory.embedding_compatible_key ?? '');
+              setLlmCompatibleUrl((memory.llm_compatible_url as string) ?? '');
+              setLlmCompatibleKey((memory.llm_compatible_key as string) ?? '');
+              setEmbeddingCompatibleUrl((memory.embedding_compatible_url as string) ?? '');
+              setEmbeddingCompatibleKey((memory.embedding_compatible_key as string) ?? '');
               setHasChanges(false);
             }}
             disabled={isSaving}
@@ -979,7 +971,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
 
               <span className="text-slate-400">MEMORY_AUTO_SYNC_INTERVAL</span>
               <span className="text-slate-300">=</span>
-              <span>{effective.auto_sync_interval}</span>
+              <span>{String(effective.auto_sync_interval)}</span>
             </div>
           </div>
         </details>
