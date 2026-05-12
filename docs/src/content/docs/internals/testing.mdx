@@ -1,0 +1,264 @@
+---
+title: Testing Guide
+description: Internal testing infrastructure — Pester, pytest, Cypress, test locations, CI/CD, and mocking strategies.
+sidebar:
+  order: 2
+  badge:
+    text: Advanced
+    variant: caution
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+OSTwin uses three testing frameworks spanning its PowerShell, Python, and TypeScript codebases. This guide covers the testing architecture, conventions, and CI/CD integration.
+
+## Testing Stack
+
+| Framework | Language | Scope | Location |
+|-----------|----------|-------|----------|
+| Pester 5+ | PowerShell | Engine, roles, lifecycle | `.agents/tests/` |
+| pytest | Python | MCP, memory, CLI, API | `.agents/tests/`, `dashboard/tests/` |
+| Cypress | TypeScript | Dashboard E2E | `cypress/e2e/` |
+
+## Pester Tests
+
+PowerShell tests validate the orchestration engine, role runners, and lifecycle state machines.
+
+### Running Tests
+
+<Tabs>
+<TabItem label="All Tests">
+```bash
+pwsh -Command "Invoke-Pester .agents/tests/ -Output Detailed"
+```
+</TabItem>
+<TabItem label="Tagged Tests">
+```bash
+pwsh -Command "Invoke-Pester .agents/tests/ -Tag 'Unit' -Output Detailed"
+pwsh -Command "Invoke-Pester .agents/tests/ -Tag 'Integration' -Output Detailed"
+```
+</TabItem>
+<TabItem label="Single File">
+```bash
+pwsh -Command "Invoke-Pester .agents/tests/lifecycle.Tests.ps1 -Output Detailed"
+```
+</TabItem>
+</Tabs>
+
+### Test Structure
+
+```powershell
+Describe "Start-ManagerLoop" {
+    Context "When processing a valid plan" {
+        It "Creates war-room directories" {
+            # Arrange
+            $plan = Get-Content "tests/fixtures/simple-plan.md" -Raw
+
+            # Act
+            $result = Start-ManagerLoop -Plan $plan -DryRun
+
+            # Assert
+            $result.Rooms.Count | Should -BeGreaterThan 0
+        }
+    }
+
+    Context "When a dependency fails" {
+        It "Blocks downstream rooms" {
+            # Test implementation
+        }
+    }
+}
+```
+
+### Naming Convention
+
+- Files: `*.Tests.ps1`
+- Tags: `Unit`, `Integration`, `Lifecycle`, `Channel`, `DAG`
+
+### Key Test Areas
+
+| Area | Tests |
+|------|-------|
+| Lifecycle transitions | All 14 states, guard evaluation, action execution |
+| DAG building | Kahn's algorithm, cycle detection, wave generation |
+| Channel I/O | Message serialization, file locking, concurrent writes |
+| Role spawning | Runner invocation, prompt assembly, timeout handling |
+| Retry mechanics | Counter increment, max retries, auto-transition |
+
+## pytest Tests
+
+Python tests cover the MCP server, memory system, CLI tools, and dashboard API.
+
+### Running Tests
+
+<Tabs>
+<TabItem label="All Tests">
+```bash
+pytest .agents/tests/ -v
+pytest dashboard/tests/ -v
+```
+</TabItem>
+<TabItem label="With Coverage">
+```bash
+pytest .agents/tests/ -v --cov=.agents --cov-report=html
+```
+</TabItem>
+<TabItem label="Fast Fail">
+```bash
+pytest .agents/tests/ -x --tb=short
+```
+</TabItem>
+</Tabs>
+
+### Test Structure
+
+```python
+import pytest
+from agents.memory import MemoryLedger
+
+class TestMemoryLedger:
+    def test_publish_creates_entry(self, tmp_path):
+        ledger = MemoryLedger(tmp_path / "ledger.jsonl")
+        entry_id = ledger.publish(
+            kind="artifact",
+            summary="Test artifact",
+            tags=["test"],
+            room_id="room-001",
+            ref="EPIC-001"
+        )
+        assert entry_id is not None
+
+    def test_supersede_excludes_old_entry(self, tmp_path):
+        ledger = MemoryLedger(tmp_path / "ledger.jsonl")
+        old_id = ledger.publish(kind="decision", summary="Old", ...)
+        new_id = ledger.publish(kind="decision", summary="New", supersedes=old_id, ...)
+        results = ledger.query()
+        assert old_id not in [r["id"] for r in results]
+```
+
+### Naming Convention
+
+- Files: `test_*.py`
+- Classes: `Test*`
+- Functions: `test_*`
+
+### Key Test Areas
+
+| Area | Tests |
+|------|-------|
+| Memory ledger | Publish, query, search, supersede, context generation |
+| Channel module | Read, write, filter, locking |
+| MCP server | Tool registration, request/response, transport |
+| Dashboard API | REST endpoints, WebSocket, authentication |
+| CLI commands | `ostwin run`, `status`, `chat`, `skills` |
+
+## Cypress Tests
+
+End-to-end tests for the Next.js dashboard.
+
+### Running Tests
+
+<Tabs>
+<TabItem label="Headless">
+```bash
+cd cypress
+npx cypress run
+```
+</TabItem>
+<TabItem label="Interactive">
+```bash
+cd cypress
+npx cypress open
+```
+</TabItem>
+</Tabs>
+
+### Test Areas
+
+| Area | Tests |
+|------|-------|
+| Dashboard rendering | War-room cards, status indicators, progress bars |
+| Plan management | Upload plan, view DAG, inspect rooms |
+| Real-time updates | WebSocket state changes, channel messages |
+| Navigation | Route transitions, deep linking |
+
+## Test Fixtures
+
+Shared test data lives in `.agents/tests/`:
+
+```
+.agents/tests/
+├── sample/
+│   └── room-001/        # Complete room fixture
+│       ├── config.json
+│       ├── lifecycle.json
+│       ├── channel.jsonl
+│       └── brief.md
+├── fixtures/
+│   ├── simple-plan.md
+│   └── cyclic-plan.md
+└── scripts/
+    └── mock.sh
+```
+
+## Mocking Strategies
+
+<Tabs>
+<TabItem label="PowerShell">
+Pester provides built-in mocking:
+
+```powershell
+Mock Start-Process { return @{ ExitCode = 0 } }
+Mock Get-Content { return '{"status": "developing"}' }
+```
+
+Use `InModuleScope` for mocking private functions.
+</TabItem>
+<TabItem label="Python">
+Use `pytest` fixtures and `unittest.mock`:
+
+```python
+from unittest.mock import patch, MagicMock
+
+@patch("agents.channel.fcntl.flock")
+def test_channel_write_locks(mock_flock, tmp_path):
+    # Test file locking behavior
+    pass
+
+@pytest.fixture
+def mock_room(tmp_path):
+    room = tmp_path / "room-001"
+    room.mkdir()
+    (room / "status").write_text("developing")
+    return room
+```
+</TabItem>
+<TabItem label="Cypress">
+Use `cy.intercept` for API mocking:
+
+```javascript
+cy.intercept('GET', '/api/rooms', { fixture: 'rooms.json' })
+cy.intercept('GET', '/api/dag', { fixture: 'dag.json' })
+```
+</TabItem>
+</Tabs>
+
+## CI/CD Integration
+
+Tests run on every PR via GitHub Actions:
+
+<Steps>
+1. **Lint** — PowerShell ScriptAnalyzer, Python ruff, TypeScript ESLint
+2. **Unit tests** — Pester (Unit tag), pytest (unit markers)
+3. **Integration tests** — Pester (Integration tag), pytest (integration markers)
+4. **E2E tests** — Cypress in headless mode
+5. **Coverage report** — pytest-cov with minimum threshold
+</Steps>
+
+:::caution
+Integration tests create temporary war-room directories. Ensure `tmp_path` fixtures are used to avoid polluting the project directory.
+:::
+
+:::tip
+Use `pytest -m "not slow"` to skip long-running integration tests during local development.
+:::

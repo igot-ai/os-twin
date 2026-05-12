@@ -1,0 +1,184 @@
+---
+title: Your First Plan
+description: Learn how to write a detailed OSTwin plan with epics, dependencies, and role assignments.
+sidebar:
+  order: 5
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+A plan is the single input to OSTwin. It's a markdown file that describes what you want built, broken into epics with dependencies. The engine does the rest — DAG construction, war-room spawning, agent composition, and lifecycle management.
+
+## Plan Structure
+
+Every plan is a markdown file with four key sections: **Config**, **Goal**, and one or more **Epics** (each with DoD, optional Acceptance Criteria, and Tasks). Epics can declare dependencies on each other.
+
+## Writing a Plan
+
+<Steps>
+
+1. **Define the Config block**
+
+   The config block tells the engine which LLM provider and model to use:
+
+   ```markdown
+   ## Config
+   provider: anthropic
+   model: claude-sonnet-4-20250514
+   max_parallel: 3
+   ```
+
+   `max_parallel` controls how many war-rooms can execute simultaneously. Default is 3. Increase for plans with many independent epics.
+
+2. **Write a clear Goal**
+
+   The goal is injected into every agent's context. It answers "why are we building this?" and prevents agents from drifting.
+
+   ```markdown
+   ## Goal
+   Build a production-ready REST API for a task management system.
+   The API should support user authentication, CRUD operations for
+   tasks and projects, and have comprehensive test coverage.
+   ```
+
+   :::tip
+   A good goal is specific enough to constrain decisions but broad enough to not micromanage. Avoid implementation details — let agents choose the how.
+   :::
+
+3. **Define epics with Definition of Done**
+
+   Each epic becomes one war-room. Write the DoD as a checklist that QA can verify:
+
+   ```markdown
+   ## Epic 1: Authentication System
+   ### Definition of Done
+   - JWT-based auth with login and register endpoints
+   - Password hashing with bcrypt
+   - Auth middleware for protected routes
+   ### Acceptance Criteria
+   - POST /auth/register creates a user and returns a token
+   - POST /auth/login returns a token for valid credentials
+   - Protected routes return 401 without a valid token
+   ### Tasks
+   - TASK-001: Implement User model with password hashing
+   - TASK-002: Build register and login endpoints
+   - TASK-003: Create auth middleware
+   ```
+
+4. **Declare dependencies between epics**
+
+   Use `depends_on` to declare that one epic requires another to finish first. Dependencies control wave scheduling — epics without dependencies run first, dependent epics wait.
+
+   ```markdown
+   ## Epic 2: Task CRUD API
+   **depends_on: Epic 1**
+   ### Definition of Done
+   - Full CRUD for tasks with user ownership
+   ### Tasks
+   - TASK-001: Task model with user foreign key
+   - TASK-002: CRUD endpoints with auth middleware
+   ```
+
+5. **Assign roles (optional)**
+
+   By default, the engine assigns `manager`, `engineer`, and `qa`. Override for specialized work:
+
+   ```markdown
+   ## Epic 3: API Documentation
+   **depends_on: Epic 1, Epic 2**
+   **roles: architect, engineer**
+   ### Definition of Done
+   - OpenAPI spec generated and validated
+   ### Tasks
+   - TASK-001: Generate OpenAPI spec from route definitions
+   ```
+
+</Steps>
+
+## Epic Metadata Directives
+
+These directives are placed as bold text at the top of an epic body:
+
+| Directive | Example | Purpose |
+|-----------|---------|---------|
+| `depends_on` | `**depends_on: Epic 1, Epic 3**` | Declares execution dependencies |
+| `roles` | `**roles: architect, engineer, qa**` | Overrides default role assignment |
+| `skills` | `**skills: write-tests, security-review**` | Loads specific skills into the agent context |
+| `priority` | `**priority: high**` | Hints scheduling order within a wave |
+
+## Running Your Plan
+
+```bash
+# Full execution
+pwsh Engine.ps1 -PlanPath ./my-plan/PLAN.md
+
+# Dry run — parse and show the DAG without executing
+pwsh Engine.ps1 -PlanPath ./my-plan/PLAN.md -DryRun
+
+# Re-run a single failed epic
+pwsh Engine.ps1 -PlanPath ./my-plan/PLAN.md -Room room-002
+```
+
+## Monitoring Execution
+
+Three ways to monitor a running plan:
+
+**Filesystem** — Watch war-room files directly:
+
+```bash
+tail -f .agents/war-rooms/room-001/channel.jsonl   # stream messages
+cat .agents/war-rooms/room-001/status               # lifecycle state
+cat .agents/war-rooms/room-001/progress.json        # completion %
+```
+
+**Dashboard** — Open `http://localhost:3000` (requires [Dev Mode](/getting-started/dev-mode/)) for real-time visualization of war-rooms, channels, and the DAG.
+
+**Memory** — Query what agents have decided across rooms:
+
+```bash
+cat .agents/memory/ledger.jsonl | python3 -m json.tool
+```
+
+## Understanding the DAG
+
+The engine builds a directed acyclic graph from your epic dependencies and schedules execution in waves:
+
+```
+Wave 1 (parallel)        Wave 2 (parallel)       Wave 3
+┌──────────────┐         ┌──────────────┐        ┌──────────────┐
+│   Epic 1     │────────►│   Epic 2     │───────►│   Epic 4     │
+│   Auth       │    ┌───►│   Tasks API  │        │   Docs       │
+└──────────────┘    │    └──────────────┘        └──────────────┘
+┌──────────────┐    │    ┌──────────────┐              ▲
+│   Epic 1b    │────┘    │   Epic 3     │──────────────┘
+│   DB Setup   │         │   Projects   │
+└──────────────┘         └──────────────┘
+```
+
+- **Wave 1**: All epics with no `depends_on` run in parallel
+- **Wave 2**: Epics whose dependencies were satisfied in Wave 1
+- Within each wave, up to `max_parallel` rooms execute concurrently
+
+:::caution
+Circular dependencies will cause the engine to fail at DAG construction with an error identifying the cycle.
+:::
+
+## What Can Go Wrong
+
+| Symptom | Likely cause | Resolution |
+|---------|-------------|------------|
+| Epic stuck in `developing` | Tool error or context limit | Check `channel.jsonl` for error messages |
+| Epic `failed` after QA | Engineer couldn't fix in retry limit | Read QA feedback in the channel, refine tasks |
+| Wrong files generated | Goal too vague | Be specific in DoD and Acceptance Criteria |
+| Epics in wrong order | Missing `depends_on` | Add explicit dependencies between epics |
+| Agent ignores other epic's work | Context not in memory | Add a task to publish to memory |
+
+:::tip
+When a plan fails, don't restart from scratch. Use `-Room room-NNN` to re-run only the failed epic. Passing rooms are preserved.
+:::
+
+## Next Steps
+
+- Learn about the [Role Pattern](/concepts/role-pattern/) and how agents are composed at runtime
+- Explore [War-Rooms](/concepts/war-rooms/) to understand the isolation model
+- Read about [Skills](/concepts/skills/) to extend agent capabilities

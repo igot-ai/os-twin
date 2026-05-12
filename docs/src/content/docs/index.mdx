@@ -1,0 +1,135 @@
+---
+title: OSTwin
+description: The role operating system for composable AI engineering teams.
+template: splash
+hero:
+  title: OSTwin
+  tagline: The role operating system for composable AI engineering teams.
+  actions:
+    - text: Get Started
+      link: /getting-started/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/igot-ai/os-twin
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## How It Works
+
+OSTwin turns a markdown plan into a fully-orchestrated multi-agent execution. No custom agent code required.
+
+```
+  PLAN.md ──► Engine ──► DAG ──► War-Rooms ──► Agents
+     │                    │          │            │
+     │  "Build a game"   │  Waves   │  Channels  │  Skills
+     │                    │  of      │  Memory    │  MCP Tools
+     ▼                    ▼  epics   ▼  Lifecycle ▼
+  Goal + Epics      Dependency    Isolated      Role-based
+  + Constraints     resolution    execution     specialists
+```
+
+## Three Axes of Agent Identity
+
+Every agent in OSTwin is defined by three orthogonal axes. This is what makes agents composable rather than monolithic.
+
+<CardGrid>
+  <Card title="Identity (WHO)" icon="pencil">
+    Defined by `role.json` + `ROLE.md`. Sets personality, constraints, and communication style. An architect thinks differently than an engineer.
+  </Card>
+  <Card title="Expertise (WHAT)" icon="open-book">
+    Loaded from `SKILL.md` files on demand. Domain knowledge injected into context only when needed. Skills are portable across roles.
+  </Card>
+  <Card title="Execution (HOW)" icon="rocket">
+    MCP servers provide isolated tool access. Each war-room gets its own tool boundary. No agent can reach outside its sandbox.
+  </Card>
+</CardGrid>
+
+## Five Architectural Pillars
+
+<CardGrid>
+  <LinkCard
+    title="Role Pattern"
+    description="No persistent agent processes. Agents are ephemeral sessions composed at runtime from Role + Skills + Tools."
+    href="/concepts/role/"
+  />
+  <LinkCard
+    title="Composable Skills"
+    description="Modular SKILL.md files that inject domain expertise into any agent session. Portable, testable, versionable."
+    href="/concepts/skills/"
+  />
+  <LinkCard
+    title="MCP Isolation"
+    description="Each war-room gets dedicated MCP server instances. Tool access is scoped. No cross-contamination between execution contexts."
+    href="/concepts/mcp-isolation/"
+  />
+  <LinkCard
+    title="War-Rooms"
+    description="Isolated execution environments for each epic. Own filesystem, channel, memory, lifecycle. The unit of parallelism."
+    href="/concepts/war-rooms/"
+  />
+  <LinkCard
+    title="Layered Memory"
+    description="Three-tier memory: session (context window), war-room (shared ledger), global (cross-room). Publish/query/search API."
+    href="/concepts/memory/"
+  />
+</CardGrid>
+
+## Quick Start
+
+Write a plan, run it, watch agents collaborate:
+
+```bash
+# 1. Install OSTwin
+git clone https://github.com/igot-ai/os-twin.git
+cd os-twin && pwsh Install.ps1
+
+# 2. Set your API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 3. Write a plan
+cat > my-plan/PLAN.md << 'EOF'
+# My First Plan
+## Config
+provider: anthropic
+model: claude-sonnet-4-20250514
+## Goal
+Build a REST API with authentication and tests.
+## Epic 1: Auth System
+### Definition of Done
+- JWT auth working with login/register endpoints
+### Tasks
+- TASK-001: Implement user model and auth routes
+EOF
+
+# 4. Run it
+pwsh Engine.ps1 -PlanPath ./my-plan/PLAN.md
+```
+
+## Explore the Docs
+
+<CardGrid>
+  <LinkCard
+    title="Installation"
+    description="Get OSTwin running locally in under 5 minutes."
+    href="/getting-started/installation/"
+  />
+  <LinkCard
+    title="Quick Start"
+    description="Run your first plan and watch agents collaborate."
+    href="/getting-started/quick-start/"
+  />
+  <LinkCard
+    title="Dev Mode"
+    description="Set up the full development environment with dashboard and live monitoring."
+    href="/getting-started/dev-mode/"
+  />
+  <LinkCard
+    title="Architecture"
+    description="Deep dive into the engine internals, DAG execution, and coordination model."
+    href="/internals/architecture/"
+  />
+</CardGrid>

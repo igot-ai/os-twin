@@ -28,7 +28,7 @@ The PowerShell-first orchestration core. Key scripts:
 | Script | Purpose |
 |--------|---------|
 | `plan/Start-Plan.ps1` | Parses PLAN.md, creates war-rooms, builds DAG, starts the manager loop |
-| `.agents/roles/_base/Invoke-Agent.ps1` | Universal agent runner -- all roles execute through this single script |
+| `roles/_base/Invoke-Agent.ps1` | Universal agent runner -- all roles execute through this single script |
 | `roles/_base/Build-SystemPrompt.ps1` | Composes identity + capabilities + quality gates + task context |
 | `roles/_base/Resolve-Role.ps1` | 5-tier role discovery chain |
 | `roles/_base/Resolve-RoleSkills.ps1` | 3-tier skill resolution with platform/enabled gating |

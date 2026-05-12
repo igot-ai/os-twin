@@ -1,0 +1,161 @@
+---
+title: Working with War-Rooms
+description: Managing war-rooms — lifecycle, channels, monitoring, artifacts, debugging failures, manual overrides, archiving, and PID tracking.
+sidebar:
+  order: 4
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+War-rooms are **isolated execution environments** for each epic. Every war-room gets its own directory with coordination files, and agents operate exclusively within their assigned room.
+
+## War-room structure
+
+```
+.agents/war-rooms/room-001/
+├── config.json         # Assignment: task ref, roles, goals
+├── status              # Current lifecycle state (single word)
+├── channel.jsonl       # Append-only message log
+├── progress.json       # Completion percentage + message
+├── brief.md            # Epic description for the agent
+├── TASKS.md            # Sub-task breakdown (created by agent)
+├── lifecycle.json      # State machine definition
+├── pids.json           # Active process IDs
+└── artifacts/          # Files produced by the agent
+```
+
+## Lifecycle states
+
+Every war-room progresses through a state machine:
+
+```
+developing → review → fixing → passed
+                 │        │
+                 │        └──→ review  (fix cycle)
+                 └──→ failed-final    (max retries)
+```
+
+<Tabs>
+  <TabItem label="States">
+    | State | Description |
+    |-------|-------------|
+    | `developing` | Agent is implementing the epic |
+    | `review` | QA agent is reviewing output |
+    | `fixing` | Engineer addresses QA feedback |
+    | `passed` | QA approved. Terminal |
+    | `failed-final` | Max retries exceeded. Terminal |
+  </TabItem>
+  <TabItem label="Transitions">
+    | From | To | Trigger |
+    |------|----|---------|
+    | `developing` | `review` | Agent posts `done` message |
+    | `review` | `passed` | QA posts `pass` message |
+    | `review` | `fixing` | QA posts `fail` message |
+    | `fixing` | `review` | Agent posts `done` message |
+    | `review` | `failed-final` | Retries exceed `max_retries` |
+  </TabItem>
+</Tabs>
+
+## Channel messages
+
+The `channel.jsonl` file is the communication backbone. Each line is JSON:
+
+```json
+{"id":"msg-001","from":"manager","to":"engineer","type":"task","ref":"EPIC-001","body":"Implement auth"}
+{"id":"msg-002","from":"engineer","to":"qa","type":"done","ref":"EPIC-001","body":"Auth implemented..."}
+```
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `task` | manager → engineer | Initial assignment |
+| `done` | engineer → qa | Ready for review |
+| `pass` | qa → manager | Review approved |
+| `fail` | qa → engineer | Review failed with feedback |
+| `fix` | manager → engineer | Fix instructions |
+| `error` | any → manager | Error report |
+
+## Monitoring
+
+<Tabs>
+  <TabItem label="CLI">
+    ```bash
+    # Check all rooms
+    pwsh .agents/war-rooms/Get-WarRoomStatus.ps1
+    # Watch a room's channel
+    tail -f .agents/war-rooms/room-001/channel.jsonl | jq .
+    # Check progress
+    cat .agents/war-rooms/room-001/progress.json | jq .
+    ```
+  </TabItem>
+  <TabItem label="Dashboard">
+    The [dashboard](/guides/dashboard-setup/) provides real-time SSE monitoring: room list with status badges, channel viewer, memory inspector, and artifact browser.
+  </TabItem>
+</Tabs>
+
+## Debugging failures
+
+<Steps>
+
+1. **Read the fail message.** `jq 'select(.type == "fail")' .agents/war-rooms/room-001/channel.jsonl`
+
+2. **Check progress.** Look at `progress.json` for how far the agent got.
+
+3. **Inspect artifacts.** Browse `artifacts/` for partial output.
+
+4. **Review TASKS.md.** Check which sub-tasks were completed vs pending.
+
+5. **Check PID status.** `cat .agents/war-rooms/room-001/pids.json | jq .`
+
+</Steps>
+
+## Manual overrides
+
+<Tabs>
+  <TabItem label="Reset status">
+    ```bash
+    echo "developing" > .agents/war-rooms/room-001/status
+    ```
+    Use when an agent crashed and the room is stuck.
+  </TabItem>
+  <TabItem label="Post a message">
+    ```bash
+    pwsh .agents/channel/Post-Message.ps1 \
+      -RoomDir .agents/war-rooms/room-001 \
+      -From manager -To engineer \
+      -Type fix -Ref EPIC-001 \
+      -Body "Add rate limiting to the login endpoint"
+    ```
+  </TabItem>
+</Tabs>
+
+:::caution
+Manual status changes skip lifecycle validation. Only override when you understand the current state. Forcing `passed` bypasses QA entirely.
+:::
+
+## PID tracking
+
+Each war-room tracks active processes in `pids.json`:
+
+```json
+{"agent_pid": 12345, "mcp_pids": [12346, 12347], "started_at": "2025-01-15T10:30:00Z"}
+```
+
+The engine uses this to detect orphaned processes and clean up on cancellation.
+
+## Creating and removing rooms
+
+```bash
+# Create manually
+pwsh .agents/war-rooms/New-WarRoom.ps1 \
+  -RoomId "room-manual" -TaskRef "TASK-001" \
+  -TaskDescription "Implement auth" -WorkingDir "/project" \
+  -DefinitionOfDone @("JWT working", "Tests pass") \
+  -AcceptanceCriteria @("POST /login returns 200")
+
+# Remove a completed room
+pwsh .agents/war-rooms/Remove-WarRoom.ps1 -RoomId room-001
+```
+
+:::note
+War-room files are plain text and git-friendly. Consider keeping `channel.jsonl` files for post-mortem analysis.
+:::
