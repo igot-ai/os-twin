@@ -238,6 +238,45 @@ function Resolve-PlanId {
 
     # If it looks like a hex plan_id (8-64 hex chars, no slashes/dots)
     if ($Arg -match '^[0-9a-fA-F]{8,64}$') {
+        $localCandidates = @(
+            (Join-Path $OstwinHome ".agents/plans" "$Arg.md"),
+            (Join-Path $AgentsDir "plans" "$Arg.md")
+        )
+
+        $localPlanFile = ""
+        foreach ($c in $localCandidates) {
+            if (Test-Path $c) {
+                $localPlanFile = $c
+                break
+            }
+        }
+
+        if ($localPlanFile) {
+            $workingDir = ""
+            $metaFile = $localPlanFile -replace '\.md$', '.meta.json'
+            if (Test-Path $metaFile) {
+                try {
+                    $meta = Get-Content $metaFile -Raw | ConvertFrom-Json
+                    if ($meta.working_dir) { $workingDir = $meta.working_dir }
+                }
+                catch { }
+            }
+            if (-not $workingDir) {
+                $content = Get-Content $localPlanFile -Raw
+                if ($content -match '(?m)^\s*working_dir:\s*(.+)$') {
+                    $workingDir = $Matches[1].Trim()
+                }
+                if (-not $workingDir -and ($content -match '(?m)^>\s*Project:\s*(.+)$')) {
+                    $workingDir = $Matches[1].Trim()
+                }
+            }
+            Write-Host ([char]0x2713 + " Resolved plan_id '$Arg' -> $localPlanFile (local)")
+            if ($workingDir) {
+                Write-Host "  Working dir: $workingDir"
+            }
+            return [PSCustomObject]@{ PlanFile = $localPlanFile; WorkingDir = $workingDir }
+        }
+
         if (Test-DashboardReachable) {
             try {
                 $apiResponse = Invoke-DashboardApi -Endpoint "/api/plans/$Arg"
@@ -260,7 +299,7 @@ function Resolve-PlanId {
                         }
                     }
                     if (-not $planFile) {
-                        $planFile = $candidates[0]  # For error reporting
+                        $planFile = $candidates[0]
                     }
                 }
 
@@ -278,13 +317,33 @@ function Resolve-PlanId {
                 }
             }
             catch {
-                Write-Error ([char]0x2717 + " Plan '$Arg' not found via API")
+                $errDetail = ""
+                if ($_.Exception -is [System.Management.Automation.ErrorRecord] -and $_.Exception.Response) {
+                    try {
+                        $sr = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+                        $errBody = $sr.ReadToEnd()
+                        $sr.Close()
+                        if ($errBody -match '"detail"') {
+                            $errJson = $errBody | ConvertFrom-Json
+                            $errDetail = $errJson.detail
+                        }
+                    }
+                    catch { }
+                }
+                if ($errDetail -match "nvalid API key|Missing API key|401|Unauthorized") {
+                    Write-Error ([char]0x2717 + " Auth failed: $errDetail")
+                    Write-Error "  Set OSTWIN_API_KEY or use a file path instead."
+                }
+                else {
+                    Write-Error ([char]0x2717 + " Plan '$Arg' not found via API: $errDetail")
+                }
                 return $null
             }
         }
         else {
-            Write-Warning "Dashboard not reachable at $DashboardUrl"
-            Write-Warning "Cannot resolve plan_id. Start dashboard or pass a file path."
+            Write-Error ([char]0x2717 + " Plan '$Arg' not found on disk and dashboard unreachable")
+            Write-Error "  Searched: $($localCandidates -join ', ')"
+            Write-Error "  Start dashboard with: ostwin dashboard"
             return $null
         }
     }

@@ -3,7 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { SimNode } from '../simulation/types';
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+type OrbitControlsImpl = React.ElementRef<typeof OrbitControls>;
 
 interface CameraControllerProps {
   nodes: SimNode[];
