@@ -1,5 +1,1 @@
-name = "os-twin-docs"
-compatibility_date = "2026-05-12"
-
-[assets]
-directory = "./dist"
+name = 'os-twin'
