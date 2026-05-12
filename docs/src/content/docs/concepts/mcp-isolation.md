@@ -43,44 +43,100 @@ The `no_mcp` flag is resolved through three levels:
 2. **Role config** (`role.json`) -- role-level default
 3. **System default** -- `false` (MCP enabled)
 
-## MCP Config Files
+## MCP Config Format
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `mcp.json` | `.agents/war-rooms/{room}/` | Room-specific MCP servers |
-| `mcp.json` | `.agents/plans/{plan}/` | Plan-wide MCP servers |
-| `mcp.json` | `.agents/` | Project-level defaults |
-| `mcp.json` | `~/.agents/` | User-global preferences |
-
-Each file follows the standard MCP configuration format:
+OSTwin uses an OpenCode-compatible MCP configuration format. Each server entry declares a `type` (`local` or `remote`), along with the command or URL needed to start it:
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
+    "channel": {
+      "type": "local",
+      "command": [
+        "{env:OSTWIN_PYTHON}",
+        "{env:AGENT_DIR}/mcp/channel-server.py"
+      ],
+      "environment": {
+        "AGENT_OS_ROOT": "."
+      }
+    },
     "memory": {
-      "command": "python",
-      "args": ["-m", ".agents/mcp/memory-core.py", "--room", "${room_dir}"],
-      "env": {
-        "API_KEY": "${vault:memory/api_key}"
+      "type": "remote",
+      "url": "http://localhost:3366/api/memory-pool/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
       }
     }
   }
 }
 ```
 
+### Local vs Remote
+
+| Type | Launch | Best For |
+|------|--------|----------|
+| `local` | Spawns a subprocess (stdio transport) | Python scripts, npx packages, CLI tools |
+| `remote` | Connects to an HTTP endpoint (SSE transport) | Dashboard APIs, hosted services, shared daemons |
+
+### Variable Interpolation
+
+Config values support environment variable expansion:
+
+| Syntax | Resolves To |
+|--------|-------------|
+| `{env:OSTWIN_PYTHON}` | Path to the project's Python interpreter |
+| `{env:AGENT_DIR}` | Path to the `.agents/` directory |
+| `{env:PATH}` | System PATH (needed by npx-based servers) |
+| `{env:OSTWIN_API_KEY}` | Dashboard API key for authenticated endpoints |
+
+## Built-in MCP Servers
+
+OSTwin ships with six MCP servers. They are defined in `.agents/mcp/mcp-builtin.json` and automatically available to every agent session (unless `no_mcp` is set).
+
+### Local Servers (Subprocess)
+
+| Server | Script | Key Tools |
+|--------|--------|-----------|
+| **channel** | `.agents/mcp/channel-server.py` | `post_message`, `read_messages`, `get_latest` |
+| **warroom** | `.agents/mcp/warroom-server.py` | `update_status`, `report_progress`, `list_artifacts` |
+| **chrome-devtools** | `npx chrome-devtools-mcp@latest` | Browser DevTools protocol access |
+| **playwright** | `npx @playwright/mcp@latest` | Browser automation and testing |
+
+Local servers are launched as subprocesses by the agent runner. Each gets its own process, ensuring isolation -- a crash in one server does not affect others.
+
+### Remote Servers (HTTP)
+
+| Server | Endpoint | Key Tools |
+|--------|----------|-----------|
+| **memory** | `http://localhost:3366/api/memory-pool/mcp` | `publish`, `query`, `search`, `get_context` |
+| **knowledge** | `http://localhost:3366/api/knowledge/mcp/` | `list_namespaces`, `query`, `search_all`, `get_stats`, `find_relevant` |
+
+Remote servers connect to the dashboard API via SSE transport. They require an `Authorization` header with the `OSTWIN_API_KEY`. This design means the memory and knowledge servers share the dashboard's Python process rather than spawning their own, reducing resource usage while maintaining full tool availability.
+
+### Server Selection by Role
+
+Not every role needs every server. The typical assignment is:
+
+| Role | channel | warroom | memory | knowledge | chrome-devtools | playwright |
+|------|---------|---------|--------|-----------|-----------------|------------|
+| engineer | yes | yes | yes | -- | -- | -- |
+| qa | yes | yes | yes | -- | -- | -- |
+| architect | -- | -- | yes | yes | -- | -- |
+| manager | yes | yes | yes | yes | -- | -- |
+
+Roles with `no_mcp: true` (like the architect in lightweight mode) get zero MCP servers. Roles that need browser automation get `chrome-devtools` or `playwright` injected via `mcp_refs` in their `role.json`.
+
 ## Vault-Based Secrets
 
-MCP configs support secret references using the `${vault:path}` syntax:
+MCP configs support secret references using the `{vault:path}` syntax:
 
 ```
-${vault:server/key}     → resolves from .agents/vault.json
-${vault:openai/api_key} → resolves the OpenAI key
-${room_dir}             → expands to the current war-room path
-${plan_dir}             → expands to the current plan directory
+{vault:server/key}     → resolves from .agents/vault.json
+{vault:openai/api_key} → resolves the OpenAI key
 ```
 
 :::note[Security]
-The vault file (`.agents/vault.json`) is gitignored by default. Secrets never appear in MCP configs committed to version control. The resolution happens at agent invocation time inside `roles/_base/Invoke-Agent.ps1`.
+The vault file (`.agents/vault.json`) is gitignored by default. Secrets never appear in MCP configs committed to version control. The resolution happens at agent invocation time inside `.agents/roles/_base/Invoke-Agent.ps1`.
 :::
 
 ## Audit Logging
@@ -99,19 +155,6 @@ This audit trail enables:
 - **Performance profiling** to identify slow MCP servers
 - **Error tracking** for reliability monitoring
 - **Compliance auditing** for regulated environments
-
-## Built-in MCP Servers
-
-OSTwin ships with four Python-based MCP servers:
-
-| Server | Purpose | Key Tools |
-|--------|---------|-----------|
-| `.agents/mcp/memory-core.py` | Shared memory ledger | `publish`, `query`, `search`, `get_context` |
-| `.agents/mcp/warroom-server.py` | War-room coordination | `post_message`, `read_messages`, `update_status`, `report_progress` |
-| `.agents/dashboard.ps1` | Dashboard API bridge | `get_plan_status`, `get_room_state`, `search` |
-| `.agents/mcp/global-knowledge-server.py` | Skill discovery | `search_skills`, `install_skill`, `list_installed` |
-
-Each server is a standalone Python process launched via `python script` with room-specific arguments.
 
 ## Token Budget Impact
 
@@ -134,10 +177,10 @@ The current isolation model is binary (all servers or none, per config). A plann
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "memory": {
-      "command": "python",
-      "args": ["-m", ".agents/mcp/memory-core.py"],
+      "type": "remote",
+      "url": "http://localhost:3366/api/memory-pool/mcp",
       "allow_tools": ["query", "search"],
       "deny_tools": ["publish"]
     }
@@ -151,8 +194,11 @@ This will allow a QA agent to read from the memory ledger without being able to 
 
 | File | Purpose |
 |------|---------|
+| `.agents/mcp/mcp-builtin.json` | Built-in MCP server definitions |
 | `.agents/mcp/config_resolver.py` | 4-tier MCP config merge |
-| `.agents/roles/_base/Invoke-Agent.ps1` | no_mcp flag handling |
-| `.agents/memory/` | Shared memory MCP server |
+| `.agents/mcp/channel-server.py` | Channel messaging server |
 | `.agents/mcp/warroom-server.py` | War-room coordination server |
+| `.agents/mcp/global-knowledge-server.py` | Knowledge namespace server |
+| `.agents/memory/mcp_server.py` | Memory pool MCP server |
+| `.agents/roles/_base/Invoke-Agent.ps1` | no_mcp flag handling |
 | `.agents/vault.json` | Secret storage (gitignored) |
