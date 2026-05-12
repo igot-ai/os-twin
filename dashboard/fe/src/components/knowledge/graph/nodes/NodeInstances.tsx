@@ -6,7 +6,7 @@ import { SHAPE_TYPES } from '../../constants';
 
 const MAX_INSTANCES = 15000;
 const EPS = 0.001;
-const SIM_STEP_INTERVAL = 4;
+const SIM_STEP_INTERVAL = 1;
 
 interface NodeInstancesProps {
   nodes: SimNode[];
@@ -248,7 +248,11 @@ export default function NodeInstances({
         const z = node.z ?? 0;
         const roleScale = node.roleScale ?? 1.0;
         const isSelected = selectedId === node.id;
-        const base = 4 + Math.log2(Math.max(node.degree, 0) + 1) * 3 + Math.pow(node.score, 2) * 6;
+        const degree = node.degree ?? 0;
+        // Size proportional to degree (20 edges is 4x bigger than 5 edges). 
+        // Base unit is 10, then scaled by 25x.
+        const rawSize = degree > 0 ? degree * 10 : 5;
+        const base = rawSize * 25;
         const scale = Math.max(EPS, base * roleScale * (isSelected ? 1.15 : 1.0));
 
         dummy.position.set(x, y, z);
@@ -272,7 +276,10 @@ export default function NodeInstances({
     const y = -(selectedNode.y ?? 0);
     const z = selectedNode.z ?? 0;
     const roleScale = selectedNode.roleScale ?? 1.0;
-    const base = 4 + Math.log2(Math.max(selectedNode.degree, 0) + 1) * 3 + Math.pow(selectedNode.score, 2) * 6;
+    const degree = selectedNode.degree ?? 0;
+    // Match the 25x proportional scale for the selection ring
+    const rawSize = degree > 0 ? degree * 10 : 5;
+    const base = rawSize * 25;
     const scale = Math.max(EPS, base * roleScale * 1.15 * 1.3);
     return { position: new THREE.Vector3(x, y, z), scale };
   }, [selectedNode]);
@@ -284,6 +291,9 @@ export default function NodeInstances({
       if (!groupNodes) return;
       const node = groupNodes[e.instanceId];
       if (node) onNodeClick(node.id);
+      if ('stopPropagation' in e && typeof e.stopPropagation === 'function') {
+        e.stopPropagation();
+      }
       e.stopped = true;
     };
   }, [shapeGroups, onNodeClick]);
@@ -298,7 +308,15 @@ export default function NodeInstances({
         return (
           <instancedMesh
             key={shapeName}
-            ref={el => { shapeRefs.current[shapeType] = el; }}
+            ref={el => {
+              if (el) {
+                shapeRefs.current[shapeType] = el;
+                // Assign a massive bounding sphere so the raycaster doesn't ignore moving instances
+                if (!el.boundingSphere) {
+                  el.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1000000);
+                }
+              }
+            }}
             args={[shapeGeometries[shapeType], nodeMaterial, Math.min(groupNodes.length, MAX_INSTANCES)]}
             frustumCulled={false}
             renderOrder={1}

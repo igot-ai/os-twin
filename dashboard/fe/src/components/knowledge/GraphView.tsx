@@ -111,22 +111,13 @@ export default function GraphView({
     };
   }, []);
 
-  // Zoom-to-fit: on initial load AND when node count changes
+  // Track node count to only zoom-to-fit when graph changes initially
   const prevNodeCount = useRef(0);
-  useEffect(() => {
-    if (!graphRef.current || nodes.length === 0) return;
-    if (nodes.length === prevNodeCount.current) return;
-
-    prevNodeCount.current = nodes.length;
-
-    // Multiple zoom calls to catch the simulation at different settle stages
-    const timers = [800, 2000].map(ms =>
-      setTimeout(() => {
-        graphRef.current?.zoomToFit?.(400, 40);
-      }, ms)
-    );
-
-    return () => timers.forEach(clearTimeout);
+  const handleEngineStop = useCallback(() => {
+    if (nodes.length > 0 && nodes.length !== prevNodeCount.current) {
+      graphRef.current?.zoomToFit?.(600, 100); // Smooth zoom, 100px padding
+      prevNodeCount.current = nodes.length;
+    }
   }, [nodes.length]);
 
   // Transform data for react-force-graph-2d
@@ -242,9 +233,37 @@ export default function GraphView({
     );
   }
 
-  // Collect unique labels for legend
-  const labelSet = new Set(nodes.map(n => n.label));
-  const labels = Array.from(labelSet).sort();
+  // Collect unique labels for legend, filtering out 'Relationship' and sorting by node count
+  const labelCounts = new Map<string, number>();
+  nodes.forEach(n => {
+    if (n.label.toLowerCase() !== 'relationship') {
+      labelCounts.set(n.label, (labelCounts.get(n.label) || 0) + 1);
+    }
+  });
+  const labels = Array.from(labelCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([label]) => label);
+
+  // Adjust forces to spread nodes out and prevent shaking/clumping
+  useEffect(() => {
+    if (graphRef.current) {
+      // Increase repulsion to separate dense clusters significantly
+      const chargeForce = graphRef.current.d3Force('charge');
+      if (chargeForce) {
+        chargeForce.strength(-1500); // Much stronger repulsion
+        chargeForce.distanceMax(3000); // Allow it to push further
+      }
+      
+      // Increase link distance so connected nodes have more room
+      const linkForce = graphRef.current.d3Force('link');
+      if (linkForce) {
+        linkForce.distance(250); // Increased link distance
+      }
+      
+      // Re-trigger the simulation with the new forces
+      graphRef.current.d3ReheatSimulation?.();
+    }
+  }, [graphData, dimensions, isFullscreen]);
 
   const graphContent = (dims: { width: number; height: number }) => (
     <ForceGraph2D
@@ -260,13 +279,13 @@ export default function GraphView({
       linkColor={() => '#6b7280'}
       nodeCanvasObject={paintNode}
       onNodeClick={handleNodeClick}
-      onEngineStop={() => graphRef.current?.zoomToFit?.(400, 40)}
+      onEngineStop={handleEngineStop}
       enableZoomInteraction={true}
       enablePanInteraction={true}
       enableNodeDrag={true}
-      d3AlphaDecay={0.02}
-      d3VelocityDecay={0.3}
-      cooldownTicks={100}
+      d3AlphaDecay={0.05}     // Faster decay so it settles instead of vibrating indefinitely
+      d3VelocityDecay={0.6}   // Higher friction to dampen shaking
+      cooldownTicks={250}     // Allow enough ticks for it to nicely float into balance
     />
   );
 

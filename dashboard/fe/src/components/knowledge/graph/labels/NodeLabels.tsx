@@ -57,11 +57,18 @@ export default function NodeLabels({
       const isIgnition = ignitionSet.has(node.id);
       const isSelected = node.id === selectedId;
       const label = node.name.length > 24 ? node.name.slice(0, 22) + '\u2026' : node.name;
-      const color = isIgnition ? getNodeColor(node.label) : '#c8d2e6';
+      const nodeColor = getNodeColor(node.label);
+      const color = isIgnition ? nodeColor : nodeColor;
       const opacity = isSelected ? 1.0 : Math.max(nodeBrightness.get(node.id) ?? 0.3, 0.5);
-      const baseOffset = 5 + Math.min(node.degree, 20) * 0.4 + node.score * 2;
-      const yOffset = (baseOffset + (isSelected ? 4 : 0)) * 0.8;
-      const fontSize = isSelected ? 13 : 9;
+      const degree = node.degree ?? 0;
+      // Match the 25x proportional scale for the labels to float correctly above the nodes
+      const rawSize = degree > 0 ? degree * 10 : 5;
+      const baseScale = rawSize * 25;
+      // Adjust yOffset multiplier so it clears the shape radius properly
+      const yOffset = (baseScale * 0.5 + (isSelected ? 50 : 0)) + baseScale * 0.2;
+      // Scale font size proportionally to the node scale so it's readable
+      const baseFontSize = baseScale * 0.4;
+      const fontSize = isSelected ? baseFontSize * 1.3 : baseFontSize;
 
       entries.push({
         id: node.id,
@@ -88,8 +95,10 @@ export default function NodeLabels({
       const y = -(node.y ?? 0);
       const z = node.z ?? 0;
       const isSelected = node.id === selectedId;
-      const baseOffset = 5 + Math.min(node.degree, 20) * 0.4 + node.score * 2;
-      const yOffset = (baseOffset + (isSelected ? 4 : 0)) * 0.8;
+      const degree = node.degree ?? 0;
+      const rawSize = degree > 0 ? degree * 10 : 5;
+      const baseScale = rawSize * 25;
+      const yOffset = (baseScale * 0.5 + (isSelected ? 50 : 0)) + baseScale * 0.2;
 
       ref.position.set(x, y - yOffset, z);
       ref.quaternion.copy(camera.quaternion);
@@ -120,7 +129,7 @@ export default function NodeLabels({
           anchorX="center"
           anchorY="top"
           depthOffset={-1}
-          outlineWidth={2}
+          outlineWidth="5%"
           outlineColor="#000000"
           outlineOpacity={0.7}
           renderOrder={10}
