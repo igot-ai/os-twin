@@ -103,12 +103,17 @@ def get_embedding(
     from .monitor import record_embedding
 
     embedder = _get_embedder()
+    # Resolve model label safely — embedder may be KnowledgeEmbedder or raw EmbeddingClient
+    _provider = getattr(embedder, "provider", None) or _detect_embed_provider()
+    _model = getattr(embedder, "model_name", None) or _detect_embed_model()
+    _model_label = f"{_provider}/{_model}"
+
     t0 = _time.time()
     try:
         result = embedder.embed(texts)
         latency_ms = (_time.time() - t0) * 1000
         record_embedding(
-            model=f"{embedder.provider}/{embedder.model_name}",
+            model=_model_label,
             text_count=len(texts),
             latency_ms=latency_ms,
         )
@@ -116,7 +121,7 @@ def get_embedding(
     except Exception as exc:
         latency_ms = (_time.time() - t0) * 1000
         record_embedding(
-            model=f"{embedder.provider}/{embedder.model_name}",
+            model=_model_label,
             text_count=len(texts),
             latency_ms=latency_ms,
             success=False,
