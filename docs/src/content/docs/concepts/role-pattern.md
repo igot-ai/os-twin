@@ -1,33 +1,14 @@
 ---
-title: "Pillar 1: The Zero-Agent Pattern"
-description: "Adding a new role requires zero lines of code. Roles are config directories, not compiled agents."
+title: "Pillar 1: The Role Pattern"
+description: "Adding a new role requires zero lines of code. Roles are flexible configurations of Skills and MCPs, not compiled agents."
 sidebar:
   order: 1
-  badge:
-    text: Pillar
-    variant: tip
+  icon: rocket
 ---
 
 OSTwin's first architectural pillar inverts the traditional approach to AI agents. Instead of coding each agent as a separate program, every role in the system is a **configuration directory** executed by a single, universal runner.
 
 > "Adding a new role requires zero lines of code."
-
-## Universal Agent Runner
-
-The entire system runs through one script: **`Invoke-Agent.ps1`**. This PowerShell function accepts a role name, a war-room path, and a task reference, then assembles everything the agent needs at invocation time.
-
-```powershell
-Invoke-Agent -Role "engineer" -RoomDir ".agents/war-rooms/room-042" -Ref "TASK-003"
-```
-
-The runner handles:
-
-- Loading the role's identity prompt from `ROLE.md`
-- Resolving skills, MCP servers, and model preferences
-- Injecting war-room context (brief, channel history, memory)
-- Launching the underlying LLM session with the assembled prompt
-
-Because every role flows through the same runner, improvements to `Invoke-Agent.ps1` benefit **all roles simultaneously**.
 
 ## Role as a Config Directory
 
@@ -78,9 +59,21 @@ production-quality code, and deliver structured done reports.
 - Escalate architectural questions to the architect role
 ```
 
+
+
+## Flexible Role Composition
+
+The concept of a "Role" in OSTwin is entirely flexible. A role is not defined by hard-coded capabilities but rather by the combination of its **Identity (Prompt)**, **Skills**, and **MCP Servers**. 
+
+You can completely redefine what an "engineer" or "qa" role can accomplish simply by adjusting their `role.json` configuration:
+
+1. **Skills (Expertise)**: Adding or removing `skill_refs` changes the specialized workflows the role knows how to execute.
+2. **MCP (Tools)**: Adding or removing `mcp_refs` changes the external systems, APIs, or tools the role can interact with.
+
+This compositional approach means you can spawn infinite variations of roles—like a `frontend-engineer` with Figma MCP tools or a `security-qa` with specialized scanning skills—without writing a single line of agent orchestration code.
 ## 5-Tier Role Discovery
 
-When `Invoke-Agent.ps1` resolves a role, it searches five locations in priority order:
+When `roles/_base/Invoke-Agent.ps1` resolves a role, it searches five locations in priority order:
 
 | Priority | Location | Scope |
 |----------|----------|-------|
@@ -156,9 +149,6 @@ Because roles are pure configuration, they can be mixed, overridden, and version
 
 | File | Purpose |
 |------|---------|
-| `engine/Invoke-Agent.ps1` | Universal agent runner |
 | `.agents/roles/*/role.json` | Role configuration |
 | `.agents/roles/*/ROLE.md` | Identity prompt |
-| `.agents/registry.json` | Role catalog (~700 lines, 20+ roles) |
-| `engine/Resolve-Role.ps1` | 5-tier role discovery logic |
-| `engine/New-Role.ps1` | Dynamic role scaffolding |
+| `.agents/roles/registry.json` | Role catalog (~700 lines, 20+ roles) |

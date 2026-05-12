@@ -3,12 +3,12 @@ title: "Pillar 5: Structured Memory"
 description: "Three-layer memory architecture that gives agents cross-room context without breaking isolation."
 sidebar:
   order: 5
-  badge:
-    text: Pillar
-    variant: tip
+  icon: rocket
 ---
 
 OSTwin's fifth pillar addresses the fundamental challenge of multi-agent systems: **how do agents share knowledge without breaking isolation?** The answer is a three-layer memory architecture where each layer serves a different scope and lifetime.
+
+The memory server is intentionally lightweight — its structured entries are compact enough to run as a **single global MCP server** shared by all agents across every plan and war-room. Instead of spinning up per-room memory instances, one MCP memory server serves the entire project, providing a unified knowledge surface that agents query and publish to in real time.
 
 ## Three Memory Layers
 
@@ -88,11 +88,11 @@ The `kind` field categorizes memories for filtered retrieval:
 
 The key innovation is **filtered views**. When an agent queries the ledger, it sees memories from **all other rooms** but not its own:
 
-```python
-# Agent in room-042 queries for auth-related memories
+```
+// Agent in room-042 queries for auth-related memories
 results = memory_query(
     tags=["auth"],
-    exclude_room="room-042"  # Don't show my own entries
+    exclude_room="room-042"  // Don't show my own entries
 )
 ```
 
@@ -147,13 +147,29 @@ To prevent unbounded growth and token explosion, the memory system enforces limi
 
 When a war-room starts, the manager can inject **predecessor context** -- a curated summary of memories from upstream rooms in the DAG:
 
-```powershell
-$context = memory_get_context -RoomId "room-042" `
-  -BriefKeywords @("auth", "login", "users") `
-  -MaxEntries 15
+```
+context = memory_get_context(
+    room_id="room-042",
+    brief_keywords=["auth", "login", "users"],
+    max_entries=15
+)
 ```
 
 This generates a markdown document (~10KB max) containing the most relevant memories from other rooms, filtered by the room's brief keywords. The document is injected into the agent's initial context.
+
+## Plan-Based Memory Connection
+
+Because the MCP memory server is lightweight and global, it connects automatically when a user launches a new plan. The lifecycle works like this:
+
+1. **Plan starts** — The global MCP memory server is already running. No new instance is spawned; the existing server is simply made aware of the new plan's scope (epic IDs, brief keywords, room assignments).
+
+2. **War-rooms spin up** — Each room's manager agent inherits the plan's keyword scope and queries the memory server for predecessor context before issuing its first task.
+
+3. **Development syncs** — As agents in each room publish decisions, interfaces, and warnings, those entries become immediately visible to agents in other rooms via filtered queries. The memory server acts as a real-time synchronization layer across the epic DAG.
+
+4. **Plan completes** — When all war-rooms finish, the accumulated memories persist in the ledger. Future plans can query them as predecessor context, creating a continuous knowledge chain across project iterations.
+
+This means the memory server is never "per-plan" or "per-room" — it is a **single, always-on global service** that accumulates project knowledge over time. Each new plan simply taps into the existing knowledge surface and begins contributing back to it.
 
 ## Three Core Operations
 
@@ -204,8 +220,7 @@ Once an entry is superseded, it cannot be un-superseded. If the new decision is 
 
 | File | Purpose |
 |------|---------|
-| `mcp_servers/memory/` | Memory MCP server (publish, query, search) |
+| `.agents/memory/` | Memory MCP server (publish, query, search) |
 | `.agents/ledger.jsonl` | Shared memory ledger |
 | `.agents/war-rooms/*/channel.jsonl` | Per-room conversation log |
-| `engine/Get-PredecessorContext.ps1` | Predecessor context generation |
-| `mcp_servers/memory/scoring.py` | BM25 + time decay implementation |
+| `.agents/plan/` | Plan startup and predecessor context generation |

@@ -3,9 +3,7 @@ title: "Pillar 4: War-Rooms"
 description: "Isolated execution units where agents collaborate on a single epic with full filesystem-level separation."
 sidebar:
   order: 4
-  badge:
-    text: Pillar
-    variant: tip
+  icon: rocket
 ---
 
 War-rooms are OSTwin's core execution primitive. Each war-room is a **self-contained directory** where a team of agents collaborates on a single epic. Everything an agent needs -- its brief, channel, artifacts, progress state -- lives inside the room directory.
@@ -16,18 +14,21 @@ Every war-room follows a strict directory structure:
 
 ```
 .agents/war-rooms/room-042/
-  config.json          # Goal contract: epic ref, roles, lifecycle
+  config.json          # Goal contract: epic ref, roles, definition of done
   brief.md             # What the team must accomplish
+  tasks.md             # Breakdown of tasks to complete
   channel.jsonl        # Append-only message log
   progress.json        # Current completion percentage
-  status.txt           # Current lifecycle state
+  status               # Current lifecycle state (e.g. pending, in_progress)
+  retries              # Current retry count
+  done_epoch           # Epoch timestamp of completion
+  task-ref             # Task or Epic reference
   lifecycle.json       # State machine definition
-  mcp.json             # Room-specific MCP config (optional)
+  lifecycle.md         # Readable version of state machine
   artifacts/           # Deliverables produced by agents
-    report.md
-    implementation.py
-  skills/              # Room-local skill overrides (optional)
-  roles/               # Room-local role overrides (optional)
+  pids/                # Process IDs for running agents
+  contexts/            # Room contexts
+  assets/              # Room assets
 ```
 
 :::note[Everything is a File]
@@ -40,19 +41,24 @@ The `config.json` file is the war-room's contract. It defines what the room exis
 
 ```json
 {
-  "room_id": "room-042",
-  "plan_id": "plan-001",
-  "epic_ref": "EPIC-007",
-  "epic_title": "Implement user authentication flow",
-  "roles": ["engineer", "qa", "architect"],
-  "skill_refs": ["implement-epic", "write-tests", "security-review"],
-  "model_override": null,
-  "no_mcp": false,
-  "lifecycle": "standard",
-  "max_retries": 3,
-  "timeout_seconds": 900,
-  "dependencies": ["EPIC-003", "EPIC-005"],
-  "created_at": "2025-01-15T10:00:00Z"
+  "RoomId": "room-042",
+  "TaskRef": "EPIC-007",
+  "TaskDescription": "Implement user authentication flow",
+  "WorkingDir": ".",
+  "DefinitionOfDone": [
+    "JWT working",
+    "Tests pass"
+  ],
+  "AcceptanceCriteria": [
+    "POST /login returns 200"
+  ],
+  "PlanId": "plan-001",
+  "DependsOn": [
+    "EPIC-003",
+    "EPIC-005"
+  ],
+  "MaxRetries": 3,
+  "TimeoutSeconds": 900
 }
 ```
 
@@ -132,10 +138,10 @@ War-rooms provide five levels of isolation:
 War-rooms are created by the manager agent during plan execution:
 
 1. **DAG resolution** -- manager reads the DAG to find the next executable epics
-2. **Room scaffolding** -- `New-WarRoom.ps1` creates the directory with config, brief, and lifecycle
+2. **Room scaffolding** -- `war-rooms/New-WarRoom.ps1` creates the directory with config, brief, and lifecycle
 3. **Role assignment** -- manager selects roles from the registry based on epic requirements
 4. **Skill linking** -- relevant skills are union-merged from role, room, and plan levels
-5. **Agent invocation** -- `Invoke-Agent.ps1` launches each role in sequence
+5. **Agent invocation** -- `roles/_base/Invoke-Agent.ps1` launches each role in sequence
 
 ```powershell
 New-WarRoom -PlanId "plan-001" -EpicRef "EPIC-007" `
@@ -146,7 +152,7 @@ New-WarRoom -PlanId "plan-001" -EpicRef "EPIC-007" `
 
 When a war-room reaches a terminal state (`passed` or `failed-final`):
 
-1. Final status is written to `status.txt`
+1. Final status is written to `status`
 2. All artifacts are preserved in the `artifacts/` directory
 3. Memory entries published during execution remain in the shared ledger
 4. The room directory is retained for audit and debugging purposes
@@ -181,8 +187,8 @@ The Next.js frontend subscribes to the SSE endpoint and renders a live dashboard
 
 | File | Purpose |
 |------|---------|
-| `engine/New-WarRoom.ps1` | Room creation and scaffolding |
-| `engine/Invoke-Agent.ps1` | Agent invocation within a room |
-| `mcp_servers/warroom/` | Channel and status MCP server |
+| `.agents/war-rooms/New-WarRoom.ps1` | Room creation and scaffolding |
+| `.agents/roles/_base/Invoke-Agent.ps1` | Agent invocation within a room |
+| `.agents/mcp/warroom-server.py` | Channel and status MCP server |
 | `.agents/war-rooms/` | All war-room directories |
 | `dashboard/api/rooms.py` | Room status API endpoint |

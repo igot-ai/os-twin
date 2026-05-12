@@ -51,7 +51,7 @@ Every plan is a markdown file with four key sections: **Config**, **Goal**, and 
 
    ```markdown
    ## Epic 1: Authentication System
-   ### DoD
+   ### Definition of Done
    - JWT-based auth with login and register endpoints
    - Password hashing with bcrypt
    - Auth middleware for protected routes
@@ -72,7 +72,7 @@ Every plan is a markdown file with four key sections: **Config**, **Goal**, and 
    ```markdown
    ## Epic 2: Task CRUD API
    **depends_on: Epic 1**
-   ### DoD
+   ### Definition of Done
    - Full CRUD for tasks with user ownership
    ### Tasks
    - TASK-001: Task model with user foreign key
@@ -87,7 +87,7 @@ Every plan is a markdown file with four key sections: **Config**, **Goal**, and 
    ## Epic 3: API Documentation
    **depends_on: Epic 1, Epic 2**
    **roles: architect, engineer**
-   ### DoD
+   ### Definition of Done
    - OpenAPI spec generated and validated
    ### Tasks
    - TASK-001: Generate OpenAPI spec from route definitions
@@ -179,6 +179,6 @@ When a plan fails, don't restart from scratch. Use `-Room room-NNN` to re-run on
 
 ## Next Steps
 
-- Learn about the [Zero-Agent Pattern](/concepts/zero-agent/) and how agents are composed at runtime
+- Learn about the [Role Pattern](/concepts/role-pattern/) and how agents are composed at runtime
 - Explore [War-Rooms](/concepts/war-rooms/) to understand the isolation model
 - Read about [Skills](/concepts/skills/) to extend agent capabilities

@@ -15,10 +15,10 @@ OSTwin is built from four independent subsystems that communicate through the fi
 └──────────────┬───────────────────────────┬───────────────┘
                │                           │
     ┌──────────▼──────────┐     ┌──────────▼──────────┐
-    │   Engine (PS)       │     │  Dashboard (Py+JS)  │
+    │   Engine (.agents/)       │     │  Dashboard (Py+JS)  │
     │                     │     │                     │
     │  Invoke-Agent.ps1   │     │  FastAPI backend    │
-    │  Build-DAG.ps1      │◄───►│  Next.js frontend   │
+    │  Build-PlanningDAG.ps1      │◄───►│  Next.js frontend   │
     │  New-WarRoom.ps1    │     │  SSE streaming      │
     │  Resolve-*.ps1      │     │                     │
     └──────────┬──────────┘     └──────────┬──────────┘
@@ -46,17 +46,17 @@ The engine is the orchestration core. Written in PowerShell, it manages plan exe
 
 | Script | Purpose |
 |--------|---------|
-| `Invoke-Agent.ps1` | Universal agent runner -- assembles prompt, resolves role/skills/MCP, launches LLM session |
-| `Build-DAG.ps1` | Kahn's algorithm -- converts epic dependencies into executable waves |
-| `New-WarRoom.ps1` | War-room scaffolding -- creates directory structure, config, lifecycle |
-| `Get-NextWave.ps1` | Wave resolution -- determines which epics can execute next |
-| `Resolve-Role.ps1` | 5-tier role discovery |
-| `Resolve-Skills.ps1` | 3-tier skill resolution with union merge |
-| `Resolve-McpConfig.ps1` | 4-tier MCP configuration merge |
-| `Set-RoomStatus.ps1` | Lifecycle transition with validation |
-| `Watch-Timeouts.ps1` | Timeout enforcement loop |
-| `New-Role.ps1` | Dynamic role creation |
-| `Invoke-PlanReview.ps1` | Plan review orchestration and DAG generation |
+| `roles/_base/Invoke-Agent.ps1` | Universal agent runner -- assembles prompt, resolves role/skills/MCP, launches LLM session |
+| `plan/Build-PlanningDAG.ps1` | Kahn's algorithm -- converts epic dependencies into executable waves |
+| `war-rooms/New-WarRoom.ps1` | War-room scaffolding -- creates directory structure, config, lifecycle |
+| `plan/Start-Plan.ps1` | Wave resolution -- determines which epics can execute next |
+| `roles/_base/Resolve-Role.ps1` | 5-tier role discovery |
+| `roles/_base/Resolve-RoleSkills.ps1` | 3-tier skill resolution with union merge |
+| `mcp/config_resolver.py` | 4-tier MCP configuration merge |
+| `war-rooms/Get-WarRoomStatus.ps1` | Lifecycle transition with validation |
+| `plan/Start-Plan.ps1` | Timeout enforcement loop |
+| `roles/_base/New-DynamicRole.ps1` | Dynamic role creation |
+| `plan/Start-Plan.ps1` | Plan review orchestration and DAG generation |
 
 :::note[Why PowerShell?]
 PowerShell provides native JSON handling, cross-platform support (runs on macOS, Linux, Windows via PowerShell Core), pipeline composition, and robust error handling. It also integrates cleanly with both Python (MCP servers) and Node.js (dashboard) processes.
@@ -132,12 +132,12 @@ Four Python-based MCP servers provide tool interfaces for agents:
 
 | Server | Module | Key Tools |
 |--------|--------|-----------|
-| **Memory** | `mcp_servers.memory` | `publish`, `query`, `search`, `get_context`, `list_memories` |
-| **War-Room** | `mcp_servers.warroom` | `post_message`, `read_messages`, `get_latest`, `update_status`, `report_progress`, `list_artifacts` |
-| **Dashboard** | `mcp_servers.dashboard` | `get_plan_status`, `get_room_state`, `aggregate_stats` |
-| **Skills** | `mcp_servers.skills` | `search_skills`, `install_skill`, `list_installed` |
+| **Memory** | `.agents/mcp/global-memory-server.py` | `publish`, `query`, `search`, `get_context`, `list_memories` |
+| **War-Room** | `.agents/mcp/warroom-server.py` | `post_message`, `read_messages`, `get_latest`, `update_status`, `report_progress`, `list_artifacts` |
+| **Channel** | `.agents/mcp/channel-server.py` | `post_message`, `read_messages`, `get_latest` |
+| **Knowledge** | `.agents/mcp/global-knowledge-server.py` | `search_knowledge`, `read_knowledge` |
 
-Each server runs as a separate process, launched by `Invoke-Agent.ps1` with room-specific arguments. Servers communicate with agents over stdio using the MCP protocol.
+Each server runs as a separate process, launched by `roles/_base/Invoke-Agent.ps1` with room-specific arguments. Servers communicate with agents over stdio using the MCP protocol.
 
 :::tip[Process Isolation]
 Each MCP server process is isolated. A crash in the memory server doesn't affect the war-room server. The engine detects crashed servers and can restart them without interrupting the agent session.
@@ -159,7 +159,7 @@ The filesystem is OSTwin's coordination backbone. All state is stored as files:
 | `.agents/ledger.jsonl` | Shared memory | JSON Lines |
 | `.agents/roles/*/role.json` | Role configurations | JSON |
 | `.agents/skills/*/SKILL.md` | Skill definitions | Markdown |
-| `.agents/registry.json` | Role catalog | JSON |
+| `.agents/roles/registry.json` | Role catalog | JSON |
 | `.agents/vault.json` | Secrets (gitignored) | JSON |
 
 ### Why Filesystem?
@@ -198,10 +198,10 @@ Agents within a single war-room do not run concurrently. The manager invokes eng
 User Input
     │
     ▼
-PLAN.md ──► Build-DAG.ps1 ──► DAG.json
+PLAN.md ──► Build-PlanningDAG.ps1 ──► DAG.json
                                   │
                                   ▼
-                           Get-NextWave.ps1
+                           Start-Plan.ps1
                                   │
                                   ▼
                            New-WarRoom.ps1 ──► room directories
@@ -229,8 +229,8 @@ PLAN.md ──► Build-DAG.ps1 ──► DAG.json
 
 | Directory | Language | Purpose |
 |-----------|----------|---------|
-| `engine/` | PowerShell | Orchestration scripts |
-| `mcp_servers/` | Python | MCP server implementations |
+| `.agents/` | PowerShell | Orchestration scripts |
+| `.agents/mcp/` | Python | MCP server implementations |
 | `dashboard/api/` | Python (FastAPI) | REST + SSE backend |
 | `dashboard/web/` | TypeScript (Next.js) | Frontend application |
 | `bot/` | TypeScript | Chat platform adapters |
@@ -241,5 +241,5 @@ PLAN.md ──► Build-DAG.ps1 ──► DAG.json
 | `.agents/war-rooms/` | Mixed | Room state and artifacts |
 
 :::tip[Getting Started]
-To understand the system, start with `engine/Invoke-Agent.ps1` -- it is the single entry point that ties all four subsystems together. Every agent invocation flows through this script, making it the best place to trace the complete execution path.
+To understand the system, start with `.agents/roles/_base/Invoke-Agent.ps1` -- it is the single entry point that ties all four subsystems together. Every agent invocation flows through this script, making it the best place to trace the complete execution path.
 :::

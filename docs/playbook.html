@@ -1,0 +1,2275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agentic Engineering Playbook — EPIC Format · iGOT.AI</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;0,700;1,300&display=swap"
+    rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --surface: #13161b;
+      --surface2: #1a1e26;
+      --border: #252a35;
+      --border2: #2e3547;
+      --accent: #e8a020;
+      --accent2: #f0b840;
+      --accent-dim: rgba(232, 160, 32, 0.12);
+      --accent-dim2: rgba(232, 160, 32, 0.06);
+      --text: #d4d8e2;
+      --text-dim: #7a8399;
+      --text-dimmer: #4a5168;
+      --green: #3dd68c;
+      --blue: #5b9cf6;
+      --red: #f06464;
+      --purple: #a78bfa;
+      --sidebar-w: 260px;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'IBM Plex Sans', sans-serif;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.7;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ── */
+    nav {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      z-index: 100;
+      padding-bottom: 48px;
+    }
+
+    .nav-header {
+      padding: 24px 20px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+
+    .nav-logo {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .nav-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .nav-version {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dimmer);
+      margin-top: 6px;
+    }
+
+    .nav-section-label {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dimmer);
+      padding: 16px 20px 6px;
+    }
+
+    nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 20px;
+      font-size: 12.5px;
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: all 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    nav a:hover {
+      color: var(--text);
+      background: var(--accent-dim2);
+      border-left-color: var(--border2);
+    }
+
+    nav a.active {
+      color: var(--accent);
+      background: var(--accent-dim);
+      border-left-color: var(--accent);
+    }
+
+    nav a .nav-num {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dimmer);
+      min-width: 18px;
+    }
+
+    /* ── MAIN CONTENT ── */
+    main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      max-width: 860px;
+      padding: 64px 56px 120px;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      margin-bottom: 72px;
+      padding-bottom: 48px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .hero h1 {
+      font-size: 38px;
+      font-weight: 700;
+      line-height: 1.15;
+      color: #fff;
+      margin-bottom: 20px;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span {
+      color: var(--accent);
+    }
+
+    .hero-desc {
+      font-size: 16px;
+      color: var(--text-dim);
+      font-weight: 300;
+      max-width: 580px;
+      line-height: 1.75;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 24px;
+      margin-top: 28px;
+      flex-wrap: wrap;
+    }
+
+    .hero-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .hero-meta-label {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dimmer);
+    }
+
+    .hero-meta-value {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    /* ── SECTIONS ── */
+    section {
+      margin-bottom: 80px;
+      scroll-margin-top: 32px;
+    }
+
+    .section-eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-eyebrow::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      max-width: 200px;
+    }
+
+    h2 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 20px;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent2);
+      margin: 32px 0 10px;
+      font-family: var(--mono);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin: 24px 0 8px;
+    }
+
+    p {
+      color: var(--text);
+      margin-bottom: 16px;
+      line-height: 1.8;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    strong {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    em {
+      color: var(--accent2);
+      font-style: italic;
+    }
+
+    /* ── CALLOUT BOXES ── */
+    .callout {
+      background: var(--accent-dim);
+      border: 1px solid rgba(232, 160, 32, 0.3);
+      border-radius: 6px;
+      padding: 18px 20px;
+      margin: 24px 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .callout::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--accent);
+    }
+
+    .callout-label {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .callout p {
+      color: var(--text-dim);
+      margin-bottom: 0;
+      font-size: 14px;
+    }
+
+    .callout strong {
+      color: var(--accent2);
+    }
+
+    .callout.green {
+      background: rgba(61, 214, 140, 0.07);
+      border-color: rgba(61, 214, 140, 0.25);
+    }
+
+    .callout.green::before {
+      background: var(--green);
+    }
+
+    .callout.green .callout-label {
+      color: var(--green);
+    }
+
+    .callout.red {
+      background: rgba(240, 100, 100, 0.07);
+      border-color: rgba(240, 100, 100, 0.25);
+    }
+
+    .callout.red::before {
+      background: var(--red);
+    }
+
+    .callout.red .callout-label {
+      color: var(--red);
+    }
+
+    .callout.blue {
+      background: rgba(91, 156, 246, 0.07);
+      border-color: rgba(91, 156, 246, 0.25);
+    }
+
+    .callout.blue::before {
+      background: var(--blue);
+    }
+
+    .callout.blue .callout-label {
+      color: var(--blue);
+    }
+
+    /* ── CODE BLOCKS ── */
+    pre {
+      background: #0a0c10;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px 22px;
+      overflow-x: auto;
+      margin: 20px 0;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: #b8c0d0;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: var(--surface2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: var(--accent2);
+      border: 1px solid var(--border);
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: inherit;
+      color: inherit;
+    }
+
+    .code-kw {
+      color: var(--purple);
+    }
+
+    .code-str {
+      color: var(--green);
+    }
+
+    .code-comment {
+      color: var(--text-dimmer);
+      font-style: italic;
+    }
+
+    .code-key {
+      color: var(--blue);
+    }
+
+    .code-val {
+      color: var(--accent2);
+    }
+
+    .code-tag {
+      color: var(--red);
+    }
+
+    /* ── TABLES ── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 24px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+
+    th {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      font-weight: 600;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 2px solid var(--border2);
+      background: var(--surface2);
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: top;
+      line-height: 1.6;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: var(--accent-dim2);
+    }
+
+    td strong {
+      color: var(--accent2);
+    }
+
+    /* ── PYRAMID DIAGRAM ── */
+    .pyramid {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin: 32px auto;
+      max-width: 480px;
+    }
+
+    .pyramid-level {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--bg);
+      font-weight: 700;
+      font-size: 13px;
+      font-family: var(--mono);
+      letter-spacing: 0.04em;
+      clip-path: polygon(8% 0%, 92% 0%, 100% 100%, 0% 100%);
+      transition: filter 0.2s;
+    }
+
+    .pyramid-level:hover {
+      filter: brightness(1.15);
+    }
+
+    .pyr-1 {
+      width: 100%;
+      height: 64px;
+      background: var(--accent);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .pyr-2 {
+      width: 78%;
+      height: 56px;
+      background: #c4881a;
+      clip-path: polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%);
+    }
+
+    .pyr-3 {
+      width: 58%;
+      height: 56px;
+      background: #9e6614;
+      clip-path: polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%);
+    }
+
+    .pyr-label {
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 300;
+      margin-top: 4px;
+      color: var(--text-dimmer);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── FLOW DIAGRAM ── */
+    .flow {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      margin: 28px 0;
+      overflow-x: auto;
+      padding: 4px 0 12px;
+    }
+
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 110px;
+      gap: 8px;
+    }
+
+    .flow-box {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 12px 10px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      width: 100%;
+      line-height: 1.3;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .flow-box:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .flow-box.accent {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent2);
+    }
+
+    .flow-box.green {
+      border-color: rgba(61, 214, 140, 0.4);
+      background: rgba(61, 214, 140, 0.07);
+      color: var(--green);
+    }
+
+    .flow-box.red {
+      border-color: rgba(240, 100, 100, 0.4);
+      background: rgba(240, 100, 100, 0.07);
+      color: var(--red);
+    }
+
+    .flow-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-dimmer);
+      text-align: center;
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      padding: 0 4px;
+      margin-top: 20px;
+      color: var(--text-dimmer);
+      font-size: 18px;
+    }
+
+    /* ── GRID CARDS ── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .card-icon {
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+
+    .card h4 {
+      margin: 0 0 6px;
+      font-size: 13.5px;
+      color: var(--accent2);
+    }
+
+    .card p {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    /* ── CHECKLIST ── */
+    .checklist {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0;
+    }
+
+    .checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 7px 0;
+      font-size: 13.5px;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .checklist li:last-child {
+      border-bottom: none;
+    }
+
+    .checklist li::before {
+      content: '□';
+      font-family: var(--mono);
+      color: var(--text-dimmer);
+      font-size: 13px;
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+
+    .checklist li.done::before {
+      content: '✓';
+      color: var(--green);
+    }
+
+    .checklist li strong {
+      color: var(--text);
+    }
+
+    /* ── BADGE ── */
+    .badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 3px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+
+    .badge-eng {
+      background: rgba(91, 156, 246, 0.15);
+      color: var(--blue);
+      border: 1px solid rgba(91, 156, 246, 0.3);
+    }
+
+    .badge-qa {
+      background: rgba(61, 214, 140, 0.12);
+      color: var(--green);
+      border: 1px solid rgba(61, 214, 140, 0.3);
+    }
+
+    .badge-sup {
+      background: rgba(232, 160, 32, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(232, 160, 32, 0.3);
+    }
+
+    .badge-crit {
+      background: rgba(240, 100, 100, 0.12);
+      color: var(--red);
+      border: 1px solid rgba(240, 100, 100, 0.3);
+    }
+
+    /* ── DIVIDER ── */
+    .divider {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+    }
+
+    /* ── BLOCKQUOTE ── */
+    blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 12px 20px;
+      margin: 24px 0;
+      background: var(--accent-dim2);
+      border-radius: 0 6px 6px 0;
+      font-size: 15px;
+      font-style: italic;
+      color: var(--text-dim);
+    }
+
+    blockquote strong {
+      color: var(--accent2);
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--surface);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border2);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-dimmer);
+    }
+
+    @media (max-width: 900px) {
+      nav {
+        display: none;
+      }
+
+      main {
+        margin-left: 0;
+        padding: 32px 20px 80px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── SIDEBAR ── -->
+  <nav id="sidebar">
+    <div class="nav-header">
+      <div class="nav-logo">iGOT.AI</div>
+      <div class="nav-title">Agentic Engineering Playbook</div>
+      <div class="nav-version">v1.0 · Internal · 2026</div>
+    </div>
+
+    <div class="nav-section-label">Foundations</div>
+    <a href="#pyramid"><span class="nav-num">01</span>The Pyramid Principle</a>
+    <a href="#prompt-context"><span class="nav-num">02</span>Prompt-Driven Context</a>
+    <a href="#context-eng"><span class="nav-num">03</span>Context Engineering</a>
+
+    <div class="nav-section-label">Architecture</div>
+    <a href="#mcp-skills"><span class="nav-num">04</span>MCP & Skills</a>
+    <a href="#roles"><span class="nav-num">05</span>Roles: Worker & Evaluator</a>
+    <a href="#english"><span class="nav-num">06</span>English as Embedding Layer</a>
+    <a href="#ddd-tdd"><span class="nav-num">07</span>DDD & TDD for Agents</a>
+
+    <div class="nav-section-label">Execution</div>
+    <a href="#epic"><span class="nav-num">08</span>The EPIC Planning Standard</a>
+    <a href="#agentic-ops"><span class="nav-num">09</span>Agentic Ops Best Practices</a>
+
+    <div class="nav-section-label">The Core Thesis</div>
+    <a href="#quality"><span class="nav-num">10</span>Code Quality = Context Quality</a>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <main>
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-tag">// Engineering Handbook · Internal</div>
+      <h1>Build Agents That<br /><span>Actually Ship.</span></h1>
+      <p class="hero-desc">
+        A field guide for engineers working in an AI-first SDLC. Every section maps a concept to how it changes the way
+        you write prompts, design contexts, and structure epics — because in agentic systems, <strong>your planning is
+          your code</strong>.
+      </p>
+      <div class="hero-meta">
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Audience</span>
+          <span class="hero-meta-value">Dev Team / Onboarding</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Framework</span>
+          <span class="hero-meta-value">Context-Agents SDLC</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="hero-meta-label">Scope</span>
+          <span class="hero-meta-value">OSTwin · Agent Studio</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 01. PYRAMID PRINCIPLE ── -->
+    <section id="pyramid">
+      <div class="section-eyebrow">01 · Foundation</div>
+      <h2>The Pyramid Principle</h2>
+      <p>
+        Borrowed from consulting, the <strong>Pyramid Principle</strong> (Barbara Minto, McKinsey) is the most important
+        thinking structure for anyone writing prompts, EPICs, or technical specs for AI agents. The rule is simple:
+        <em>lead with your conclusion, then prove it</em>.
+      </p>
+
+      <div class="pyramid">
+        <div class="pyramid-level pyr-1">CONCLUSION FIRST</div>
+        <div class="pyramid-level pyr-2">KEY ARGUMENTS</div>
+        <div class="pyramid-level pyr-3">SUPPORTING EVIDENCE</div>
+      </div>
+      <div style="text-align:center; margin-top: 0; margin-bottom: 28px;">
+        <span class="pyramid-label">Bottom-Up thinking → Top-Down communication</span>
+      </div>
+
+      <p>
+        Most engineers write context the way they <em>think</em> — building up from details to conclusions. This is the
+        wrong order for agents. An LLM processes your prompt top-to-bottom and must hold all prior context in its
+        attention window. If the conclusion is at the bottom, the agent has already made decisions before it knows what
+        you want.
+      </p>
+
+      <h3>Applied to Prompts & Context Files</h3>
+
+      <div class="callout">
+        <div class="callout-label">❌ Wrong order (bottom-up)</div>
+        <p>"There are several edge cases in the current payment processor. The retry logic is inconsistent, the error
+          messages are not standardized, and the timeout handling differs across methods. Therefore, I want you to
+          refactor the PaymentService class."</p>
+      </div>
+
+      <div class="callout green">
+        <div class="callout-label">✅ Pyramid order (conclusion first)</div>
+        <p>"<strong>Refactor PaymentService to enforce consistent error handling.</strong> Three issues drive this: (1)
+          inconsistent retry logic, (2) non-standard error messages, (3) timeout handling differs per method. Focus on
+          these three changes only."</p>
+      </div>
+
+      <h3>The Three Pyramid Rules</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Meaning</th>
+              <th>In Practice</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>BLUF</strong></td>
+              <td>Bottom Line Up Front</td>
+              <td>First sentence = the task/decision</td>
+            </tr>
+            <tr>
+              <td><strong>MECE</strong></td>
+              <td>Mutually Exclusive, Collectively Exhaustive</td>
+              <td>No overlap in acceptance criteria; no gaps</td>
+            </tr>
+            <tr>
+              <td><strong>Rule of 3</strong></td>
+              <td>Group support into ≤3 clusters</td>
+              <td>Max 3 goals per EPIC phase, 3 AC per Story</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <blockquote>
+        <strong>The Pyramid Principle is the foundation of every other concept in this handbook.</strong> EPICs lead
+        with the outcome. Prompts lead with the task. Context files lead with the current state. Master this, and
+        everything else becomes cleaner.
+      </blockquote>
+    </section>
+
+    <!-- ── 02. PROMPT-DRIVEN CONTEXT ── -->
+    <section id="prompt-context">
+      <div class="section-eyebrow">02 · Foundation</div>
+      <h2>Prompt-Driven Context</h2>
+      <p>
+        In classical software, your source code <em>is</em> the product. In agentic systems, your <strong>context is the
+          source code</strong>. What you give the agent — its system prompt, its PLAN.md, its CONTEXT.md, its examples —
+        fully determines what it builds.
+      </p>
+
+      <div class="callout blue">
+        <div class="callout-label">Core principle</div>
+        <p><strong>The quality of the AI's output is entirely a function of the quality of its input context.</strong>
+          There is no "prompt magic." There is only context quality.</p>
+      </div>
+
+      <h3>What "Context" Means in This System</h3>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">📄</div>
+          <h4>CONTEXT.md</h4>
+          <p>The agent's memory. Tech stack, current phase, blockers, routing tags. Re-read at every session start.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🗺️</div>
+          <h4>PLAN.md</h4>
+          <p>The Supervisor's spec. Phase goals, tasks per role, AC, DoD. This is the source of truth for execution.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔧</div>
+          <h4>SKILL.md</h4>
+          <p>Capability instruction files. Tell the agent <em>how</em> to do a class of tasks. Loaded on-demand via MCP.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📋</div>
+          <h4>TODO.md</h4>
+          <p>Engineer's append-only log. Release notes per version. QA reads this to understand what changed.</p>
+        </div>
+      </div>
+
+      <h3>The Context Degradation Problem</h3>
+      <p>
+        As a conversation or task grows longer, context quality <em>degrades</em>. Agents start to drift, forget earlier
+        constraints, or hallucinate decisions. The solution is not a better model — it is <strong>structured context
+          reset</strong>.
+      </p>
+
+      <pre><code><span class="code-comment"># At the start of EVERY agent session, run:</span>
+cat {feature}/CONTEXT.md           <span class="code-comment"># Current state — phase, blockers, routing</span>
+cat {feature}/references/Supervisor/PLAN.md  <span class="code-comment"># Active instructions</span>
+python room.py {feature} --since 0 | tail -20  <span class="code-comment"># Recent events</span>
+
+<span class="code-comment"># This is not optional. This IS the agent's working memory.</span></code></pre>
+
+      <h3>Prompt-Driven Context: The Three Layers</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>File</th>
+              <th>Who Writes</th>
+              <th>When Read</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>System</strong></td>
+              <td>SKILL.md, ROLE.md</td>
+              <td>Architect / Human</td>
+              <td>Session init</td>
+            </tr>
+            <tr>
+              <td><strong>Planning</strong></td>
+              <td>PLAN.md, CONTEXT.md</td>
+              <td>Supervisor Agent</td>
+              <td>Every task start</td>
+            </tr>
+            <tr>
+              <td><strong>Execution</strong></td>
+              <td>TODO.md, QA.md</td>
+              <td>Engineer / QA Agent</td>
+              <td>Review & handoff</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <blockquote>
+        <strong>If you find yourself correcting an agent mid-task, you have a context problem, not a model
+          problem.</strong> Go back and improve the PLAN.md before the next cycle.
+      </blockquote>
+    </section>
+
+    <!-- ── 03. CONTEXT ENGINEERING ── -->
+    <section id="context-eng">
+      <div class="section-eyebrow">03 · Foundation</div>
+      <h2>Context Engineering</h2>
+      <p>
+        Context Engineering is the discipline of designing, structuring, and maintaining the information environment
+        that agents operate in. Think of it as <strong>database schema design — but for an agent's mind</strong>.
+      </p>
+
+      <p>
+        A poorly-structured context produces hallucinations, out-of-scope changes, and broken contracts between agents.
+        A well-structured context makes agents predictably capable.
+      </p>
+
+      <h3>The Four Properties of Good Context</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Definition</th>
+              <th>Anti-pattern</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Bounded</strong></td>
+              <td>One context per feature. No cross-feature contamination.</td>
+              <td>Monolithic PLAN.md covering 10 features</td>
+            </tr>
+            <tr>
+              <td><strong>Current</strong></td>
+              <td>CONTEXT.md reflects <em>actual</em> current state, not intended state.</td>
+              <td>Phase marked "Phase 1" when Phase 3 is running</td>
+            </tr>
+            <tr>
+              <td><strong>Append-only</strong></td>
+              <td>History is never deleted. Agents read the full chain of decisions.</td>
+              <td>Overwriting PLAN.md v1 with v2</td>
+            </tr>
+            <tr>
+              <td><strong>Role-scoped</strong></td>
+              <td>Each agent owns exactly one file. Reads others' as read-only.</td>
+              <td>Engineer editing QA.md</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Context Lifecycle</h3>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box accent">Human writes EPIC</div>
+          <div class="flow-label">Product spec</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Supervisor writes PLAN.md</div>
+          <div class="flow-label">Phase + AC + DoD</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Engineer reads context</div>
+          <div class="flow-label">CONTEXT.md + PLAN.md</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box green">Ships &amp; updates context</div>
+          <div class="flow-label">TODO.md + CONTEXT.md</div>
+        </div>
+      </div>
+
+      <h3>CONTEXT.md Format — Required Fields</h3>
+      <pre><code><span class="code-comment"># CONTEXT.md — {Feature Name}</span>
+<span class="code-key">Project:</span>          <span class="code-val">{repo name}</span>
+<span class="code-key">Tech stack:</span>       <span class="code-val">TypeScript, Postgres 15, Redis, Next.js 14</span>
+<span class="code-key">Routing tags:</span>     <span class="code-val">[backend], [frontend]</span>
+<span class="code-key">Current phase:</span>    <span class="code-val">Phase 2</span>
+<span class="code-key">Last completed:</span>   <span class="code-val">v1d (Phase 1 — auth scaffolding)</span>
+<span class="code-key">Current blocker:</span>  <span class="code-val">none</span>
+<span class="code-key">Architecture decisions:</span>
+  - JWT stored in httpOnly cookie (not localStorage)
+  - Prisma ORM, no raw SQL
+<span class="code-key">Phase summary:</span>
+  Phase 1 — Auth scaffolding (DONE)
+  Phase 2 — Payment flow (ACTIVE)
+  Phase 3 — Notifications (PENDING)
+<span class="code-key">Agent assignments:</span>
+  Supervisor: Claude
+  Engineer:   Cursor / Claude Code
+  QA:         Claude (separate session)</code></pre>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- ── 04. MCP & SKILLS ── -->
+    <section id="mcp-skills">
+      <div class="section-eyebrow">04 · Architecture</div>
+      <h2>MCP &amp; Skills</h2>
+      <p>
+        <strong>MCP (Model Context Protocol)</strong> is the open standard for connecting AI agents to tools and data
+        sources. Rather than stuffing all capability into a system prompt, MCP lets you <em>compose capabilities
+          dynamically</em>. Think of it as a package manager for agent tools.
+      </p>
+      <p>
+        <strong>Skills</strong> (<code>SKILL.md</code> files) are our layer on top of MCP. A Skill is a markdown file
+        that instructs an agent <em>how</em> to use a class of tools or perform a domain task. Skills are loaded
+        on-demand, keeping base context lean.
+      </p>
+
+      <h3>MCP Architecture in OSTwin</h3>
+      <pre><code><span class="code-comment">┌──────────────────────────────────────────────┐</span>
+<span class="code-comment">│            Agent (Claude Code / Cursor)       │</span>
+<span class="code-comment">│                                              │</span>
+<span class="code-comment">│  Reads: CONTEXT.md → PLAN.md → SKILL.md     │</span>
+<span class="code-comment">│         ↓                                    │</span>
+<span class="code-comment">│  Calls: MCP servers (tools)                  │</span>
+<span class="code-comment">│         ↓                                    │</span>
+<span class="code-comment">│  Writes: TODO.md → ROOM.jsonl               │</span>
+<span class="code-comment">└──────────────────────────────────────────────┘</span>
+         │             │              │
+    [filesystem]  [database]    [external API]
+      MCP server   MCP server     MCP server</code></pre>
+
+      <h3>Skill File Design Rules</h3>
+      <ul class="checklist">
+        <li class="done"><strong>Lead with trigger conditions</strong> — when to use this skill, when not to</li>
+        <li class="done"><strong>Include a worked example</strong> — agents learn from demonstration, not just
+          instruction</li>
+        <li class="done"><strong>State constraints explicitly</strong> — what the skill must never do</li>
+        <li class="done"><strong>Version your skills</strong> — changes to SKILL.md break running agents; version
+          intentionally</li>
+        <li><strong>Keep skills single-purpose</strong> — one SKILL.md per domain (docx, pdf, api, etc.)</li>
+      </ul>
+
+      <h3>MCP Server Scoping — Role-Based Access</h3>
+      <p>
+        Not every agent needs every tool. In OSTwin's architecture, MCP server access is scoped by role. This is a
+        security boundary, not just convenience.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>MCP Servers Allowed</th>
+              <th>Rationale</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Supervisor</strong></td>
+              <td>filesystem (read), ROOM bus</td>
+              <td>Plans only; no code execution</td>
+            </tr>
+            <tr>
+              <td><strong>Engineer</strong></td>
+              <td>filesystem (rw), shell, git, DB</td>
+              <td>Full execution scope</td>
+            </tr>
+            <tr>
+              <td><strong>QA</strong></td>
+              <td>filesystem (read), test runner, ROOM bus</td>
+              <td>Validate only; no write to src</td>
+            </tr>
+            <tr>
+              <td><strong>DevOps</strong></td>
+              <td>cloud CLI, registry, ROOM bus</td>
+              <td>Deploy only; no src modification</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── 05. ROLES ── -->
+    <section id="roles">
+      <div class="section-eyebrow">05 · Architecture</div>
+      <h2>Roles: Worker &amp; Evaluator</h2>
+      <p>
+        The fundamental unit of agentic collaboration is the <strong>Worker / Evaluator pair</strong>. One agent
+        produces; another validates. This maps directly to our Engineer / QA roles, but the principle generalizes across
+        all multi-agent systems.
+      </p>
+
+      <div class="callout blue">
+        <div class="callout-label">Core insight</div>
+        <p>A single agent cannot reliably evaluate its own output. The moment you separate production from evaluation
+          into distinct agents with distinct context, quality dramatically improves. <strong>Self-review is a cognitive
+            trap for both humans and LLMs.</strong></p>
+      </div>
+
+      <h3>Worker Agent (Engineer) <span class="badge badge-eng">Engineer</span></h3>
+      <p>The Worker's job is to implement the specification in PLAN.md. It reads the Supervisor's instructions, claims a
+        task, implements, writes release notes, and signals readiness.</p>
+      <ul class="checklist">
+        <li class="done"><strong>CLAIM</strong> before starting any task</li>
+        <li class="done"><strong>WORKING heartbeat</strong> every ~5 min on long tasks</li>
+        <li class="done">Write <strong>TODO.md Release Notes FIRST</strong>, then post RELEASE event</li>
+        <li class="done">Wait for QA response via <code>--wait-for BUG,DELIVER</code></li>
+        <li class="done">Max 3 BUG cycles, then post BLOCKED and escalate</li>
+      </ul>
+
+      <h3>Evaluator Agent (QA) <span class="badge badge-qa">QA</span></h3>
+      <p>The Evaluator's job is to validate against the Acceptance Criteria in PLAN.md — not against its own judgment.
+        QA does not add scope; it enforces the contract.</p>
+      <ul class="checklist">
+        <li class="done"><strong>REVIEWING</strong> before starting review (prevents duplicate QA)</li>
+        <li class="done">Read <strong>TODO.md Release Notes</strong> before testing</li>
+        <li class="done">Write <strong>QA.md bug table FIRST</strong>, then post BUG event</li>
+        <li class="done">Test against <strong>PLAN.md AC</strong>, not personal preference</li>
+        <li class="done">Post <strong>Deliver Plan</strong> in QA.md before posting DELIVER</li>
+      </ul>
+
+      <h3>The Evaluation Contract</h3>
+      <blockquote>
+        QA never invents requirements. Every bug filed must reference a specific Acceptance Criterion from PLAN.md. If
+        it's not in the AC, it's not a bug — it's a new story. <strong>Scope creep kills velocity.</strong>
+      </blockquote>
+
+      <h3>Autonomous Loop: Worker ↔ Evaluator</h3>
+      <pre><code>ENGINEER                              QA
+────────                              ──
+
+implements Phase N
+writes TODO.md Release Note
+<span class="code-kw">→ RELEASE event</span> ─────────────────→  reads TODO.md
+                                      runs tests vs AC
+                                      writes QA.md bugs
+<span class="code-kw">← BUG event</span>      ←─────────────────  <span class="code-tag">← BUG (if failing)</span>
+
+reads QA.md
+fixes bugs
+writes TODO.md vNb
+<span class="code-kw">→ FIX event</span>  ─────────────────────→  re-reviews fixes
+                                      updates QA.md
+<span class="code-kw">← DELIVER event</span>  ←─────────────────  <span class="code-str">← DELIVER (all clear)</span>
+
+updates CONTEXT.md
+Phase N complete ✅</code></pre>
+    </section>
+
+    <!-- ── 06. ENGLISH AS EMBEDDING LAYER ── -->
+    <section id="english">
+      <div class="section-eyebrow">06 · Architecture</div>
+      <h2>English as the Best Embedding Language</h2>
+      <p>
+        When writing PLAN.md, SKILL.md, acceptance criteria, or any context consumed by an LLM — <strong>write in
+          English</strong>. This is not a cultural preference. It is a technical decision with measurable impact on
+        agent output quality.
+      </p>
+
+      <h3>Why English Outperforms Other Languages for LLM Context</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Factor</th>
+              <th>English</th>
+              <th>Vietnamese / Other</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Training data density</strong></td>
+              <td>~70–80% of most LLM pretraining corpora</td>
+              <td>&lt;2% for Vietnamese; other languages vary</td>
+            </tr>
+            <tr>
+              <td><strong>Token efficiency</strong></td>
+              <td>1 English word ≈ 1–1.5 tokens</td>
+              <td>1 Vietnamese word ≈ 2–4 tokens</td>
+            </tr>
+            <tr>
+              <td><strong>Instruction following</strong></td>
+              <td>Highest benchmark scores across all models</td>
+              <td>Accuracy degrades for precise technical instructions</td>
+            </tr>
+            <tr>
+              <td><strong>Code alignment</strong></td>
+              <td>Code is written in English; context matches code</td>
+              <td>Mismatch between context language and code language</td>
+            </tr>
+            <tr>
+              <td><strong>RLHF alignment</strong></td>
+              <td>Most human feedback data is English-based</td>
+              <td>RLHF coverage is sparse</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The Token Budget Argument</h3>
+      <p>
+        LLMs have a finite context window. Every token spent on verbose or inefficient language is a token <em>not</em>
+        available for code, logic, and reasoning. English maximizes the information-to-token ratio for all major models.
+      </p>
+      <pre><code><span class="code-comment"># Vietnamese (original)</span>
+"Kiểm tra xem hàm xác thực người dùng có trả về lỗi 401 khi token hết hạn không"
+<span class="code-comment"># Token count: ~30 tokens</span>
+
+<span class="code-comment"># English (equivalent)</span>
+"Verify auth function returns 401 when token is expired"
+<span class="code-comment"># Token count: ~11 tokens</span>
+
+<span class="code-comment"># Same meaning. 3x more efficient. Higher model compliance.</span></code></pre>
+
+      <div class="callout">
+        <div class="callout-label">The iGOT.AI Rule</div>
+        <p>All PLAN.md, CONTEXT.md, SKILL.md, AC, and DoD are written in <strong>English</strong>. User-facing content,
+          documentation for clients, and product descriptions can be localized. Agent context is always English.</p>
+      </div>
+
+      <h3>Ubiquitous Language in English</h3>
+      <p>
+        Domain Driven Design (see next section) requires a Ubiquitous Language — a shared vocabulary used by both humans
+        and the system. If your domain model is in English, your agents understand it natively. Mixed-language contexts
+        force the model to translate, introducing ambiguity at the most critical moment: understanding the spec.
+      </p>
+    </section>
+
+    <!-- ── 07. DDD & TDD ── -->
+    <section id="ddd-tdd">
+      <div class="section-eyebrow">07 · Architecture</div>
+      <h2>Domain-Driven Design &amp; TDD for Agents</h2>
+
+      <h3>Domain-Driven Design (DDD)</h3>
+      <p>
+        DDD is a software design approach that models the system around the <em>business domain</em> rather than
+        technical constraints. In agentic systems, DDD shapes how we write EPICs, name entities, and define bounded
+        contexts for agents.
+      </p>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">📖</div>
+          <h4>Ubiquitous Language</h4>
+          <p>A shared vocabulary between engineers, agents, and domain experts. Every term in PLAN.md must match the
+            code domain model precisely.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🏛️</div>
+          <h4>Bounded Context</h4>
+          <p>Each feature context folder = one bounded context. Agents operating in <code>payment-flow/</code> don't
+            cross into <code>notifications/</code>.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🧩</div>
+          <h4>Aggregates</h4>
+          <p>Group related entities that change together. A <code>PaymentSession</code> aggregate owns all state changes
+            — agents modify it as a unit.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📣</div>
+          <h4>Domain Events</h4>
+          <p>ROOM.jsonl IS your event bus. RELEASE, BUG, DELIVER are domain events in the agent SDLC bounded context.
+          </p>
+        </div>
+      </div>
+
+      <h3>DDD Applied: Writing PLAN.md with Ubiquitous Language</h3>
+      <pre><code><span class="code-comment">## Phase 2 — Payment Flow</span>
+
+<span class="code-comment">### Domain Model</span>
+<span class="code-comment"># Use these exact names in code, comments, and tests:</span>
+<span class="code-key">PaymentSession</span>   → represents one checkout attempt
+<span class="code-key">PaymentIntent</span>    → Stripe object; must mirror local state
+<span class="code-key">SettlementRecord</span> → immutable audit log entry post-capture
+
+<span class="code-comment">### Tasks [backend]</span>
+- Task 1: Implement <span class="code-val">PaymentSession.create()</span> — idempotent, returns SessionId
+- Task 2: Implement <span class="code-val">PaymentIntent.sync()</span> — polls Stripe, updates local state
+- Task 3: On capture, emit <span class="code-val">PaymentCaptured</span> domain event → write SettlementRecord</code></pre>
+
+      <p>
+        When the Engineer reads this, the domain vocabulary is unambiguous. There is no guessing what "payment object"
+        means. The agent generates code with the correct naming — which means your codebase stays consistent across
+        agent sessions.
+      </p>
+
+      <h3>Test-Driven Development (TDD) for Agent Tasks</h3>
+      <p>
+        TDD inverts the workflow: <em>write the test first, then write the code that passes it</em>. For agentic
+        systems, TDD maps directly to writing Acceptance Criteria <strong>before</strong> creating tasks in PLAN.md.
+      </p>
+
+      <div class="callout green">
+        <div class="callout-label">The Agentic TDD Loop</div>
+        <p><strong>1.</strong> Supervisor writes AC (the "test") in PLAN.md &nbsp;·&nbsp; <strong>2.</strong> Engineer
+          implements until AC passes &nbsp;·&nbsp; <strong>3.</strong> QA runs AC as literal test cases &nbsp;·&nbsp;
+          <strong>4.</strong> DELIVER only when all AC are green
+        </p>
+      </div>
+
+      <h3>Writing AC as Test Cases</h3>
+      <pre><code><span class="code-comment">## Acceptance Criteria — Task 1: PaymentSession.create()</span>
+
+<span class="code-comment"># Format: GIVEN / WHEN / THEN</span>
+AC-1: <span class="code-kw">GIVEN</span> valid userId and cartId
+      <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+      <span class="code-kw">THEN</span>  returns a unique SessionId AND persists to DB
+
+AC-2: <span class="code-kw">GIVEN</span> the same userId + cartId is submitted twice
+      <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+      <span class="code-kw">THEN</span>  returns the EXISTING SessionId (idempotent)
+
+AC-3: <span class="code-kw">GIVEN</span> invalid userId (non-existent)
+      <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+      <span class="code-kw">THEN</span>  throws <span class="code-val">UserNotFoundError</span> (NOT a 500)</code></pre>
+
+      <p>
+        These AC are directly executable by QA. The agent running QA can write unit test stubs from them. There is no
+        interpretation required. <strong>GIVEN/WHEN/THEN is the lingua franca of AC.</strong>
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- ── 08. EPIC PLANNING ── -->
+    <section id="epic">
+      <div class="section-eyebrow">08 · Execution</div>
+      <h2>The EPIC Planning Standard</h2>
+      <p>
+        In agentic systems, the EPIC is not just a project management artifact — it is the <strong>primary source of
+          truth</strong> for everything the agent will produce. A weak EPIC produces weak code. A precise EPIC produces
+        precise code. Every field in the EPIC format exists for a reason: it gives the agent unambiguous
+        instruction, gives QA testable criteria, and gives the Supervisor traceable accountability.
+      </p>
+
+      <blockquote>
+        <strong>The EPIC is the spec. The EPIC is the test. The EPIC is the contract between human intent and machine
+          execution.</strong>
+      </blockquote>
+
+      <h3>The EPIC Hierarchy</h3>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box accent">EPIC</div>
+          <div class="flow-label">Business outcome</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Stories</div>
+          <div class="flow-label">User-facing capability</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Tasks</div>
+          <div class="flow-label">Technical deliverable</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box green">AC + DoD</div>
+          <div class="flow-label">Completion proof</div>
+        </div>
+      </div>
+
+      <!-- ── CANONICAL FORMAT ── -->
+      <h3>The Canonical EPIC Format</h3>
+      <p>
+        Every EPIC in this system follows a single, rigid structure. This is not a suggestion — it is a
+        <strong>standard</strong>. Agents, QA, and the Supervisor all parse this format explicitly. Deviation breaks the
+        contract.
+      </p>
+
+      <pre><code><span class="code-comment">## EPIC-001 - {Outcome Statement}</span>
+<span class="code-key">Roles:</span>        <span class="code-val">@engineer, @qa, @devops</span>
+<span class="code-comment"># One-paragraph definition of the business problem and the goal.</span>
+<span class="code-comment"># Lead with the conclusion (Pyramid Principle).</span>
+<span class="code-comment"># Then state what this EPIC delivers and why it matters.</span>
+
+<span class="code-comment">### Definition of Done</span>
+- [ ] All Acceptance Criteria pass (QA verified)
+- [ ] No HIGH or CRITICAL bugs open
+- [ ] Unit test coverage ≥ 80% for new code
+- [ ] CONTEXT.md updated to reflect completion
+- [ ] Deployed to staging and smoke-tested
+
+<span class="code-comment">### Acceptance Criteria</span>
+- [ ] AC-1: GIVEN {precondition} WHEN {action} THEN {expected result}
+- [ ] AC-2: GIVEN {precondition} WHEN {action} THEN {expected result}
+- [ ] AC-3: GIVEN {edge case} WHEN {action} THEN {expected result}
+
+<span class="code-comment">### Tasks</span>
+- [ ] Task 1: {technical deliverable} — [routing-tag]
+- [ ] Task 2: {technical deliverable} — [routing-tag]
+- [ ] Task 3: {technical deliverable} — [routing-tag]
+
+<span class="code-key">depends_on:</span> <span class="code-val">[EPIC-000]</span></code></pre>
+
+      <!-- ── FIELD-BY-FIELD ANATOMY ── -->
+      <h3>Field-by-Field Anatomy</h3>
+      <p>
+        Each field in the EPIC format has a specific purpose, a specific audience, and a specific failure mode when
+        omitted. The table below is a reference for anyone writing or reviewing an EPIC.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Purpose</th>
+              <th>Who Reads It</th>
+              <th>If Missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>EPIC-{NNN}</strong></td>
+              <td>Unique, sequential identifier. Enables cross-referencing and dependency tracking.</td>
+              <td>Everyone</td>
+              <td>EPICs become untraceable; <code>depends_on</code> links break.</td>
+            </tr>
+            <tr>
+              <td><strong>Outcome Statement</strong></td>
+              <td>One-line business result. Uses Pyramid Principle — conclusion first.</td>
+              <td>Supervisor, Stakeholder</td>
+              <td>Agent cannot determine when the EPIC is "done."</td>
+            </tr>
+            <tr>
+              <td><strong>Role</strong></td>
+              <td>Which agent roles participate. Controls MCP scoping and routing.</td>
+              <td>Agent Router, Supervisor</td>
+              <td>Tasks get assigned to wrong agents or not at all.</td>
+            </tr>
+            <tr>
+              <td><strong>Definition &amp; Goal</strong></td>
+              <td>Business context paragraph. States problem, solution, and value.</td>
+              <td>Engineer, QA</td>
+              <td>Agent has no "why" — makes suboptimal design decisions.</td>
+            </tr>
+            <tr>
+              <td><strong>Definition of Done</strong></td>
+              <td>Phase/EPIC-level exit gate. Binary checklist — all must pass.</td>
+              <td>QA (as DELIVER gate)</td>
+              <td>QA cannot determine when to post DELIVER; scope creep.</td>
+            </tr>
+            <tr>
+              <td><strong>Acceptance Criteria</strong></td>
+              <td>Task-level test cases. GIVEN/WHEN/THEN format. QA executes these.</td>
+              <td>QA (as BUG/PASS gate)</td>
+              <td>QA invents criteria → scope drift and arbitrary bugs.</td>
+            </tr>
+            <tr>
+              <td><strong>Tasks</strong></td>
+              <td>Technical deliverables with routing tags. Engineer claims and implements.</td>
+              <td>Engineer, Supervisor</td>
+              <td>No work items to claim. Agents idle or hallucinate scope.</td>
+            </tr>
+            <tr>
+              <td><strong>depends_on</strong></td>
+              <td>Explicit ordering. This EPIC cannot start until listed EPICs are DELIVER'd.</td>
+              <td>Supervisor, Scheduler</td>
+              <td>Parallel EPICs conflict on shared resources or interfaces.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ── EPIC ID CONVENTION ── -->
+      <h3>EPIC ID Convention</h3>
+      <p>
+        The ID follows the pattern <code>EPIC-{NNN}</code> where <code>NNN</code> is a zero-padded, monotonically
+        increasing integer. IDs are never reused, even if an EPIC is cancelled.
+      </p>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">🔢</div>
+          <h4>Sequential</h4>
+          <p>EPIC-001, EPIC-002, EPIC-003… The number reflects creation order, not priority. Priority is expressed
+            in the <code>depends_on</code> graph.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔗</div>
+          <h4>Cross-Referenceable</h4>
+          <p>Other EPICs, PLAN.md, CONTEXT.md, and ROOM events all reference EPICs by ID. This creates a traceable
+            audit trail from intent to delivery.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔒</div>
+          <h4>Immutable</h4>
+          <p>Once assigned, an EPIC ID never changes. If the scope fundamentally shifts, create a new EPIC with a
+            new ID and link with <code>depends_on</code>.</p>
+        </div>
+      </div>
+
+      <!-- ── ROLE ASSIGNMENT ── -->
+      <h3>Role Assignment</h3>
+      <p>
+        The <code>Roles:</code> field declares which agent roles are <strong>active participants</strong> in this EPIC.
+        This is not informational — it controls MCP server scoping, task routing, and review responsibility.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Responsibility in EPIC</th>
+              <th>MCP Access</th>
+              <th>Badge</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>engineer</strong></td>
+              <td>Claims tasks, implements code, writes TODO.md release notes, posts RELEASE</td>
+              <td>filesystem (rw), shell, git, DB</td>
+              <td><span class="badge badge-eng">Engineer</span></td>
+            </tr>
+            <tr>
+              <td><strong>qa</strong></td>
+              <td>Reviews against AC, writes QA.md bugs, posts BUG or DELIVER</td>
+              <td>filesystem (read), test runner, ROOM bus</td>
+              <td><span class="badge badge-qa">QA</span></td>
+            </tr>
+            <tr>
+              <td><strong>supervisor</strong></td>
+              <td>Writes PLAN.md, defines AC &amp; DoD, resolves BLOCKED escalations</td>
+              <td>filesystem (read), ROOM bus</td>
+              <td><span class="badge badge-sup">Supervisor</span></td>
+            </tr>
+            <tr>
+              <td><strong>devops</strong></td>
+              <td>Deploys to staging/production, posts DEPLOY event</td>
+              <td>cloud CLI, registry, ROOM bus</td>
+              <td><span class="badge badge-crit">DevOps</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout blue">
+        <div class="callout-label">Routing rule</div>
+        <p>Tasks tagged with <code>[backend]</code> or <code>[frontend]</code> are routed to Engineers with matching
+          capabilities. Tasks tagged <code>[infra]</code> route to DevOps. The role list in the EPIC header determines
+          <strong>which agent classes participate at all</strong>.
+        </p>
+      </div>
+
+      <!-- ── DEFINITION & GOAL ── -->
+      <h3>Definition &amp; Goal Statement</h3>
+      <p>
+        The paragraph immediately following the header is the EPIC's <strong>north star</strong>. It must answer three
+        questions in this order (applying the Pyramid Principle):
+      </p>
+      <ul class="checklist">
+        <li class="done"><strong>What is the outcome?</strong> — Lead with the conclusion. "Users can pay via Stripe."
+        </li>
+        <li class="done"><strong>Why does it matter?</strong> — Business justification. "Revenue cannot be collected
+          without this."</li>
+        <li class="done"><strong>What is the scope?</strong> — Explicit IN/OUT boundary. "IN: checkout flow. OUT:
+          subscriptions, refunds."</li>
+      </ul>
+
+      <div class="callout">
+        <div class="callout-label">❌ Wrong — detail-first, no conclusion</div>
+        <p>"We need to look at the current API response handling. There are several edge cases in how errors are
+          propagated. The frontend sometimes sees 500s when it should see 400s. Various engineers have complained about
+          inconsistent error shapes. Therefore, we should standardize the API error contract."</p>
+      </div>
+      <div class="callout green">
+        <div class="callout-label">✅ Correct — conclusion first, scoped</div>
+        <p>"<strong>Standardize API error responses to a single, typed contract.</strong> Currently, error shapes are
+          inconsistent across endpoints, causing frontend mishandling and poor UX. IN: all REST endpoints in
+          <code>/api/v2/</code>. OUT: WebSocket events, gRPC services."
+        </p>
+      </div>
+
+      <!-- ── DEFINITION OF DONE ── -->
+      <h3>Definition of Done (DoD)</h3>
+      <p>
+        The DoD is the <strong>exit gate for a phase or EPIC</strong>. It is a binary checklist — every item must be
+        <code>true</code> before QA posts the DELIVER event. DoD is written <em>once per project</em> by the Architect
+        or Tech Lead, and applies uniformly to all EPICs.
+      </p>
+      <pre><code><span class="code-comment">### Definition of Done</span>
+- [ ] All Acceptance Criteria pass (QA verified)
+- [ ] No HIGH or CRITICAL bugs open in QA.md
+- [ ] Unit test coverage ≥ 80% for all new code paths
+- [ ] CONTEXT.md updated with completed phase and decisions
+- [ ] TODO.md release notes written for every version shipped
+- [ ] Deployed to staging environment and smoke-tested
+- [ ] No regressions in existing test suites</code></pre>
+
+      <div class="callout blue">
+        <div class="callout-label">DoD is not per-task</div>
+        <p>DoD applies to the <strong>entire phase or EPIC</strong>, not individual tasks. It answers: "Are we
+          <em>really</em> done, or just done coding?" It includes process gates (tests, docs, deployment) that go
+          beyond the AC.
+        </p>
+      </div>
+
+      <!-- ── ACCEPTANCE CRITERIA ── -->
+      <h3>Acceptance Criteria (AC)</h3>
+      <p>
+        AC are <strong>per-task test specifications</strong> written in GIVEN/WHEN/THEN format. They are the
+        <em>contract between the Supervisor's intent and the QA's verification</em>. QA evaluates each AC item
+        individually — if any fails, QA posts a BUG event referencing the specific AC ID.
+      </p>
+      <pre><code><span class="code-comment">### Acceptance Criteria</span>
+- [ ] AC-1: <span class="code-kw">GIVEN</span> valid userId and cartId
+            <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+            <span class="code-kw">THEN</span>  returns unique SessionId AND persists to DB
+
+- [ ] AC-2: <span class="code-kw">GIVEN</span> same userId + cartId submitted twice
+            <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+            <span class="code-kw">THEN</span>  returns EXISTING SessionId (idempotent)
+
+- [ ] AC-3: <span class="code-kw">GIVEN</span> non-existent userId
+            <span class="code-kw">WHEN</span>  PaymentSession.create() is called
+            <span class="code-kw">THEN</span>  throws <span class="code-val">UserNotFoundError</span> (NOT a 500)</code></pre>
+
+      <h4>The Three Rules of AC</h4>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Why</th>
+              <th>Anti-pattern</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Always GIVEN/WHEN/THEN</strong></td>
+              <td>QA agents can parse this format directly into test stubs</td>
+              <td>Prose AC like "system should handle errors properly"</td>
+            </tr>
+            <tr>
+              <td><strong>Include edge cases</strong></td>
+              <td>Happy path alone misses 80% of bugs. State boundaries, nulls, duplicates.</td>
+              <td>Only testing the golden path</td>
+            </tr>
+            <tr>
+              <td><strong>Max 5 AC per task</strong></td>
+              <td>More than 5 signals the task should be split. Follows Rule of 3.</td>
+              <td>20 AC covering every micro-behavior</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ── DoD vs AC ── -->
+      <h3>DoD vs AC — The Critical Difference</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Acceptance Criteria (AC)</th>
+              <th>Definition of Done (DoD)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Scope</strong></td>
+              <td>Per task / story</td>
+              <td>Per phase / EPIC</td>
+            </tr>
+            <tr>
+              <td><strong>Who writes</strong></td>
+              <td>Supervisor, before engineering</td>
+              <td>Architect / Tech Lead, once per project</td>
+            </tr>
+            <tr>
+              <td><strong>Who checks</strong></td>
+              <td>QA agent, against each AC item</td>
+              <td>QA agent, as exit criteria for DELIVER</td>
+            </tr>
+            <tr>
+              <td><strong>Format</strong></td>
+              <td>GIVEN / WHEN / THEN</td>
+              <td>Checklist with binary pass/fail</td>
+            </tr>
+            <tr>
+              <td><strong>Failure action</strong></td>
+              <td>Post BUG event, cycle back</td>
+              <td>Block DELIVER, escalate to Supervisor</td>
+            </tr>
+            <tr>
+              <td><strong>Analogy</strong></td>
+              <td>"Does this feature work correctly?"</td>
+              <td>"Is this release shippable?"</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <div class="callout-label">The relationship</div>
+        <p>AC is a <strong>subset</strong> of DoD. All AC passing is one item on the DoD checklist. DoD adds process
+          gates that are not functional tests: coverage thresholds, documentation, deployment, regression checks.</p>
+      </div>
+
+      <!-- ── TASKS ── -->
+      <h3>Tasks — Technical Deliverables</h3>
+      <p>
+        Tasks are the atomic work items claimed by Engineers. Each task has a routing tag, a clear deliverable, and
+        maps to one or more AC. Tasks are <strong>claimed</strong> via the ROOM event bus before work begins.
+      </p>
+      <pre><code><span class="code-comment">### Tasks</span>
+- [ ] Task 1: Implement <span class="code-val">PaymentSession.create()</span> endpoint — [backend]
+- [ ] Task 2: Build checkout UI with Stripe Elements — [frontend]
+- [ ] Task 3: Add <span class="code-val">PaymentCaptured</span> domain event + SettlementRecord — [backend]
+- [ ] Task 4: Write integration tests for payment flow — [qa]</code></pre>
+
+      <h4>Task Design Rules</h4>
+      <ul class="checklist">
+        <li class="done"><strong>One routing tag per task</strong> — <code>[backend]</code>, <code>[frontend]</code>,
+          <code>[infra]</code>, <code>[qa]</code>. Tasks with multiple tags should be split.
+        </li>
+        <li class="done"><strong>Verb-first deliverables</strong> — "Implement…", "Build…", "Add…", "Write…". Not
+          "Payment stuff" or "Handle errors".</li>
+        <li class="done"><strong>Max 7 tasks per EPIC</strong> — More tasks signal the EPIC should be decomposed into
+          sub-EPICs.</li>
+        <li class="done"><strong>Each task maps to ≥1 AC</strong> — If a task has no AC, it either doesn't belong or
+          the AC is missing.</li>
+        <li><strong>Claim before coding</strong> — Post CLAIM event to ROOM before starting. Prevents duplicate work
+          in multi-agent systems.</li>
+      </ul>
+
+      <!-- ── DEPENDS_ON ── -->
+      <h3>Dependency Graph — <code>depends_on</code></h3>
+      <p>
+        The <code>depends_on</code> field creates an explicit ordering between EPICs. An EPIC <strong>cannot
+          begin</strong> until all EPICs in its <code>depends_on</code> list have posted a DELIVER event. This prevents
+        parallel conflicts on shared resources, interfaces, or database schemas.
+      </p>
+      <pre><code><span class="code-comment">## EPIC-003 - MCP Skill Registry</span>
+<span class="code-key">depends_on:</span> <span class="code-val">[EPIC-001, EPIC-002]</span>
+<span class="code-comment"># ↑ Cannot start until auth (001) and DB schema (002) are both DELIVER'd</span>
+
+<span class="code-comment">## EPIC-004 - Dashboard Analytics</span>
+<span class="code-key">depends_on:</span> <span class="code-val">[EPIC-003]</span>
+<span class="code-comment"># ↑ Depends on registry (003), which transitively depends on 001 + 002</span>
+
+<span class="code-comment">## EPIC-005 - Notification System</span>
+<span class="code-key">depends_on:</span> <span class="code-val">[EPIC-001]</span>
+<span class="code-comment"># ↑ Only needs auth (001). Can run in parallel with 003 and 004.</span></code></pre>
+
+      <div class="callout blue">
+        <div class="callout-label">Scheduling rule</div>
+        <p>The Supervisor reads the <code>depends_on</code> graph to determine which EPICs can run in
+          <strong>parallel</strong> and which must be <strong>sequential</strong>. An empty
+          <code>depends_on: []</code> means the EPIC has no prerequisites and can start immediately.
+        </p>
+      </div>
+
+      <!-- ── WORKED EXAMPLE ── -->
+      <h3>Worked Example — A Complete EPIC</h3>
+      <p>
+        Below is a fully-specified EPIC following every convention in this standard. Use this as a template when writing
+        your own.
+      </p>
+      <pre><code><span class="code-comment">## EPIC-003 - Centralized MCP Skill Registry</span>
+<span class="code-key">Roles:</span> <span class="code-val">@engineer, @qa, @devops</span>
+
+Build a centralized skill registry that enables agents to discover,
+load, and version SKILL.md files dynamically via MCP. Currently,
+skills are hardcoded in system prompts, causing context bloat and
+version drift across agent sessions.
+
+<span class="code-key">IN scope:</span>  Skill CRUD API, version tagging, MCP server integration
+<span class="code-key">OUT scope:</span> Skill authoring UI, permission model, skill marketplace
+
+<span class="code-comment">### Definition of Done</span>
+- [ ] All Acceptance Criteria pass (QA verified)
+- [ ] No HIGH or CRITICAL bugs open
+- [ ] Unit test coverage ≥ 80% for registry module
+- [ ] CONTEXT.md updated with registry architecture decisions
+- [ ] API deployed to staging; agents can query skills via MCP
+- [ ] No regressions in existing skill loading paths
+
+<span class="code-comment">### Acceptance Criteria</span>
+- [ ] AC-1: <span class="code-kw">GIVEN</span> a valid skill name and version
+            <span class="code-kw">WHEN</span>  GET /api/skills/{name}?version={v} is called
+            <span class="code-kw">THEN</span>  returns the SKILL.md content with 200
+- [ ] AC-2: <span class="code-kw">GIVEN</span> a non-existent skill name
+            <span class="code-kw">WHEN</span>  GET /api/skills/{name} is called
+            <span class="code-kw">THEN</span>  returns <span class="code-val">SkillNotFoundError</span> with 404
+- [ ] AC-3: <span class="code-kw">GIVEN</span> a new SKILL.md file is registered
+            <span class="code-kw">WHEN</span>  POST /api/skills is called with valid payload
+            <span class="code-kw">THEN</span>  skill is persisted and queryable within 5 seconds
+- [ ] AC-4: <span class="code-kw">GIVEN</span> an existing skill with version v1
+            <span class="code-kw">WHEN</span>  a new version v2 is published
+            <span class="code-kw">THEN</span>  both v1 and v2 are independently retrievable
+
+<span class="code-comment">### Tasks</span>
+- [ ] Task 1: Implement <span class="code-val">SkillRegistry</span> service + Postgres schema — [backend]
+- [ ] Task 2: Build REST endpoints: GET/POST/PUT /api/skills — [backend]
+- [ ] Task 3: Implement MCP server adapter for skill discovery — [backend]
+- [ ] Task 4: Write integration tests for all AC — [qa]
+- [ ] Task 5: Deploy registry service to staging — [infra]
+
+<span class="code-key">depends_on:</span> <span class="code-val">[EPIC-001, EPIC-002]</span></code></pre>
+
+      <!-- ── EPIC LIFECYCLE ── -->
+      <h3>EPIC Lifecycle</h3>
+      <p>
+        An EPIC moves through five states. Each transition is marked by a ROOM event and is irreversible — you never
+        go backwards.
+      </p>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box accent">DRAFT</div>
+          <div class="flow-label">Human writes EPIC</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">PLANNED</div>
+          <div class="flow-label">Supervisor writes PLAN.md</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">ACTIVE</div>
+          <div class="flow-label">Engineer claims tasks</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">REVIEW</div>
+          <div class="flow-label">QA validates AC + DoD</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box green">DONE</div>
+          <div class="flow-label">DELIVER posted</div>
+        </div>
+      </div>
+
+      <!-- ── ANTI-PATTERNS ── -->
+      <h3>Common EPIC Anti-Patterns</h3>
+      <div class="callout red">
+        <div class="callout-label">❌ Anti-patterns to avoid</div>
+        <p>
+          <strong>Vague goals:</strong> "Improve the dashboard" — agents cannot test completion.<br />
+          <strong>No scope boundary:</strong> EPIC grows during execution — agents hallucinate new features.<br />
+          <strong>Missing AC:</strong> Engineer ships, QA has no test criteria — DELIVER is arbitrary.<br />
+          <strong>AC written after engineering:</strong> The spec matches the implementation, not the intent.<br />
+          <strong>No <code>depends_on</code>:</strong> Parallel EPICs modify the same DB schema, causing
+          conflicts.<br />
+          <strong>Missing roles:</strong> Tasks routed to agents that lack MCP access to execute them.<br />
+          <strong>Prose DoD:</strong> "The feature should work well" — not testable, not binary.
+        </p>
+      </div>
+
+      <h3>EPIC Quality Checklist</h3>
+      <p>Before submitting any EPIC, verify all of the following:</p>
+      <ul class="checklist">
+        <li><strong>Has a unique EPIC-{NNN} ID</strong> — sequential, zero-padded, never reused</li>
+        <li><strong>Outcome statement is one sentence</strong> — Pyramid Principle BLUF</li>
+        <li><strong>Roles are explicitly listed</strong> — <code>Role: engineer, qa</code></li>
+        <li><strong>Definition paragraph states problem + solution + scope</strong></li>
+        <li><strong>IN/OUT scope is explicit</strong> — eliminates scope creep</li>
+        <li><strong>DoD is a binary checklist (≥5 items)</strong> — pass/fail, not "good enough"</li>
+        <li><strong>Every task has ≥2 AC in GIVEN/WHEN/THEN format</strong></li>
+        <li><strong>Tasks have routing tags</strong> — <code>[backend]</code>, <code>[frontend]</code>,
+          <code>[infra]</code>
+        </li>
+        <li><strong><code>depends_on</code> is declared</strong> — even if empty <code>[]</code></li>
+        <li><strong>All content is in English</strong> — token-efficient, highest model compliance</li>
+      </ul>
+    </section>
+
+    <!-- ── 09. AGENTIC OPS ── -->
+    <section id="agentic-ops">
+      <div class="section-eyebrow">09 · Execution</div>
+      <h2>Agentic Ops: Best Practices</h2>
+      <p>
+        Agentic Ops is the operational discipline of running multi-agent systems reliably in production. The key
+        insight: agents fail differently than humans. They don't get tired — they hallucinate silently, get stuck in
+        loops, or produce plausible-looking but wrong output. Your ops practices must account for these failure modes.
+      </p>
+
+      <h3>The Five Pillars of Agentic Ops</h3>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">📡</div>
+          <h4>Observable</h4>
+          <p>Every action is posted to ROOM.jsonl. If it's not in the event log, it didn't happen operationally.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔒</div>
+          <h4>Bounded</h4>
+          <p>Agents operate within scoped MCP servers. No agent has more access than its role requires.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔄</div>
+          <h4>Recoverable</h4>
+          <p>All context files are append-only. Any state can be replayed. No destructive operations on context.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⏱️</div>
+          <h4>Heartbeated</h4>
+          <p>Long-running agents post WORKING events every ~5 min. Waiting agents know the difference between a slow
+            agent and a dead one.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📊</div>
+          <h4>Escalating</h4>
+          <p>Max 3 BUG cycles. On cycle 4, post BLOCKED and escalate to Supervisor. No infinite loops.</p>
+        </div>
+      </div>
+
+      <h3>The File-First Rule</h3>
+      <div class="callout">
+        <div class="callout-label">Critical operational rule</div>
+        <p><strong>Always write your file completely before posting the ROOM event.</strong> The ROOM event is a
+          pointer, not a payload. Posting RELEASE before writing TODO.md means QA has nothing to read. Posting BUG
+          before writing QA.md means the Engineer has no bugs to fix. <strong>File first. Event second. Always.</strong>
+        </p>
+      </div>
+
+      <h3>Multi-Agent Coordination — Preventing Duplicate Work</h3>
+      <pre><code><span class="code-comment"># Step 1: Check what's already claimed</span>
+python room.py {feature} --claimed-tasks
+
+<span class="code-comment"># Step 2: Claim YOUR task BEFORE starting</span>
+python room.py {feature} engineer-1 CLAIM "Phase 2" "" "Task 3: build auth middleware"
+<span class="code-comment"># Other Engineers see this CLAIM and will NOT pick up Task 3</span>
+
+<span class="code-comment"># Step 3: Heartbeat every ~5 min during long work</span>
+python room.py {feature} engineer-1 WORKING "Phase 2" "" "implementing auth middleware — 60% done"
+<span class="code-comment"># QA sees WORKING → knows Engineer is alive → does not time out</span>
+
+<span class="code-comment"># Step 4: Write file. Post event.</span>
+<span class="code-comment"># TODO.md release notes written first ↑</span>
+python room.py {feature} engineer-1 RELEASE "Phase 2" v2 "Release v2 ready — see TODO.md"</code></pre>
+
+      <h3>ROOM.jsonl Event Reference</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Type</th>
+              <th>Sender</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>PLAN</code></td>
+              <td>Terminal</td>
+              <td>Supervisor</td>
+              <td>New phase plan posted</td>
+            </tr>
+            <tr>
+              <td><code>CLAIM</code></td>
+              <td>Heartbeat</td>
+              <td>Engineer</td>
+              <td>"I'm taking this task"</td>
+            </tr>
+            <tr>
+              <td><code>WORKING</code></td>
+              <td>Heartbeat</td>
+              <td>Engineer / QA</td>
+              <td>"Still alive, in progress"</td>
+            </tr>
+            <tr>
+              <td><code>RELEASE</code></td>
+              <td>Terminal</td>
+              <td>Engineer</td>
+              <td>"Implementation ready for QA"</td>
+            </tr>
+            <tr>
+              <td><code>REVIEWING</code></td>
+              <td>Heartbeat</td>
+              <td>QA</td>
+              <td>"I'm reviewing this release"</td>
+            </tr>
+            <tr>
+              <td><code>BUG</code></td>
+              <td>Terminal</td>
+              <td>QA</td>
+              <td>"Bugs found — see QA.md"</td>
+            </tr>
+            <tr>
+              <td><code>FIX</code></td>
+              <td>Terminal</td>
+              <td>Engineer</td>
+              <td>"Bugs fixed — see TODO.md"</td>
+            </tr>
+            <tr>
+              <td><code>DELIVER</code></td>
+              <td>Terminal</td>
+              <td>QA</td>
+              <td>"Phase cleared — ready for next"</td>
+            </tr>
+            <tr>
+              <td><code>BLOCKED</code></td>
+              <td>Terminal</td>
+              <td>Any</td>
+              <td>"Escalate to Supervisor"</td>
+            </tr>
+            <tr>
+              <td><code>DEPLOY</code></td>
+              <td>Terminal</td>
+              <td>DevOps</td>
+              <td>"Deployed to target environment"</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Escalation Protocol</h3>
+      <pre><code><span class="code-comment"># BUG cycle counter per phase. Reset on new phase.</span>
+Cycle 1: Engineer fixes → QA re-reviews
+Cycle 2: Engineer fixes → QA re-reviews
+Cycle 3: Engineer fixes → QA re-reviews
+Cycle 4: <span class="code-tag">BLOCKED</span> — <span class="code-comment">post BLOCKED event, escalate to Supervisor</span>
+
+<span class="code-comment"># Supervisor reads QA.md and PLAN.md</span>
+<span class="code-comment"># Either: revises AC (was the spec wrong?)</span>
+<span class="code-comment"># Or: clarifies implementation constraint</span>
+<span class="code-comment"># Then posts PLAN v{N+1} → loop resets at Cycle 1</span></code></pre>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- ── 10. CODE QUALITY = CONTEXT QUALITY ── -->
+    <section id="quality">
+      <div class="section-eyebrow">10 · The Core Thesis</div>
+      <h2>Code Quality = Context Quality</h2>
+      <p>
+        Everything in this handbook converges on a single, non-negotiable truth:
+      </p>
+
+      <blockquote style="font-size: 18px; line-height: 1.6;">
+        <strong>The quality of the AI's code is entirely determined by the quality of the EPICs, Definitions of Done,
+          and Acceptance Criteria.</strong><br /><br />
+        Not the model version. Not the IDE. Not the agent framework. The context.
+      </blockquote>
+
+      <h3>The Quality Chain</h3>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box accent">EPIC clarity</div>
+          <div class="flow-label">Business outcome defined</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Precise AC</div>
+          <div class="flow-label">GIVEN/WHEN/THEN</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box">Strong DoD</div>
+          <div class="flow-label">Binary checklist</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box green">Correct code</div>
+          <div class="flow-label">Agent output</div>
+        </div>
+      </div>
+
+      <p>
+        Introducing ambiguity at any link in this chain propagates forward and amplifies. A vague EPIC produces vague
+        PLAN.md. A vague PLAN.md produces inconsistent implementation. Inconsistent implementation produces meaningless
+        QA. And meaningless QA produces a broken product.
+      </p>
+
+      <h3>The Diagnostic: Where Did Quality Break?</h3>
+      <p>When agent output is poor, diagnose the context chain — not the agent:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Symptom</th>
+              <th>Root Cause</th>
+              <th>Fix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Agent implements the wrong thing</td>
+              <td>EPIC goal was ambiguous or missing</td>
+              <td>Rewrite EPIC with Pyramid Principle BLUF</td>
+            </tr>
+            <tr>
+              <td>Agent adds unrequested features</td>
+              <td>No explicit scope boundary in EPIC</td>
+              <td>Add "OUT OF SCOPE" section to PLAN.md</td>
+            </tr>
+            <tr>
+              <td>QA can't verify the release</td>
+              <td>AC written in prose, not GIVEN/WHEN/THEN</td>
+              <td>Rewrite AC as executable test cases</td>
+            </tr>
+            <tr>
+              <td>Agent breaks things in Phase 3 that worked in Phase 1</td>
+              <td>CONTEXT.md not updated; agent lacks history</td>
+              <td>Enforce CONTEXT.md update after every DELIVER</td>
+            </tr>
+            <tr>
+              <td>Different agents use different variable names</td>
+              <td>No Ubiquitous Language in PLAN.md</td>
+              <td>Add domain model glossary; enforce in AC</td>
+            </tr>
+            <tr>
+              <td>Agent loops forever without progress</td>
+              <td>No escalation rule; no BLOCKED ceiling</td>
+              <td>Enforce max 3 BUG cycles + BLOCKED protocol</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The Multiplier Effect</h3>
+      <p>
+        Poor human planning multiplied by autonomous agents produces poor output <em>at scale</em>, and fast. An agent
+        that runs 22 hours while you sleep will generate 22 hours of wrong code if given a bad EPIC. This is not a model
+        failure — it is a planning failure wearing a technology mask.
+      </p>
+      <p>
+        Conversely, a precise EPIC — 2 hours of careful human planning — can produce 22 hours of correct autonomous
+        execution. This is the <strong>2-22 Framework</strong>: invest 2 hours in context quality, unlock 22 hours of
+        agent productivity.
+      </p>
+
+      <div class="callout green">
+        <div class="callout-label">The 2-22 Framework</div>
+        <p>
+          <strong>2 hours:</strong> Human writes precise EPIC, AC, DoD, CONTEXT.md, seeds the ROOM.<br />
+          <strong>22 hours:</strong> Agents execute, loop, validate, and ship — autonomously, correctly.
+        </p>
+      </div>
+
+      <h3>The Engineer's Checklist Before Any EPIC</h3>
+      <ul class="checklist">
+        <li><strong>EPIC has a single, testable outcome statement</strong> (Pyramid BLUF)</li>
+        <li><strong>Scope boundary is explicit</strong> — what is IN and what is OUT</li>
+        <li><strong>Every task has ≥2 AC in GIVEN/WHEN/THEN format</strong></li>
+        <li><strong>DoD checklist is written and binary</strong> (pass/fail, not "good enough")</li>
+        <li><strong>Domain model entities are named</strong> (DDD Ubiquitous Language)</li>
+        <li><strong>CONTEXT.md reflects the current actual state</strong>, not intended state</li>
+        <li><strong>Routing tags assign tasks to the correct agents</strong></li>
+        <li><strong>All context files are in English</strong></li>
+        <li><strong>Max phases ≤ 3</strong> per EPIC; escalate larger work to multiple EPICs</li>
+        <li><strong>Escalation ceiling defined</strong> — max BUG cycles and BLOCKED trigger</li>
+      </ul>
+
+      <div class="callout">
+        <div class="callout-label">The Final Word</div>
+        <p>
+          Every technique in this handbook — the Pyramid Principle, Prompt-Driven Context, DDD, TDD, MCP scoping, the
+          Worker/Evaluator split, English as the embedding language — serves one purpose: <strong>to make your context
+            so precise that the agent cannot fail to understand what you want.</strong> That is the craft of agentic
+          engineering.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // Active nav highlighting on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          navLinks.forEach(l => l.classList.remove('active'));
+          const active = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+          if (active) active.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    sections.forEach(s => observer.observe(s));
+  </script>
+</body>
+
+</html>

@@ -3,9 +3,7 @@ title: "Pillar 3: MCP Isolation"
 description: "Selective MCP server attachment eliminates thousands of wasted tokens per agent session."
 sidebar:
   order: 3
-  badge:
-    text: Pillar
-    variant: tip
+  icon: rocket
 ---
 
 OSTwin's third pillar solves a critical cost and performance problem: **not every agent needs every tool**. MCP (Model Context Protocol) servers expose tool definitions that consume prompt tokens whether or not the agent uses them. MCP Isolation ensures each agent only sees the tools it actually needs.
@@ -45,19 +43,6 @@ The `no_mcp` flag is resolved through three levels:
 2. **Role config** (`role.json`) -- role-level default
 3. **System default** -- `false` (MCP enabled)
 
-## Per-Room MCP Environment
-
-When MCP servers *are* needed, OSTwin assembles a custom MCP configuration for each war-room using a 4-tier priority merge:
-
-| Priority | Source | Scope |
-|----------|--------|-------|
-| 1 | Room-level `mcp.json` | Tools specific to this room's epic |
-| 2 | Plan-level `mcp.json` | Tools shared across all rooms in a plan |
-| 3 | Project-level `.agents/mcp.json` | Project-wide tool defaults |
-| 4 | User-global `~/.agents/mcp.json` | Personal tool preferences |
-
-Higher-priority sources override lower ones on a per-server-name basis. A room can disable a project-level server by setting it to `null`.
-
 ## MCP Config Files
 
 | File | Location | Purpose |
@@ -74,7 +59,7 @@ Each file follows the standard MCP configuration format:
   "mcpServers": {
     "memory": {
       "command": "python",
-      "args": ["-m", "mcp_servers.memory", "--room", "${room_dir}"],
+      "args": ["-m", ".agents/mcp/memory-core.py", "--room", "${room_dir}"],
       "env": {
         "API_KEY": "${vault:memory/api_key}"
       }
@@ -95,7 +80,7 @@ ${plan_dir}             → expands to the current plan directory
 ```
 
 :::note[Security]
-The vault file (`.agents/vault.json`) is gitignored by default. Secrets never appear in MCP configs committed to version control. The resolution happens at agent invocation time inside `Invoke-Agent.ps1`.
+The vault file (`.agents/vault.json`) is gitignored by default. Secrets never appear in MCP configs committed to version control. The resolution happens at agent invocation time inside `roles/_base/Invoke-Agent.ps1`.
 :::
 
 ## Audit Logging
@@ -121,12 +106,12 @@ OSTwin ships with four Python-based MCP servers:
 
 | Server | Purpose | Key Tools |
 |--------|---------|-----------|
-| `mcp_servers.memory` | Shared memory ledger | `publish`, `query`, `search`, `get_context` |
-| `mcp_servers.warroom` | War-room coordination | `post_message`, `read_messages`, `update_status`, `report_progress` |
-| `mcp_servers.dashboard` | Dashboard API bridge | `get_plan_status`, `get_room_state`, `search` |
-| `mcp_servers.skills` | Skill discovery | `search_skills`, `install_skill`, `list_installed` |
+| `.agents/mcp/memory-core.py` | Shared memory ledger | `publish`, `query`, `search`, `get_context` |
+| `.agents/mcp/warroom-server.py` | War-room coordination | `post_message`, `read_messages`, `update_status`, `report_progress` |
+| `.agents/dashboard.ps1` | Dashboard API bridge | `get_plan_status`, `get_room_state`, `search` |
+| `.agents/mcp/global-knowledge-server.py` | Skill discovery | `search_skills`, `install_skill`, `list_installed` |
 
-Each server is a standalone Python process launched via `python -m mcp_servers.<name>` with room-specific arguments.
+Each server is a standalone Python process launched via `python script` with room-specific arguments.
 
 ## Token Budget Impact
 
@@ -152,7 +137,7 @@ The current isolation model is binary (all servers or none, per config). A plann
   "mcpServers": {
     "memory": {
       "command": "python",
-      "args": ["-m", "mcp_servers.memory"],
+      "args": ["-m", ".agents/mcp/memory-core.py"],
       "allow_tools": ["query", "search"],
       "deny_tools": ["publish"]
     }
@@ -166,8 +151,8 @@ This will allow a QA agent to read from the memory ledger without being able to 
 
 | File | Purpose |
 |------|---------|
-| `engine/Resolve-McpConfig.ps1` | 4-tier MCP config merge |
-| `engine/Invoke-Agent.ps1` | no_mcp flag handling |
-| `mcp_servers/memory/` | Shared memory MCP server |
-| `mcp_servers/warroom/` | War-room coordination server |
+| `.agents/mcp/config_resolver.py` | 4-tier MCP config merge |
+| `.agents/roles/_base/Invoke-Agent.ps1` | no_mcp flag handling |
+| `.agents/memory/` | Shared memory MCP server |
+| `.agents/mcp/warroom-server.py` | War-room coordination server |
 | `.agents/vault.json` | Secret storage (gitignored) |

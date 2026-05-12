@@ -36,7 +36,6 @@ export default defineConfig({
             { label: 'Introduction', slug: 'getting-started/introduction' },
             { label: 'Installation', slug: 'getting-started/installation' },
             { label: 'Quick Start', slug: 'getting-started/quick-start' },
-            { label: 'Development Mode', slug: 'getting-started/dev-mode' },
             { label: 'Your First Plan', slug: 'getting-started/first-plan' },
           ],
         },
@@ -46,11 +45,11 @@ export default defineConfig({
             {
               label: 'The Five Pillars',
               items: [
-                { label: '1. Zero-Agent Pattern', slug: 'concepts/zero-agent-pattern' },
-                { label: '2. Skills as Expertise', slug: 'concepts/skills' },
-                { label: '3. MCP Isolation', slug: 'concepts/mcp-isolation' },
-                { label: '4. War-Rooms', slug: 'concepts/war-rooms' },
-                { label: '5. Layered Memory', slug: 'concepts/memory' },
+                { label: '🚀 1. Role Pattern', slug: 'concepts/role-pattern' },
+                { label: '🚀 2. Skills as Expertise', slug: 'concepts/skills' },
+                { label: '🚀 3. MCP Isolation', slug: 'concepts/mcp-isolation' },
+                { label: '🚀 4. War-Rooms', slug: 'concepts/war-rooms' },
+                { label: '🚀 5. Layered Memory', slug: 'concepts/memory' },
               ],
             },
             { label: 'Plans, Epics & DAG', slug: 'concepts/plans-epics-dag' },
@@ -63,7 +62,6 @@ export default defineConfig({
           items: [
             { label: 'Creating Plans', slug: 'guides/creating-plans' },
             { label: 'Defining Roles', slug: 'guides/defining-roles' },
-            { label: 'Writing Skills', slug: 'guides/writing-skills' },
             { label: 'Working with War-Rooms', slug: 'guides/working-with-war-rooms' },
             { label: 'Using the Memory System', slug: 'guides/memory-usage' },
             { label: 'Dashboard Setup', slug: 'guides/dashboard-setup' },

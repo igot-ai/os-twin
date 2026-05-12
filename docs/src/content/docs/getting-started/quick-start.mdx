@@ -37,7 +37,7 @@ This guide gets you from zero to a running multi-agent plan in under 5 minutes. 
    complete, and delete operations. Data persists to a JSON file.
 
    ## Epic 1: Core Todo Logic
-   ### DoD
+   ### Definition of Done
    - Todo CRUD operations working with JSON persistence
    ### Acceptance Criteria
    - Can add a todo with a title
@@ -51,7 +51,7 @@ This guide gets you from zero to a running multi-agent plan in under 5 minutes. 
 
    ## Epic 2: CLI Interface
    **depends_on: Epic 1**
-   ### DoD
+   ### Definition of Done
    - CLI accepts commands and delegates to core logic
    ### Tasks
    - TASK-001: Build argparse-based CLI with subcommands
@@ -71,36 +71,20 @@ This guide gets you from zero to a running multi-agent plan in under 5 minutes. 
    The engine logs progress to the terminal. You'll see output like:
 
    ```
-   [ENGINE] Parsed 2 epics from PLAN.md
-   [ENGINE] DAG: Wave 1 → [Epic 1: Core Todo Logic]
-   [ENGINE] DAG: Wave 2 → [Epic 2: CLI Interface]
-   [ENGINE] Spawning war-room: room-001 (Epic 1)
-   [ENGINE] room-001: engineer assigned, developing...
-   [ENGINE] room-001: engineer done, qa reviewing...
-   [ENGINE] room-001: PASSED
-   [ENGINE] Spawning war-room: room-002 (Epic 2)
-   ...
-   [ENGINE] All epics completed. Plan finished.
-   ```
+    [PRE-FLIGHT] Checking skill coverage...
+    [PRE-FLIGHT] All required skills and roles verified.
 
-5. **Check the results**
+    === Ostwin Plan Launcher ===]
+      Plan: /Users/paulaan/bk.ostwin/.agents/plans/11b7dcac8cc8.md
+      Plan ID: 11b7dcac8cc8
+      Project: /Users/paulaan/.ostwin/projects/kiemtoan-dvctt
+      War-rooms to create: 4
 
-   After execution, inspect the output:
-
-   ```bash
-   # See what was created
-   ls my-first-plan/
-
-   # Check war-room status
-   cat .agents/war-rooms/room-001/status
-
-   # Read the channel log
-   cat .agents/war-rooms/room-001/channel.jsonl
-
-   # Check agent progress
-   cat .agents/war-rooms/room-001/progress.json
-   ```
-
+      room-000 → PLAN-REVIEW — Unified Plan Negotiation (Roles: architect)
+      room-001 → EPIC-001 — Quét & Phân loại Kho `/audit-docs` (Roles: engineer, audit, DoD: 0, AC: 0) [depends_on: PLAN-REVIEW]
+      room-002 → EPIC-002 — ETL & Tổng hợp Dữ liệu PL02–PL06 (Roles: engineer, audit, DoD: 0, AC: 0) [depends_on: PLAN-REVIEW, EPIC-001]
+      room-003 → EPIC-003 — Dashboard & Kết x
+    ```
 </Steps>
 
 ## What Happens Under the Hood
@@ -144,7 +128,7 @@ Done ──── all rooms passed → plan complete
 | `## Config` | Yes | Provider, model, and engine settings |
 | `## Goal` | Yes | High-level objective guiding all agents |
 | `## Epic N: Name` | Yes | Unit of work assigned to a war-room |
-| `### DoD` | Yes | Definition of Done — when is the epic complete? |
+| `### Definition of Done` | Yes | Definition of Done — when is the epic complete? |
 | `### Acceptance Criteria` | No | Specific testable conditions for QA |
 | `### Tasks` | Yes | Ordered task list for the engineer |
 | `**depends_on:**` | No | Declares dependency on another epic |

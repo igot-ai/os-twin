@@ -1,6 +1,6 @@
 ---
 title: What is OSTwin?
-description: An introduction to OSTwin — the zero-agent operating system for composable AI engineering teams.
+description: An introduction to OSTwin — the role operating system for composable AI engineering teams.
 sidebar:
   order: 1
 ---
