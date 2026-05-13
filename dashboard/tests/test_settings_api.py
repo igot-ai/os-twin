@@ -202,6 +202,31 @@ def test_patch_global_namespace(client, temp_config, mock_broadcaster):
     assert call_args[0][1]["namespace"] == "runtime"
 
 
+def test_patch_runtime_master_model_updates_active_singleton(
+    client, temp_config, mock_broadcaster
+):
+    """PUT /settings/runtime must update the model used by active chats."""
+    from dashboard import master_agent as ma
+
+    ma._master_config.model = ma.DEFAULT_MODEL
+    ma._master_config.provider = ma.DEFAULT_PROVIDER
+    ma._master_config.is_explicit = False
+
+    response = client.put(
+        "/api/settings/runtime",
+        json={"master_agent_model": "gemini-3.1-pro"},
+    )
+
+    assert response.status_code == 200
+    model, provider = ma.get_model_and_provider()
+    assert model == "gemini-3.1-pro"
+    assert provider == "google"
+
+    config_file, _, _, _ = temp_config
+    config = json.loads(config_file.read_text())
+    assert config["runtime"]["master_agent_model"] == "google/gemini-3.1-pro"
+
+
 def test_patch_creates_new_namespace(client, temp_config, mock_broadcaster):
     """PUT with a namespace value creates/updates it in config."""
     config_file, _, _, _ = temp_config

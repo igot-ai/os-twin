@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
 from dashboard.llm_client import ChatMessage, ToolCall
-from dashboard.master_agent import get_master_client, create_client_for_model, get_master_config, is_master_model_explicit
+from dashboard.master_agent import get_master_client, create_client_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +287,7 @@ async def refine_plan(
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
     images: Optional[list[dict]] = None,
+    conversation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     plan_logger.info("=" * 80)
     plan_logger.info("REFINE_PLAN called")
@@ -294,12 +295,13 @@ async def refine_plan(
     plan_logger.info("  plan_content: %d chars", len(plan_content) if plan_content else 0)
     plan_logger.info("  chat_history: %d turns", len(chat_history) if chat_history else 0)
     plan_logger.info("  images: %d", len(images) if images else 0)
+    plan_logger.info("  conversation_id: %s", conversation_id)
 
     if model:
         model_name, provider = _resolve_model(model, has_images=bool(images))
-        client = create_client_for_model(model_name, provider)
+        client = create_client_for_model(model_name, provider, conversation_id=conversation_id)
     else:
-        client = get_master_client()
+        client = get_master_client(conversation_id=conversation_id)
 
     agents_dir = plans_dir.parent if plans_dir else None
     system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
@@ -349,12 +351,13 @@ async def refine_plan_stream(
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
     images: Optional[list[dict]] = None,
+    conversation_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     if model:
         model_name, provider = _resolve_model(model, has_images=bool(images))
-        client = create_client_for_model(model_name, provider)
+        client = create_client_for_model(model_name, provider, conversation_id=conversation_id)
     else:
-        client = get_master_client()
+        client = get_master_client(conversation_id=conversation_id)
 
     agents_dir = plans_dir.parent if plans_dir else None
     system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
@@ -378,12 +381,13 @@ async def summarize_plan(
     plan_content: str,
     model: str = "",
     plans_dir: Optional[Path] = None,
+    conversation_id: Optional[str] = None,
 ) -> str:
     if model:
         model_name, provider = _resolve_model(model)
-        client = create_client_for_model(model_name, provider)
+        client = create_client_for_model(model_name, provider, conversation_id=conversation_id)
     else:
-        client = get_master_client()
+        client = get_master_client(conversation_id=conversation_id)
 
     prompt = (
         "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
@@ -442,20 +446,22 @@ async def brainstorm_stream(
     chat_history: Optional[list[dict]] = None,
     model: str = "",
     images: Optional[list[dict]] = None,
+    conversation_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     plan_logger.info("=" * 80)
     plan_logger.info("BRAINSTORM_STREAM started")
     plan_logger.info("  user_message: %s", user_message[:300].replace("\n", "\\n"))
     plan_logger.info("  chat_history turns: %d", len(chat_history) if chat_history else 0)
     plan_logger.info("  model: %s", model or "(master)")
+    plan_logger.info("  conversation_id: %s", conversation_id)
 
     if model:
         model_name, provider = _resolve_model(model)
-        client = create_client_for_model(model_name, provider)
+        client = create_client_for_model(model_name, provider, conversation_id=conversation_id)
         plan_logger.info("BRAINSTORM_STREAM using model: %s (provider: %s)", model_name, provider)
     else:
-        client = get_master_client()
-        plan_logger.info("BRAINSTORM_STREAM using master client")
+        client = get_master_client(conversation_id=conversation_id)
+        plan_logger.info("BRAINSTORM_STREAM using master client (conv: %s)", conversation_id)
 
     messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
 

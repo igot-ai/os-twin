@@ -41,9 +41,18 @@ RUN mkdir -p /root/.ostwin \
 # Explicitly installing CPU version saves 1.5GB of image size and download time
 RUN /root/.ostwin/.venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# 5. Install other heavy dependencies
-COPY dashboard/requirements.txt /app/dashboard/requirements.txt
-RUN /root/.ostwin/.venv/bin/pip install --no-cache-dir -r /app/dashboard/requirements.txt
+# 5. Install Python dependencies via uv sync against pyproject.toml + uv.lock.
+# This replaces the previous requirements.txt approach, which was removed when
+# the dashboard moved to uv-managed locked installs.
+RUN /root/.ostwin/.venv/bin/pip install --no-cache-dir uv
+COPY dashboard/pyproject.toml dashboard/uv.lock /app/dashboard/
+RUN TMPDIR=/tmp UV_PROJECT_ENVIRONMENT=/root/.ostwin/.venv \
+    /root/.ostwin/.venv/bin/uv sync \
+        --project /app/dashboard \
+        --no-install-project --frozen --all-extras \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        --index-strategy unsafe-best-match \
+        --prerelease=allow
 
 # 6. Cache Node Dependencies (Frontend)
 COPY dashboard/fe/package.json /app/dashboard/fe/package.json

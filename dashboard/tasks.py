@@ -365,11 +365,15 @@ async def startup_all():
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
 
-                # ── Initialize master agent client ────────────────────────────
+                # ── Initialize master agent (OpenCode SDK) ────────────────────
                 try:
-                    from dashboard.master_agent import get_master_client
-                    client = get_master_client()
-                    logger.info("Master agent client initialized")
+                    from dashboard.master_agent import get_opencode_client
+
+                    # The persisted model is re-hydrated in the FastAPI
+                    # lifespan before requests can be served. This background
+                    # path only initializes the OpenCode client.
+                    get_opencode_client()
+                    logger.info("Master agent OpenCode client initialized")
                 except Exception as e:
                     logger.warning("Master agent init failed (will retry on first use): %s", e)
                 

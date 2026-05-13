@@ -67,7 +67,7 @@ fi
 for _mod in lib.sh versions.conf detect-os.sh check-deps.sh install-deps.sh \
             install-files.sh setup-venv.sh setup-env.sh setup-models.sh patch-mcp.sh \
             build-frontend.sh setup-path.sh setup-opencode.sh sync-agents.sh \
-            start-dashboard.sh start-channels.sh verify.sh; do
+            start-opencode-server.sh start-dashboard.sh start-channels.sh verify.sh; do
   # shellcheck disable=SC1090
   source "$INSTALLER_DIR/$_mod"
 done
@@ -157,7 +157,9 @@ fi
 
 header "8. Verification"
 verify_components
-header "9. Starting dashboard"
+header "9. Starting OpenCode server"
+start_opencode_server
+header "9a. Starting dashboard"
 section_9_start=$(get_now)
 start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"

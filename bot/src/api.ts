@@ -511,6 +511,50 @@ export async function getRoles(): Promise<RoleInfo[]> {
   return Array.isArray(data) ? data : [];
 }
 
+// ── OpenCode Chat (session-backed, full memory) ──────────────────
+
+export interface ToolAction {
+  type: string;
+  plan_id?: string;
+  room_id?: string;
+}
+
+export interface ChatResponse {
+  text: string;
+  conversation_id: string;
+  actions?: ToolAction[];
+  attachments?: Array<{ name: string; data?: string; type?: string }>;
+}
+
+export async function askOpenCode(params: {
+  message: string;
+  conversation_id?: string;
+  user_id?: string;
+  platform?: string;
+  working_dir?: string;
+  attachments?: Array<{ name: string; contentType?: string }>;
+  referenced_message_content?: string;
+}): Promise<ChatResponse> {
+  return fetchJSON('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({
+      message: params.message,
+      conversation_id: params.conversation_id,
+      user_id: params.user_id || 'unknown',
+      platform: params.platform || 'unknown',
+      working_dir: params.working_dir,
+      attachments: params.attachments,
+      referenced_message_content: params.referenced_message_content,
+    }),
+  });
+}
+
+export async function endConversation(conversationId: string): Promise<void> {
+  await fetchJSON(`/api/chat/${encodeURIComponent(conversationId)}`, {
+    method: 'DELETE',
+  });
+}
+
 // Default export as a mutable object for testability (sinon stubs)
 const api = {
   getBaseUrl,
@@ -558,6 +602,8 @@ const api = {
   getEngagement,
   fetchJSON,
   fetchBinary,
+  askOpenCode,
+  endConversation,
 };
 
 export default api;

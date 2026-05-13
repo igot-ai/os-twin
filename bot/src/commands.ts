@@ -9,9 +9,10 @@
 
 import api, { PlanAsset, ClawhubSkill, RoleInfo } from './api';
 import { registry } from './connectors/registry';
-import { getSession, clearSession, clearChatHistory, setPlan, setWorkingDir, persistAfterMessage } from './sessions';
+import { getSession, clearSession, clearChatHistory, setPlan, setWorkingDir } from './sessions';
 import { askAgent } from './agent-bridge';
 import { listRecordings, transcribeAudio } from './audio-transcript';
+import { SlashCommandBuilder } from 'discord.js';
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ export interface CommandDef {
   discordOnly?: boolean;
   telegramMenu?: string; // description shown in Telegram's setMyCommands
 }
+
+export type CommandPlatform = 'telegram' | 'discord' | 'slack';
 
 export const COMMAND_REGISTRY: CommandDef[] = [
   // ── Plans & AI ──────────────────────────────────────────────────
@@ -101,12 +104,58 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'ping',            description: 'Check bot latency',                                   discordOnly: true },
 ];
 
-// Pre-computed views for connectors
-export const COMMANDS_WITH_ARGS = COMMAND_REGISTRY.filter(c => c.arg && !c.discordOnly);
-export const COMMANDS_NO_ARGS = COMMAND_REGISTRY.filter(c => !c.arg && !c.discordOnly);
-export const ALL_PLATFORM_COMMANDS = COMMAND_REGISTRY.filter(c => !c.discordOnly);
-export const TELEGRAM_MENU_COMMANDS = COMMAND_REGISTRY.filter(c => c.telegramMenu);
+export function getCommandDef(name: string): CommandDef | undefined {
+  return COMMAND_REGISTRY.find(c => c.name === name);
+}
+
+export function requireCommandDef(name: string): CommandDef {
+  const def = getCommandDef(name);
+  if (!def) throw new Error(`Command "${name}" is missing from COMMAND_REGISTRY`);
+  return def;
+}
+
+export function getCommandsForPlatform(platform: CommandPlatform): CommandDef[] {
+  return COMMAND_REGISTRY.filter(c => platform === 'discord' || !c.discordOnly);
+}
+
+export function getCommandsWithArgsForPlatform(platform: CommandPlatform): CommandDef[] {
+  return getCommandsForPlatform(platform).filter(c => c.arg);
+}
+
+export function getCommandsWithoutArgsForPlatform(platform: CommandPlatform): CommandDef[] {
+  return getCommandsForPlatform(platform).filter(c => !c.arg);
+}
+
+export function buildDiscordSlashCommand(def: CommandDef): SlashCommandBuilder {
+  const builder = new SlashCommandBuilder()
+    .setName(def.name)
+    .setDescription(def.description);
+
+  if (def.arg) {
+    builder.addStringOption(opt =>
+      opt.setName(def.arg!)
+        .setDescription(def.argDescription || def.arg!)
+        .setRequired(def.argRequired ?? false),
+    );
+  }
+
+  return builder;
+}
+
+export function buildDiscordSlashCommands(defs: CommandDef[] = getCommandsForPlatform('discord')): SlashCommandBuilder[] {
+  return defs.map(buildDiscordSlashCommand);
+}
+
+// Pre-computed views for compatibility; connectors should use platform helpers above.
+export const COMMANDS_WITH_ARGS = getCommandsWithArgsForPlatform('telegram');
+export const COMMANDS_NO_ARGS = getCommandsWithoutArgsForPlatform('telegram');
+export const ALL_PLATFORM_COMMANDS = getCommandsForPlatform('telegram');
+export const TELEGRAM_MENU_COMMANDS = getCommandsForPlatform('telegram').filter(c => c.telegramMenu);
 export const DEFERRED_COMMANDS = new Set(COMMAND_REGISTRY.filter(c => c.deferReply).map(c => c.name));
+
+export function isDeferredCommand(name: string): boolean {
+  return DEFERRED_COMMANDS.has(name);
+}
 
 // ── Response helpers ──────────────────────────────────────────────
 
@@ -824,7 +873,7 @@ async function cmdLaunchPlan(planId: string): Promise<BotResponse[]> {
 // ── AI draft / refine ─────────────────────────────────────────────
 
 // processDraft and handleStatefulText removed — all plan creation
-// and refinement now goes through askAgent() with create_plan / refine_plan tools.
+// and refinement now goes through askAgent() (OpenCode-backed) with create_plan / refine_plan tools.
 
 // ── EPIC-003: File attachment handling during plan conversations ──
 
@@ -1050,6 +1099,25 @@ async function handleToggleEvent(userId: string, platform: string, eventId: stri
 // ── Unified router ────────────────────────────────────────────────
 
 export async function routeCommand(userId: string, platform: string, command: string, args = ''): Promise<BotResponse[]> {
+  const responses = await _routeCommandInner(userId, platform, command, args);
+
+  // Store result in pendingContext so the next askAgent() call
+  // can inject it as context for the OpenCode session
+  const session = getSession(userId, platform);
+  const resultText = responses.map(r => r.text).join('\n').slice(0, 500);
+  if (resultText && command !== 'clear' && command !== 'cancel') {
+    session.pendingContext.push({
+      command: `${command} ${args}`.trim(),
+      result: resultText,
+      timestamp: Date.now(),
+    });
+    if (session.pendingContext.length > 5) session.pendingContext.shift();
+  }
+
+  return responses;
+}
+
+async function _routeCommandInner(userId: string, platform: string, command: string, args = ''): Promise<BotResponse[]> {
   switch (command) {
     case 'menu':        return [cmdMenu()];
     case 'help':
@@ -1066,9 +1134,13 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'cancel':
       clearSession(userId, platform);
       return [text('🛑 Session cleared. Active plan deselected.')];
-    case 'clear':
-      clearChatHistory(userId, platform);
+    case 'clear': {
+      const session = getSession(userId, platform);
+      session.pendingContext = [];
+      const convId = `connector:${platform}:${userId}`;
+      api.endConversation(convId).catch(err => console.warn('[CLEAR] Failed to end OpenCode session:', err));
       return [text('🧹 Conversation history cleared. The AI will start fresh.')];
+    }
     case 'setdir': {
       const dir = args.trim();
       if (!dir) {
@@ -1088,7 +1160,7 @@ export async function routeCommand(userId: string, platform: string, command: st
       if (!idea) {
         return [text('✨ Usage: `/draft <your idea>`\nExample: `/draft build a todo app with authentication`\n\nOr just `@os-twin build me a todo app` — the AI will handle it.')];
       }
-      // Route through askAgent — Gemini will call create_plan tool
+      // Route through askAgent — OpenCode will call create_plan tool
       // which sets activePlanId via setPlan() inside executeTool()
       const result = await askAgent(`Create a plan for: ${idea}`, { userId, platform });
       return [text(result.text)];

@@ -2799,7 +2799,7 @@ async def refine_plan_endpoint(request: RefineRequest):
             # Persist these images to the plan's assets!
             if request.plan_id:
                 _persist_plan_images_from_data_uris(request.plan_id, [img.model_dump() for img in request.images])
-        result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images)
+        result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images, conversation_id=f"plan-{request.plan_id}" if request.plan_id else None)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
             return {
@@ -2837,7 +2837,7 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
             try:
                 from plan_agent import parse_structured_response
                 full_response = ""
-                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images):
+                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images, conversation_id=f"plan-{request.plan_id}" if request.plan_id else None):
                     if isinstance(chunk, dict):
                         # If a dictionary is yielded, treat it as a rich event and accumulate if it has a 'token'
                         token = chunk.get("token", "")

@@ -30,6 +30,12 @@ export interface StagedAttachment {
   epicRef?: string;
 }
 
+export interface PendingContextEntry {
+  command: string;
+  result: string;
+  timestamp: number;
+}
+
 export interface Session {
   userId: string;
   platform: string;
@@ -41,6 +47,7 @@ export interface Session {
   workingDir?: string;
   activeEpicRef?: string;
   pendingAttachments: StagedAttachment[];
+  pendingContext: PendingContextEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +97,7 @@ function _newSession(userId: string | number, platform: string): Session {
     chatHistory: [],
     lastActivity: Date.now(),
     pendingAttachments: [],
+    pendingContext: [],
   };
 }
 
@@ -123,7 +131,8 @@ function _loadFromDisk(): void {
         lastActivity: persisted.lastActivity,
         workingDir: persisted.workingDir,
         activeEpicRef: persisted.activeEpicRef,
-        pendingAttachments: [], // never persisted
+        pendingAttachments: [],
+        pendingContext: [],
       };
       sessions.set(key, session);
       loaded++;

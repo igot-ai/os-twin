@@ -4,7 +4,21 @@ import fs from 'fs';
 import api from '../src/api';
 import { registry } from '../src/connectors/registry';
 import * as sessions from '../src/sessions';
-import { routeCommand, routeCallback, cmdHelp, COMMAND_REGISTRY, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS, DEFERRED_COMMANDS } from '../src/commands';
+import {
+  routeCommand,
+  routeCallback,
+  cmdHelp,
+  COMMAND_REGISTRY,
+  COMMANDS_NO_ARGS,
+  COMMANDS_WITH_ARGS,
+  ALL_PLATFORM_COMMANDS,
+  DEFERRED_COMMANDS,
+  buildDiscordSlashCommands,
+  getCommandDef,
+  getCommandsForPlatform,
+  getCommandsWithArgsForPlatform,
+  getCommandsWithoutArgsForPlatform,
+} from '../src/commands';
 
 describe('commands', () => {
   let sandbox: sinon.SinonSandbox;
@@ -684,10 +698,32 @@ describe('commands', () => {
       }
     });
 
+    it('platform command helpers derive from COMMAND_REGISTRY', () => {
+      expect(getCommandsForPlatform('discord').map(c => c.name)).to.deep.equal(COMMAND_REGISTRY.map(c => c.name));
+      expect(getCommandsForPlatform('telegram').map(c => c.name)).to.deep.equal(ALL_PLATFORM_COMMANDS.map(c => c.name));
+      expect(getCommandsForPlatform('slack').map(c => c.name)).to.deep.equal(ALL_PLATFORM_COMMANDS.map(c => c.name));
+      expect(getCommandsWithArgsForPlatform('telegram').map(c => c.name)).to.deep.equal(COMMANDS_WITH_ARGS.map(c => c.name));
+      expect(getCommandsWithoutArgsForPlatform('telegram').map(c => c.name)).to.deep.equal(COMMANDS_NO_ARGS.map(c => c.name));
+    });
+
     it('DEFERRED_COMMANDS is a Set of command names', () => {
       expect(DEFERRED_COMMANDS).to.be.instanceOf(Set);
       expect(DEFERRED_COMMANDS.has('health')).to.be.true;
       expect(DEFERRED_COMMANDS.has('menu')).to.be.false;
+    });
+
+    it('builds Discord slash commands from COMMAND_REGISTRY', () => {
+      const slashCommands = buildDiscordSlashCommands().map(c => c.toJSON());
+      expect(slashCommands.map(c => c.name)).to.deep.equal(COMMAND_REGISTRY.map(c => c.name));
+
+      const draft = slashCommands.find(c => c.name === 'draft')!;
+      const draftDef = getCommandDef('draft')!;
+      expect(draft.description).to.equal(draftDef.description);
+      expect(draft.options?.[0].name).to.equal(draftDef.arg);
+      expect(draft.options?.[0].description).to.equal(draftDef.argDescription);
+
+      const feedback = slashCommands.find(c => c.name === 'feedback')!;
+      expect(feedback.options?.[0].required).to.equal(true);
     });
 
     it('every routeCommand case has a matching COMMAND_REGISTRY entry', () => {

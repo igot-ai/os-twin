@@ -1,7 +1,14 @@
 import https from 'https';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS } from '../commands';
+import {
+  routeCommand,
+  routeCallback,
+  BotResponse,
+  getCommandsForPlatform,
+  getCommandsWithArgsForPlatform,
+  getCommandsWithoutArgsForPlatform,
+} from '../commands';
 import { getSession, getStagedFiles } from '../sessions';
 import { askAgent } from '../agent-bridge';
 import { flushStagedAttachments, getStagedCount } from '../asset-staging';
@@ -77,7 +84,7 @@ export class TelegramConnector implements Connector {
     });
 
     // ── Slash commands (no arguments) — driven by COMMAND_REGISTRY
-    for (const def of COMMANDS_NO_ARGS) {
+    for (const def of getCommandsWithoutArgsForPlatform(this.platform)) {
       this.bot.command(def.name, async (ctx) => {
         const userId = String(ctx.chat.id);
         const responses = await routeCommand(userId, 'telegram', def.name);
@@ -86,7 +93,7 @@ export class TelegramConnector implements Connector {
     }
 
     // Commands with inline arguments — driven by COMMAND_REGISTRY
-    for (const def of COMMANDS_WITH_ARGS) {
+    for (const def of getCommandsWithArgsForPlatform(this.platform)) {
       const cmdName = def.name;
       this.bot.command(cmdName, async (ctx) => {
         const userId = String(ctx.chat.id);
@@ -257,7 +264,7 @@ export class TelegramConnector implements Connector {
     // ── Register command menu with Telegram ───────────────────────
     // Register ALL platform commands with Telegram's autocomplete menu
     await this.bot.telegram.setMyCommands(
-      ALL_PLATFORM_COMMANDS.map(def => ({
+      getCommandsForPlatform(this.platform).map(def => ({
         command: def.name,
         description: def.telegramMenu || def.description,
       })),

@@ -74,7 +74,7 @@ from dashboard.tasks import startup_all
 from dashboard.routes import (
     ai, agent_costs, auth, system, mcp, threads, plans, rooms, skills,
     roles, memory, amem, channels, command, tunnel,
-    files, settings, engagement, knowledge, memory_mcp
+    files, settings, engagement, knowledge, memory_mcp, chat
 )
 
 # Configure logging — file + console
@@ -144,6 +144,13 @@ async def app_lifespan(_app):
     # Migrated from the legacy @app.on_event("startup") handler. Using
     # create_task so the lifecycle doesn't block the server from accepting
     # connections.
+    try:
+        from dashboard.master_agent import load_persisted_master_model
+
+        load_persisted_master_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load persisted master model: %s", exc)
+
     asyncio.create_task(startup_all())
     
     # Start knowledge service background tasks (retention sweeper)
@@ -333,6 +340,7 @@ app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
 app.include_router(ai.router)         # Plan 006: /api/ai/* unified gateway
 app.include_router(agent_costs.router) # Plan 015: /api/ai/agent-costs
+app.include_router(chat.router)         # /api/chat — OpenCode session-backed chat
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP
