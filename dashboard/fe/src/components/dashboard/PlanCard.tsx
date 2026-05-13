@@ -2,11 +2,13 @@
 
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { Plan, Domain, RoleSummary } from '@/types';
 import ProgressRing from './ProgressRing';
 import { Skeleton } from '../ui/Skeleton';
 import { getRoleColor, getRoleInitials } from '@/lib/role-utils';
+import ConfirmDialog from '../ui/ConfirmDialog';
 
 const domainColors: Record<Domain, { bg: string; text: string; dot: string }> = {
   software: { bg: 'rgba(59, 130, 246, 0.08)', text: '#3b82f6', dot: '#3b82f6' },
@@ -26,7 +28,8 @@ function relativeTime(dateStr: string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export default function PlanCard({ plan, isFocused = false }: { plan: Plan, isFocused?: boolean }) {
+export default function PlanCard({ plan, isFocused = false, onDelete }: { plan: Plan, isFocused?: boolean, onDelete?: (planId: string) => void }) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const dc = domainColors[plan.domain ?? 'custom'] || domainColors.custom;
   
   // Derive roles from distribution if backend roles are empty
@@ -57,10 +60,35 @@ export default function PlanCard({ plan, isFocused = false }: { plan: Plan, isFo
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: dc.dot }} />
           {plan.domain ?? 'custom'}
         </span>
-        <span className="text-[11px] text-text-faint">
-          {plan.updated_at ? relativeTime(plan.updated_at) : '—'}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-text-faint">
+            {plan.updated_at ? relativeTime(plan.updated_at) : '—'}
+          </span>
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/10 transition-all"
+              title="Delete plan"
+            >
+              <span className="material-symbols-outlined text-[14px] text-text-faint hover:text-red-500 transition-colors" style={{ fontSize: 14 }}>delete</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {onDelete && showDeleteConfirm && (
+        <ConfirmDialog
+          isOpen={showDeleteConfirm}
+          onClose={() => setShowDeleteConfirm(false)}
+          onConfirm={() => { onDelete(plan.plan_id); setShowDeleteConfirm(false); }}
+          title="Delete Plan"
+          message={`Are you sure you want to delete "${plan.title}"? This will permanently remove all plan files, war-rooms, and related data.`}
+        />
+      )}
 
       {/* Title */}
       <h3
