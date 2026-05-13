@@ -39,7 +39,8 @@ export default function NexusShell() {
     onFocusSearch: focusSearch,
     onClearSelection: () => path.handleNodeClick(null),
     onReset: actions.reset,
-    onSetLens: actions.setLens,
+    onToggleCommunity: () => graph.setCommunityLens(!graph.communityLens),
+    onToggleDegree: () => graph.setDegreeSizing(!graph.degreeSizing),
     onToggleLeftDock: leftDock.toggle,
     onToggleRightDock: rightDock.toggle,
   });
@@ -76,7 +77,9 @@ export default function NexusShell() {
           selectedPath={graph.selectedPath}
           highlightedLabels={graph.highlightedLabels}
           highlightedEdges={graph.highlightedEdges}
-          communityLens={graph.activeLens === 'community'}
+          neighborhoodIds={graph.neighborhoodIds}
+          communityLens={graph.communityLens}
+          degreeSizing={graph.degreeSizing}
         />
         {/* Overlay layer — sits above canvas */}
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1 }}>

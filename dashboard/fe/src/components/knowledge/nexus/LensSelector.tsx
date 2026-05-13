@@ -85,9 +85,9 @@ export default function LensSelector() {
             }}
             className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-colors ${FONT.label} font-medium`}
             style={{
-              borderColor: 'var(--color-border)',
-              background: showNodeMenu ? 'var(--color-surface-hover)' : 'transparent',
-              color: 'var(--color-text-main)'
+              borderColor: graph.highlightedLabels.size > 0 ? 'var(--color-primary)' : 'var(--color-border)',
+              background: graph.highlightedLabels.size > 0 ? 'var(--color-primary-muted)' : (showNodeMenu ? 'var(--color-surface-hover)' : 'transparent'),
+              color: graph.highlightedLabels.size > 0 ? 'var(--color-primary)' : 'var(--color-text-main)'
             }}
           >
             <Icon name="category" size={14} />
@@ -157,9 +157,9 @@ export default function LensSelector() {
             }}
             className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-colors ${FONT.label} font-medium`}
             style={{
-              borderColor: 'var(--color-border)',
-              background: showEdgeMenu ? 'var(--color-surface-hover)' : 'transparent',
-              color: 'var(--color-text-main)'
+              borderColor: graph.highlightedEdges.size > 0 ? 'var(--color-primary)' : 'var(--color-border)',
+              background: graph.highlightedEdges.size > 0 ? 'var(--color-primary-muted)' : (showEdgeMenu ? 'var(--color-surface-hover)' : 'transparent'),
+              color: graph.highlightedEdges.size > 0 ? 'var(--color-primary)' : 'var(--color-text-main)'
             }}
           >
             <Icon name="share" size={14} />
@@ -216,6 +216,36 @@ export default function LensSelector() {
           )}
         </div>
       )}
+
+      {/* Community detection toggle */}
+      <button
+        onClick={() => graph.setCommunityLens(!graph.communityLens)}
+        className={`flex items-center gap-1 px-2 py-1 rounded border transition-colors ${FONT.label} font-medium`}
+        style={{
+          borderColor: graph.communityLens ? 'var(--color-primary)' : 'var(--color-border)',
+          background: graph.communityLens ? 'var(--color-primary-muted)' : 'transparent',
+          color: graph.communityLens ? 'var(--color-primary)' : 'var(--color-text-muted)',
+        }}
+        title="Color nodes by community cluster"
+      >
+        <Icon name="hub" size={14} />
+        Communities
+      </button>
+
+      {/* Degree sizing toggle */}
+      <button
+        onClick={() => graph.setDegreeSizing(!graph.degreeSizing)}
+        className={`flex items-center gap-1 px-2 py-1 rounded border transition-colors ${FONT.label} font-medium`}
+        style={{
+          borderColor: graph.degreeSizing ? 'var(--color-primary)' : 'var(--color-border)',
+          background: graph.degreeSizing ? 'var(--color-primary-muted)' : 'transparent',
+          color: graph.degreeSizing ? 'var(--color-primary)' : 'var(--color-text-muted)',
+        }}
+        title="Size nodes by degree centrality"
+      >
+        <Icon name="social_leaderboard" size={14} />
+        Degree
+      </button>
     </div>
   );
 }

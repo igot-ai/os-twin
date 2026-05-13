@@ -34,8 +34,9 @@ interface GraphSceneProps {
   selectedPath: { source: string; target: string; path: string[] } | null;
   highlightedLabels?: Set<string>;
   highlightedEdges?: Set<string>;
-  /** When true, use community-based coloring instead of label-based. */
+  neighborhoodIds?: Set<string>;
   communityLens?: boolean;
+  degreeSizing?: boolean;
 }
 
 function SceneContent({
@@ -50,7 +51,9 @@ function SceneContent({
   height,
   highlightedLabels,
   highlightedEdges,
+  neighborhoodIds,
   nodeBrightness,
+  degreeSizing,
   simStep,
   simGetPositions,
   simGetIsRunning,
@@ -67,7 +70,9 @@ function SceneContent({
   height: number;
   highlightedLabels: Set<string>;
   highlightedEdges: Set<string>;
+  neighborhoodIds: Set<string>;
   nodeBrightness: Map<string, number>;
+  degreeSizing: boolean;
   simStep: () => void;
   simGetPositions: () => { nodes: SimNode[]; links: SimLink[] };
   simGetIsRunning: () => boolean;
@@ -87,7 +92,7 @@ function SceneContent({
         is2D={is2D}
         simGetIsRunning={simGetIsRunning}
       />
-      <EdgeLines links={simLinks} nodes={simNodes} selectedPath={selectedPath} ignitionSet={ignitionSet} highlightedEdges={highlightedEdges} highlightedLabels={highlightedLabels} simGetIsRunning={simGetIsRunning} />
+      <EdgeLines links={simLinks} nodes={simNodes} selectedPath={selectedPath} ignitionSet={ignitionSet} highlightedEdges={highlightedEdges} highlightedLabels={highlightedLabels} neighborhoodIds={neighborhoodIds} simGetIsRunning={simGetIsRunning} />
       <NodeInstances
         nodes={simNodes}
         ignitionSet={ignitionSet}
@@ -95,7 +100,9 @@ function SceneContent({
         pathSet={pathSet}
         onNodeClick={onNodeClick}
         highlightedLabels={highlightedLabels}
+        neighborhoodIds={neighborhoodIds}
         nodeBrightness={nodeBrightness}
+        degreeSizing={degreeSizing}
         simStep={simStep}
         simGetPositions={simGetPositions}
         simGetIsRunning={simGetIsRunning}
@@ -106,6 +113,8 @@ function SceneContent({
         selectedId={selectedId}
         maxLabels={1000}
         nodeBrightness={nodeBrightness}
+        highlightedLabels={highlightedLabels}
+        neighborhoodIds={neighborhoodIds}
       />
       <PostFX />
     </>
@@ -123,13 +132,16 @@ export default function GraphScene({
   selectedPath,
   highlightedLabels: externalHighlightedLabels,
   highlightedEdges: externalHighlightedEdges,
+  neighborhoodIds: externalNeighborhoodIds,
   communityLens = false,
+  degreeSizing = true,
 }: GraphSceneProps) {
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [internalHighlightedLabels] = useState<Set<string>>(new Set());
   const [internalHighlightedEdges] = useState<Set<string>>(new Set());
   const highlightedLabels = externalHighlightedLabels ?? internalHighlightedLabels;
   const highlightedEdges = externalHighlightedEdges ?? internalHighlightedEdges;
+  const neighborhoodIds = externalNeighborhoodIds ?? new Set<string>();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -182,10 +194,8 @@ export default function GraphScene({
       const emissiveStrength = ARCHETYPE_EMISSIVE_STRENGTH[archetype as keyof typeof ARCHETYPE_EMISSIVE_STRENGTH] ?? 0.5;
       const roleScale = ARCHETYPE_SCALE[archetype as keyof typeof ARCHETYPE_SCALE] ?? 1.0;
 
-      // Always choose color based on the label, disregarding the community lens 
-      // (as requested to ensure nodes of the same label keep their exact color identity)
-      const color = getNodeColor(label);
-      const emissiveColor = getNodeEmissiveColor(label);
+      const color = communityLens ? getCommunityColor(n.community_id) : getNodeColor(label);
+      const emissiveColor = communityLens ? getCommunityEmissiveColor(n.community_id) : getNodeEmissiveColor(label);
 
       return {
         id: n.id,
@@ -393,7 +403,9 @@ export default function GraphScene({
           height={dimensions!.height}
           highlightedLabels={highlightedLabels}
           highlightedEdges={highlightedEdges}
+          neighborhoodIds={neighborhoodIds}
           nodeBrightness={nodeBrightness}
+          degreeSizing={degreeSizing}
           simStep={step}
           simGetPositions={getPositions}
           simGetIsRunning={getIsRunning}

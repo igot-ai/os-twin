@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import type { ExplorerNode, ExplorerEdge, LensMode } from '@/hooks/use-knowledge-explorer';
 import type { QueryResultResponse, EntityHitResponse } from '@/hooks/use-knowledge-query';
 import type { TrailEntry, QueryMode } from '@/hooks/use-nexus-explorer';
@@ -27,6 +27,12 @@ export interface NexusContextValue {
     setHighlightedLabels: React.Dispatch<React.SetStateAction<Set<string>>>;
     highlightedEdges: Set<string>;
     setHighlightedEdges: React.Dispatch<React.SetStateAction<Set<string>>>;
+    neighborhoodIds: Set<string>;
+    setNeighborhoodIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+    communityLens: boolean;
+    setCommunityLens: (v: boolean) => void;
+    degreeSizing: boolean;
+    setDegreeSizing: (v: boolean) => void;
   };
   query: {
     queryResult: QueryResultResponse | null;
@@ -99,6 +105,9 @@ export function NexusProvider({
   const [pathSource, setPathSource] = useState<string | null>(null);
   const [highlightedLabels, setHighlightedLabels] = useState<Set<string>>(new Set());
   const [highlightedEdges, setHighlightedEdges] = useState<Set<string>>(new Set());
+  const [neighborhoodIds, setNeighborhoodIds] = useState<Set<string>>(new Set());
+  const [communityLens, setCommunityLens] = useState(false);
+  const [degreeSizing, setDegreeSizing] = useState(true);
 
   const pathMode = pathSource !== null;
 
@@ -121,6 +130,19 @@ export function NexusProvider({
       return;
     }
     nexusHook.selectNode(node);
+    if (node) {
+      const neighborIds = new Set<string>();
+      neighborIds.add(node.id);
+      for (const edge of nexusHook.edges) {
+        const srcId = edge.source;
+        const tgtId = edge.target;
+        if (srcId === node.id) neighborIds.add(tgtId);
+        if (tgtId === node.id) neighborIds.add(srcId);
+      }
+      setNeighborhoodIds(neighborIds);
+    } else {
+      setNeighborhoodIds(new Set());
+    }
   }, [pathSource, onConfirmPath, nexusHook]);
 
   const value: NexusContextValue = {
@@ -144,6 +166,12 @@ export function NexusProvider({
       setHighlightedLabels,
       highlightedEdges,
       setHighlightedEdges,
+      neighborhoodIds,
+      setNeighborhoodIds,
+      communityLens,
+      setCommunityLens,
+      degreeSizing,
+      setDegreeSizing,
     },
     query: {
       queryResult: nexusHook.queryResult,
