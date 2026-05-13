@@ -16,11 +16,17 @@ export function usePlans(search?: string) {
     return newPlan;
   };
 
+  const deletePlan = async (planId: string) => {
+    await apiDelete(`/plans/${planId}`);
+    mutate((plans) => plans?.filter(p => p.plan_id !== planId), false);
+  };
+
   return {
     plans: data,
     isLoading,
     isError: error,
     createPlan,
+    deletePlan,
     refresh: mutate,
   };
 }
