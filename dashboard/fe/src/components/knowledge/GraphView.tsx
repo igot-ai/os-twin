@@ -196,6 +196,24 @@ export default function GraphView({
     }
   }, [nodes, selectedNode, onSelectNode]);
 
+  // Adjust forces to spread nodes out and prevent shaking/clumping
+  useEffect(() => {
+    if (graphRef.current) {
+      const chargeForce = graphRef.current.d3Force('charge');
+      if (chargeForce) {
+        chargeForce.strength(-1500);
+        chargeForce.distanceMax(3000);
+      }
+      
+      const linkForce = graphRef.current.d3Force('link');
+      if (linkForce) {
+        linkForce.distance(250);
+      }
+      
+      graphRef.current.d3ReheatSimulation?.();
+    }
+  }, [graphData, dimensions, isFullscreen]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -243,27 +261,6 @@ export default function GraphView({
   const labels = Array.from(labelCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([label]) => label);
-
-  // Adjust forces to spread nodes out and prevent shaking/clumping
-  useEffect(() => {
-    if (graphRef.current) {
-      // Increase repulsion to separate dense clusters significantly
-      const chargeForce = graphRef.current.d3Force('charge');
-      if (chargeForce) {
-        chargeForce.strength(-1500); // Much stronger repulsion
-        chargeForce.distanceMax(3000); // Allow it to push further
-      }
-      
-      // Increase link distance so connected nodes have more room
-      const linkForce = graphRef.current.d3Force('link');
-      if (linkForce) {
-        linkForce.distance(250); // Increased link distance
-      }
-      
-      // Re-trigger the simulation with the new forces
-      graphRef.current.d3ReheatSimulation?.();
-    }
-  }, [graphData, dimensions, isFullscreen]);
 
   const graphContent = (dims: { width: number; height: number }) => (
     <ForceGraph2D

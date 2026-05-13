@@ -1012,6 +1012,18 @@ class OSTwinStore:
             logger.warning("Failed to index plan %s: %s", plan_id, e)
             return False
 
+    def delete_plan(self, plan_id: str) -> bool:
+        """Delete a plan from the zvec index by plan_id. Returns True on success."""
+        if self._plans is None:
+            return False
+        try:
+            self._plans.delete(plan_id)
+            self._plans.flush()
+            return True
+        except Exception as e:
+            logger.warning("Failed to delete plan %s: %s", plan_id, e)
+            return False
+
     def index_epic(
         self,
         epic_ref: str,

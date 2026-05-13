@@ -2006,6 +2006,71 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
 
     return {"status": "saved", "plan_id": plan_id}
 
+
+@router.delete("/api/plans/{plan_id}")
+async def delete_plan(plan_id: str, user: dict = Depends(get_current_user)):
+    """Delete a plan and all its artifacts from global store and working directory."""
+    import shutil
+
+    # Validate plan_id format to prevent path traversal
+    if not re.fullmatch(r"[0-9a-f]{12}", plan_id):
+        raise HTTPException(status_code=400, detail="Invalid plan ID format")
+
+    plan_file = _find_plan_file(plan_id)
+    if not plan_file:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+
+    cleaned: list[str] = []
+
+    # --- Read meta.json for working_dir before we delete it ---
+    working_dir = None
+    meta_file = _find_plan_meta(plan_id)
+    if meta_file and meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            working_dir = meta.get("working_dir")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # --- 1. Remove from global store (~/.ostwin/.agents/plans/) ---
+    plans_dir = plan_file.parent
+    for suffix in (".md", ".meta.json", ".roles.json"):
+        f = plans_dir / f"{plan_id}{suffix}"
+        if f.exists():
+            f.unlink()
+            cleaned.append(str(f))
+
+    assets_dir = plans_dir / "assets" / plan_id
+    if assets_dir.exists() and assets_dir.is_dir():
+        shutil.rmtree(assets_dir)
+        cleaned.append(str(assets_dir))
+
+    # --- 2. Remove working dir artifacts ---
+    if working_dir:
+        wd = Path(working_dir)
+        if wd.exists() and wd.is_dir():
+            agents_dir = wd / ".agents"
+            if agents_dir.exists() and agents_dir.is_dir():
+                shutil.rmtree(agents_dir)
+                cleaned.append(str(agents_dir))
+
+            warrooms_dir = wd / ".war-rooms"
+            if warrooms_dir.exists() and warrooms_dir.is_dir():
+                shutil.rmtree(warrooms_dir)
+                cleaned.append(str(warrooms_dir))
+
+    # --- 3. Remove from zvec index ---
+    store = global_state.store
+    if store:
+        try:
+            store.delete_plan(plan_id)
+        except Exception as e:
+            logger.warning("Failed to remove plan %s from zvec index: %s", plan_id, e)
+
+    logger.info("Deleted plan %s — cleaned: %s", plan_id, cleaned)
+    return {"status": "deleted", "plan_id": plan_id, "cleaned_paths": cleaned}
+
+
 def _resolve_plan_file(plan_id: str) -> Optional[Path]:
     """Find the plan .md file — checks project-local dir then ~/.ostwin."""
     local = PLANS_DIR / f"{plan_id}.md"
@@ -2261,7 +2326,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
                     epic_ref=epic["task_ref"], plan_id=plan_id,
                     title=epic["title"], body=epic["body"],
                     room_id=epic["room_id"],
-                    working_dir=epic.get("working_dir", "."),
+                    working_dir=",".join(epic.get("working_dirs", [epic.get("working_dir", ".")])),
                     status="pending",
                 )
         except Exception as e:
@@ -3374,17 +3439,20 @@ async def get_epic_audit(plan_id: str, task_ref: str, user: dict = Depends(get_c
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/brief")
 async def get_epic_brief(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
     room_dir = _resolve_room_dir(plan_id, task_ref)
-    if not room_dir: return {"content": "", "working_dir": "", "created_at": None}
+    if not room_dir: return {"content": "", "working_dirs": [], "created_at": None}
     brief_file = room_dir / "brief.md"
     config_file = room_dir / "config.json"
     content = brief_file.read_text() if brief_file.exists() else "# No brief provided"
-    working_dir = "."
+    working_dirs = []
     if config_file.exists():
         try:
             cfg = json.loads(config_file.read_text())
-            working_dir = cfg.get("working_dir", ".")
+            if "working_dirs" in cfg and isinstance(cfg["working_dirs"], list):
+                working_dirs = cfg["working_dirs"]
+            elif "working_dir" in cfg and cfg["working_dir"]:
+                working_dirs = [cfg["working_dir"]]
         except: pass
-    return {"content": content, "working_dir": working_dir, "created_at": None}
+    return {"content": content, "working_dirs": working_dirs, "created_at": None}
 
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/artifacts")
 async def get_epic_artifacts(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
