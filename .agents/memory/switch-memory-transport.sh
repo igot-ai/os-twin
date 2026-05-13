@@ -15,6 +15,12 @@ shift 2>/dev/null || true
 PROJECT_DIR="${1:-$(pwd)}"
 PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
 
+# Portable symlink resolution: readlink -f works on Linux and recent macOS,
+# but falls back to python on older macOS where -f is unsupported.
+_realpath() {
+  readlink -f "$1" 2>/dev/null || python3 -c "import os; print(os.path.realpath('$1'))"
+}
+
 MCP_CONFIG="$PROJECT_DIR/.agents/mcp/config.json"
 
 if [[ ! -f "$MCP_CONFIG" ]]; then
@@ -60,12 +66,14 @@ with open(config_path) as f:
     config = json.load(f)
 
 home = os.path.expanduser("~")
+# Resolve .memory symlink to the centralized ~/.ostwin/memory directory
+persist_dir = os.path.realpath(os.path.join(project_dir, ".memory"))
 config["mcpServers"]["memory"] = {
     "command": os.path.join(home, ".ostwin", ".venv", "bin", "python"),
     "args": [os.path.join(home, ".ostwin", ".agents", "memory", "mcp_server.py")],
     "env": {
         "AGENT_OS_ROOT": project_dir,
-        "MEMORY_PERSIST_DIR": os.path.join(project_dir, ".memory"),
+        "MEMORY_PERSIST_DIR": persist_dir,
         "GOOGLE_API_KEY": os.environ.get("GOOGLE_API_KEY", "${GOOGLE_API_KEY}")
     }
 }
@@ -75,13 +83,15 @@ with open(config_path, "w") as f:
     f.write("\n")
 print(f"Switched to stdio")
 print(f"  Config: {config_path}")
+print(f"  Persist: {persist_dir}")
 print(f"  Note: each tool call spawns a new server process (stateless)")
 PYEOF
     ;;
 
   sse)
-    # Check if daemon is running, start if not
-    PORT_FILE="$PROJECT_DIR/.memory/.daemon.port"
+    # Resolve .memory symlink to centralized directory for port/pid files
+    MEMORY_DIR="$(_realpath "$PROJECT_DIR/.memory")"
+    PORT_FILE="$MEMORY_DIR/.daemon.port"
     if [[ -f "$PORT_FILE" ]]; then
       PORT=$(cat "$PORT_FILE")
     else
@@ -91,7 +101,7 @@ PYEOF
     fi
 
     # Verify daemon is actually running
-    PID_FILE="$PROJECT_DIR/.memory/.daemon.pid"
+    PID_FILE="$MEMORY_DIR/.daemon.pid"
     if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
       "$PYTHON" - "$MCP_CONFIG" "$PORT" <<'PYEOF'
 import json, sys

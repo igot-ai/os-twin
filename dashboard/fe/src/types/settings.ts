@@ -146,9 +146,16 @@ export interface MemorySettings {
   pool_max_instances?: number;
   pool_eviction_policy?: string;
   pool_sync_interval_s?: number;
+  // LLM (memory-specific processing model)
+  llm_backend?: MemoryLLMBackend | '';
+  llm_model?: string;
+  llm_compatible_url?: string;
+  llm_compatible_key?: string;
   // Embedding (memory-specific, overrides knowledge embedding if set)
-  embedding_provider?: string;
+  embedding_backend?: MemoryEmbeddingBackend | '';
   embedding_model?: string;
+  embedding_compatible_url?: string;
+  embedding_compatible_key?: string;
   [key: string]: unknown;
 }
 
