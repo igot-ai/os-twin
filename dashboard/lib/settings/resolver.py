@@ -19,12 +19,21 @@ from dashboard.models import (
     ChannelsNamespace,
     KnowledgeSettings,
 )
-from dashboard.api_utils import AGENTS_DIR
+from dashboard.api_utils import AGENTS_DIR, PROJECT_ROOT
 from .vault import get_vault
 
 logger = logging.getLogger(__name__)
 
 VAULT_REF_PATTERN = re.compile(r"\$\{vault:([^/]+)/([^}]+)\}")
+RUNTIME_MANAGER_KEYS = (
+    "poll_interval_seconds",
+    "max_concurrent_rooms",
+    "max_engineer_retries",
+    "state_timeout_seconds",
+    "auto_approve_tools",
+    "dynamic_pipelines",
+)
+RUNTIME_RUNTIME_KEYS = ("master_agent_model",)
 
 class SettingsResolver:
     """Unified settings resolver with vault integration and role overrides.
@@ -211,9 +220,12 @@ class SettingsResolver:
             value: New values to merge
         """
         config = self.load_config()
-        if namespace not in config:
-            config[namespace] = {}
-        config[namespace].update(value)
+        if namespace == "runtime":
+            self._patch_runtime_namespace(config, value)
+        else:
+            if namespace not in config:
+                config[namespace] = {}
+            config[namespace].update(value)
         self.save_config(config)
     
     def patch_plan_role(
@@ -261,9 +273,62 @@ class SettingsResolver:
             namespace: Namespace to reset
         """
         config = self.load_config()
-        if namespace in config:
+        if namespace == "runtime":
+            self._reset_runtime_namespace(config)
+        elif namespace in config:
             del config[namespace]
         self.save_config(config)
+
+    def _patch_runtime_namespace(
+        self,
+        config: Dict[str, Any],
+        value: Dict[str, Any],
+    ) -> None:
+        """Persist runtime settings using the manager-backed canonical schema."""
+        current_runtime = self._extract_runtime(config).model_dump(mode="python")
+        merged_runtime = {
+            **current_runtime,
+            **value,
+        }
+        validated_runtime = RuntimeSettings(**merged_runtime)
+
+        manager_config = dict(config.get("manager") or {})
+        for key in RUNTIME_MANAGER_KEYS:
+            manager_config[key] = getattr(validated_runtime, key)
+        config["manager"] = manager_config
+
+        runtime_config = dict(config.get("runtime") or {})
+        for key in RUNTIME_MANAGER_KEYS:
+            runtime_config.pop(key, None)
+
+        if validated_runtime.master_agent_model:
+            runtime_config["master_agent_model"] = validated_runtime.master_agent_model
+        else:
+            runtime_config.pop("master_agent_model", None)
+
+        if runtime_config:
+            config["runtime"] = runtime_config
+        else:
+            config.pop("runtime", None)
+
+    @staticmethod
+    def _reset_runtime_namespace(config: Dict[str, Any]) -> None:
+        """Reset the runtime view without deleting unrelated manager role settings."""
+        manager_config = dict(config.get("manager") or {})
+        for key in RUNTIME_MANAGER_KEYS:
+            manager_config.pop(key, None)
+        if manager_config:
+            config["manager"] = manager_config
+        else:
+            config.pop("manager", None)
+
+        runtime_config = dict(config.get("runtime") or {})
+        for key in (*RUNTIME_MANAGER_KEYS, *RUNTIME_RUNTIME_KEYS):
+            runtime_config.pop(key, None)
+        if runtime_config:
+            config["runtime"] = runtime_config
+        else:
+            config.pop("runtime", None)
     
     def _resolve_vault_refs(
         self, obj: Any, mask: bool = False
@@ -348,7 +413,12 @@ class SettingsResolver:
 
     def _extract_runtime(self, config: Dict[str, Any]) -> RuntimeSettings:
         """Extract runtime namespace from config."""
-        return self._safe_model(RuntimeSettings, config.get("runtime", {}))
+        runtime_data = dict(config.get("runtime", {}))
+        manager_data = config.get("manager") or {}
+        for key in RUNTIME_MANAGER_KEYS:
+            if key in manager_data and manager_data[key] is not None:
+                runtime_data[key] = manager_data[key]
+        return self._safe_model(RuntimeSettings, runtime_data)
     
     def _extract_memory(self, config: Dict[str, Any]) -> MemorySettings:
         """Extract memory namespace from config."""

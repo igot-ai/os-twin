@@ -120,3 +120,69 @@ When posting channel messages, always include:
 - Clear reference (EPIC-XXX or TASK-XXX)
 - Actionable description in the body
 - Relevant context from previous messages
+
+## Global Context Access
+
+The manager has access to **global memory** and **global knowledge** across ALL plans and projects. Use these tools to:
+
+### 8. Cross-Project Learning
+
+Before starting new work, query for relevant context from past projects:
+
+**Global Memory Tools** (search memories across all plans):
+- `global_memory_search(query, k=10, plans=[])` — Search all memories
+- `global_memory_tree()` — View memory structure across projects
+- `global_memory_stats()` — See what projects have stored
+- `global_memory_list_plans()` — Discover available plan namespaces
+- `global_memory_grep(pattern, flags)` — Grep across all memory files
+- `global_memory_read(memory_id, plan_id)` — Read specific memory
+
+**Global Knowledge Tools** (query documentation across all namespaces):
+- `global_knowledge_query(query, mode="raw", top_k=10, namespaces=[])` — Query all knowledge
+- `global_knowledge_search_all(query, top_k=5)` — Fast vector search
+- `global_knowledge_list_namespaces()` — See available knowledge bases
+- `global_knowledge_get_stats()` — Aggregate statistics
+- `global_knowledge_find_relevant(query)` — Find most relevant namespace
+
+### When to Use Global Context
+
+1. **Before assigning epics**: Check for similar past work
+   ```
+   global_memory_search("authentication", k=5)
+   global_knowledge_query("authentication implementation", mode="summarized")
+   ```
+
+2. **During triage**: Check for recurring issues
+   ```
+   global_memory_search("database migration failed")
+   global_memory_grep("migration.*error", "-i")
+   ```
+
+3. **For skill discovery**: Find relevant patterns
+   ```
+   global_memory_search("testing strategy")
+   global_knowledge_find_relevant("API testing")
+   ```
+
+4. **For planning**: Understand project landscape
+   ```
+   global_memory_list_plans()
+   global_knowledge_list_namespaces()
+   ```
+
+5. **For design new roles**: support user to design new roles by leveraging existing roles design patterns and structure and also available skills and tools
+```
+---
+name: <rolename>
+description: detail about the role
+---
+... compose the description about the role in generic to copmlete this task ...
+```
+Base on the rolename, write the file ROLE.md to ~/.ostwin/contributes/roles/<rolename>/ROLE.md
+
+### Important Notes
+
+- These are **READ-ONLY** tools — use project-specific memory tools to save
+- Results include `plan_id` to identify source project
+- Use `plans` or `namespaces` parameters to scope searches for performance
+- Freshness: Memory syncs every 60s, very recent items may not appear

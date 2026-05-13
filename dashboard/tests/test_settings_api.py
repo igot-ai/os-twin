@@ -70,7 +70,7 @@ def temp_config(tmp_path):
     initial_config = {
         "version": "0.1.0",
         "runtime": {
-            "poll_interval": 5,
+            "poll_interval_seconds": 5,
             "max_concurrent_rooms": 10,
             "auto_approve_tools": False,
             "dynamic_pipelines": True,
@@ -185,11 +185,15 @@ def test_get_settings_schema(client, temp_config):
 
 def test_patch_global_namespace(client, temp_config, mock_broadcaster):
     """PUT /api/settings/{namespace} updates config and broadcasts."""
+    config_file, _, _, _ = temp_config
     payload = {"max_concurrent_rooms": 100}
     response = client.put("/api/settings/runtime", json=payload)
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    config = json.loads(config_file.read_text())
+    assert config["manager"]["max_concurrent_rooms"] == 100
+    assert "max_concurrent_rooms" not in config.get("runtime", {})
 
     # Verify broadcast was called
     mock_broadcaster.assert_called_once()
@@ -344,9 +348,14 @@ def test_validation_error_on_invalid_input(client, temp_config):
     """Invalid input should return 422 with field-level detail."""
     payload = {"max_concurrent_rooms": 99999}
     response = client.put("/api/settings/runtime", json=payload)
-    # RuntimeSettings has le=10000, so 99999 is invalid — but the route
-    # patches the raw dict, not a validated model.  Endpoint may return 200.
-    assert response.status_code in [200, 422]
+    assert response.status_code == 422
+
+
+def test_validation_error_on_legacy_poll_interval_key(client, temp_config):
+    """Legacy poll_interval key should be rejected."""
+    payload = {"poll_interval": 10}
+    response = client.put("/api/settings/runtime", json=payload)
+    assert response.status_code == 422
 
 
 def test_provider_test_endpoint(client, temp_config):
@@ -389,7 +398,8 @@ def test_full_settings_workflow(client, temp_config, mock_broadcaster):
 
     # 3. Verify update persisted on disk
     config = json.loads(config_file.read_text())
-    assert config["runtime"]["max_concurrent_rooms"] == new_max
+    assert config["manager"]["max_concurrent_rooms"] == new_max
+    assert "max_concurrent_rooms" not in config.get("runtime", {})
 
     # 4. Reset namespace
     response = client.post("/api/settings/reset/runtime")
@@ -532,10 +542,8 @@ def test_get_knowledge_settings_returns_defaults(client, temp_config):
     assert "knowledge_llm_model" in data
     assert "knowledge_embedding_model" in data
     assert "knowledge_embedding_dimension" in data
-    # Defaults: empty strings + 384.
-    assert data["knowledge_llm_model"] == ""
-    assert data["knowledge_embedding_model"] == ""
-    assert data["knowledge_embedding_dimension"] == 384
+    # Dimension is read-only, fixed from OSTWIN_EMBEDDING_DIM env var.
+    assert data["knowledge_embedding_dimension"] == 1024
 
 
 def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
@@ -543,13 +551,14 @@ def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
     payload = {
         "knowledge_llm_model": "claude-haiku-4-5",
         "knowledge_embedding_model": "BAAI/bge-base-en-v1.5",
-        "knowledge_embedding_dimension": 768,
     }
     r = client.put("/api/settings/knowledge", json=payload)
     assert r.status_code == 200
     body = r.json()
     assert body["knowledge_llm_model"] == "claude-haiku-4-5"
     assert body["knowledge_embedding_model"] == "BAAI/bge-base-en-v1.5"
+    # Dimension is read-only (ignored on write, always reflects env var).
+    assert body["knowledge_embedding_dimension"] == 1024
 
     # Roundtrip: GET should return the new values.
     r2 = client.get("/api/settings/knowledge")
@@ -583,5 +592,4 @@ def test_knowledge_settings_partial_payload_uses_defaults(client, temp_config):
     body = r.json()
     assert body["knowledge_llm_model"] == "claude-sonnet-4-5-20251022"
     assert body["knowledge_embedding_model"] == ""
-    assert body["knowledge_embedding_dimension"] == 384
-
+    assert body["knowledge_embedding_dimension"] == 1024

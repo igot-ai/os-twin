@@ -421,7 +421,7 @@ def test_schema_v1_migrates_to_v2(namespace_manager: NamespaceManager, tmp_path:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "language": "English",
         "embedding_model": "test-model",
-        "embedding_dimension": 768,
+        "embedding_dimension": 1024,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,
@@ -458,7 +458,7 @@ def test_schema_missing_version_migrates(namespace_manager: NamespaceManager, tm
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "language": "English",
         "embedding_model": "test-model",
-        "embedding_dimension": 768,
+        "embedding_dimension": 1024,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,

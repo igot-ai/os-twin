@@ -93,3 +93,9 @@ check_obscura() {
 check_brew() {
   command -v brew &>/dev/null
 }
+
+# ─── Ollama (local LLM host) ────────────────────────────────────────────────
+
+check_ollama() {
+  command -v ollama &>/dev/null
+}

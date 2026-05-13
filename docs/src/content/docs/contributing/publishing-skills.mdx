@@ -1,0 +1,219 @@
+---
+title: Publishing Skills
+description: How to author, test, version, and publish skills to ClawhHub.
+sidebar:
+  order: 3
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Skills are the primary extension mechanism for OSTwin agents. This guide covers authoring, testing, versioning, and publishing to the ClawhHub marketplace.
+
+## Skill Structure
+
+```
+my-skill/
+├── SKILL.md              # Required: frontmatter + instructions
+├── references/           # Optional: templates, checklists
+│   └── template.md
+├── scripts/              # Optional: helper scripts
+│   └── validate.py
+└── .clawhub-meta.json    # Generated on publish
+```
+
+## Authoring a Skill
+
+<Steps>
+1. **Create the skill directory**
+
+   <Tabs>
+   <TabItem label="Global Skill">
+   ```bash
+   mkdir -p .agents/skills/global/my-skill
+   ```
+   </TabItem>
+   <TabItem label="Role-Specific">
+   ```bash
+   mkdir -p .agents/skills/roles/engineer/my-skill
+   ```
+   </TabItem>
+   </Tabs>
+
+2. **Write SKILL.md with frontmatter**
+
+   ```markdown
+   ---
+   name: my-skill
+   description: "One-line description of what this skill does."
+   tags: [engineer, testing, automation]
+   trust_level: community
+   ---
+
+   # my-skill
+
+   ## Overview
+   When and why to use this skill.
+
+   ## When to Use
+   - Trigger condition 1
+   - Trigger condition 2
+
+   ## Workflow
+   1. Step one
+   2. Step two
+   3. Step three
+
+   ## Examples
+   Concrete usage examples with realistic data.
+
+   ## Error Handling
+   What to do when things go wrong.
+   ```
+
+3. **Add supporting resources**
+
+   Place templates, checklists, or scripts in subdirectories. Reference them from SKILL.md using relative paths.
+
+4. **Register in registry.json** (optional for auto-discovery)
+
+   ```json
+   {
+     "name": "my-skill",
+     "description": "One-line description",
+     "path": "skills/global/my-skill/SKILL.md",
+     "tags": ["engineer", "testing"],
+     "trust_level": "community"
+   }
+   ```
+</Steps>
+
+## Testing Skills
+
+<Steps>
+1. **Add the skill to a role's skill_refs**
+
+   ```json
+   {
+     "engineer": {
+       "skill_refs": ["my-skill"]
+     }
+   }
+   ```
+
+2. **Run a plan that exercises the skill**
+
+   Create a plan with an epic that triggers the skill's conditions.
+
+3. **Verify the skill is loaded**
+
+   Check the agent logs for skill injection:
+
+   ```bash
+   .agents/logs.sh search "my-skill"
+   ```
+
+4. **Test edge cases**
+
+   - Skill not found (misspelled name)
+   - Conflicting skill_refs from multiple sources
+   - Oversized SKILL.md (check prompt truncation)
+</Steps>
+
+## Versioning
+
+Skills use semantic versioning in their ClawhHub metadata:
+
+| Version | Meaning |
+|---------|---------|
+| `1.0.0` | Initial stable release |
+| `1.1.0` | New features, backward compatible |
+| `1.0.1` | Bug fixes only |
+| `2.0.0` | Breaking changes to workflow or interface |
+
+Version is tracked in `.clawhub-meta.json`:
+
+```json
+{
+  "source": "clawhub",
+  "version": "1.2.0",
+  "installed_at": "2026-04-01T12:00:00Z",
+  "checksum": "sha256:abc123def456..."
+}
+```
+
+## Publishing to ClawhHub
+
+<Steps>
+1. **Validate the skill structure**
+
+   ```bash
+   python .agents/bin/skills/validate.py my-skill/
+   ```
+
+   This checks for required frontmatter fields, body structure, and file size limits.
+
+2. **Create a distribution package**
+
+   ```bash
+   python .agents/bin/skills/package.py my-skill/ --version 1.0.0
+   ```
+
+3. **Submit to ClawhHub**
+
+   ```bash
+   .agents/clawhub-install.sh publish my-skill-1.0.0.tar.gz
+   ```
+
+4. **Wait for review** — ClawhHub maintainers review submissions within 72 hours
+</Steps>
+
+## API Endpoints
+
+The ClawhHub API provides skill discovery and installation:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/skills/search` | GET | Search skills by name or tags |
+| `/api/skills/{name}` | GET | Get skill metadata |
+| `/api/skills/{name}/versions` | GET | List available versions |
+| `/api/skills/{name}/download` | GET | Download skill package |
+| `/api/skills/publish` | POST | Submit a new skill |
+
+### Search Example
+
+```bash
+curl "https://clawhub.dev/api/skills/search?q=testing&tags=engineer"
+```
+
+## Review Guidelines
+
+Skills are reviewed against these criteria:
+
+<Tabs>
+<TabItem label="Required">
+- Valid YAML frontmatter with `name`, `description`, `tags`
+- Clear "When to Use" trigger conditions
+- Step-by-step workflow instructions
+- Under 4KB total SKILL.md size
+- No hardcoded secrets or API keys
+</TabItem>
+<TabItem label="Recommended">
+- Include at least one concrete example
+- Error handling guidance
+- References to related skills
+- Tags that match existing capability vocabulary
+- Trust level appropriate to content maturity
+</TabItem>
+</Tabs>
+
+:::note
+Skills with `trust_level: experimental` are not loaded by default. Users must set `preflight_skill_check: "skip"` to use them.
+:::
+
+:::caution
+Never include API keys, tokens, or credentials in skill files. Use environment variable references instead.
+:::
+
+:::tip
+Tag skills generously — the discovery system uses OR matching, so more tags means more discoverability.
+:::

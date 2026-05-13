@@ -352,3 +352,31 @@ install_pester() {
     }
   ' 2>/dev/null || warn "Pester installation failed (non-critical)"
 }
+
+# ─── Ollama (local LLM host CLI) ─────────────────────────────────────────────
+
+install_ollama() {
+  step "Installing Ollama (local LLM host)..."
+  case "$OS" in
+    macos)
+      if check_brew; then
+        brew install ollama
+      else
+        curl -fsSL https://ollama.com/install.sh | sh
+      fi
+      ;;
+    linux)
+      curl -fsSL https://ollama.com/install.sh | sh
+      ;;
+    *)
+      fail "Cannot install Ollama on $(uname -s)"
+      return 1
+      ;;
+  esac
+  if check_ollama; then
+    ok "Ollama installed"
+  else
+    warn "Ollama install script ran but 'ollama' not found in PATH"
+    info "You may need to start a new terminal or install manually from https://ollama.com"
+  fi
+}

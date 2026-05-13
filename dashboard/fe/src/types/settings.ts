@@ -85,6 +85,7 @@ export interface ProviderSettings {
   vertex_location?: string;                // Google Vertex region (default: global)
   vertex_auth_mode?: VertexAuthMode;       // 'service_account' | 'oauth' (Vertex only)
   enabled_models?: string[];               // empty = all models enabled
+  dismissed?: boolean;                     // true if removed from UI
 }
 
 export interface ProvidersNamespace {
@@ -107,8 +108,10 @@ export interface RoleSettings {
 }
 
 export interface RuntimeSettings {
-  poll_interval: number;
+  poll_interval_seconds: number;
   max_concurrent_rooms: number;
+  max_engineer_retries: number;
+  state_timeout_seconds: number;
   auto_approve_tools: boolean;
   dynamic_pipelines: boolean;
   /** Master agent default model — format: "provider/model_id". Empty = use server default. */
@@ -120,24 +123,34 @@ export interface AutonomySettings {
   interval: number;
 }
 
-export type MemoryLLMBackend = 'huggingface' | 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang';
-export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini' | 'ollama' | 'vertex';
+export type MemoryLLMBackend = 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang' | 'openai-compatible';
+export type MemoryEmbeddingBackend = 'gemini' | 'ollama' | 'vertex' | 'openai-compatible';
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {
-  // Processing LLM
-  llm_backend?: MemoryLLMBackend;
-  llm_model?: string;
-  // Embedding
-  embedding_backend?: MemoryEmbeddingBackend;
-  embedding_model?: string;
   // Vector store
   vector_backend?: MemoryVectorBackend;
   // Behaviour
   context_aware?: boolean;
+  context_aware_tree?: boolean;
+  max_links?: number;
+  // Search tuning
+  similarity_weight?: number;
+  decay_half_life_days?: number;
+  // Sync
   auto_sync?: boolean;
-  auto_sync_interval?: number;
-  ttl_days?: number;
+  sync_interval_s?: number;
+  conflict_resolution?: string;
+  // Pool (HTTP transport)
+  pool_idle_timeout_s?: number;
+  pool_max_instances?: number;
+  pool_eviction_policy?: string;
+  pool_sync_interval_s?: number;
+  // Legacy compat (read by backend, will be removed)
+  llm_backend?: string;
+  llm_model?: string;
+  embedding_backend?: string;
+  embedding_model?: string;
   // Legacy alias
   vector_store?: string;
   [key: string]: unknown;
@@ -166,11 +179,17 @@ export interface KnowledgeSettings {
   knowledge_llm_backend: string;
   /** Empty string means "use server default (config.LLM_MODEL / env var)". */
   knowledge_llm_model: string;
+  /** OpenAI-compatible LLM config */
+  knowledge_llm_compatible_url?: string;
+  knowledge_llm_compatible_key?: string;
   /** Empty string means "use server default". */
   knowledge_embedding_backend: MemoryEmbeddingBackend | '';
   /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
   knowledge_embedding_model: string;
-  /** Read-only / informational. Always 768. */
+  /** OpenAI-compatible embedding config */
+  knowledge_embedding_compatible_url?: string;
+  knowledge_embedding_compatible_key?: string;
+  /** Reflects OSTWIN_EMBEDDING_DIMENSION env var. Read-only in UI. */
   knowledge_embedding_dimension: number;
 }
 
@@ -190,7 +209,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels' | 'ai-monitor';
 
 export interface VaultStatus {
   is_set: boolean;

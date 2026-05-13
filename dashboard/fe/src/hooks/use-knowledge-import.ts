@@ -8,13 +8,16 @@
  */
 
 import useSWR from 'swr';
-import { apiGet, apiPost } from '@/lib/api-client';
+import { apiPost } from '@/lib/api-client';
 
 export interface ImportFolderRequest {
   folder_path: string;
   options?: {
     chunk_size?: number;
     overlap?: number;
+    llm_model?: string;
+    vision_ocr?: boolean;
+    vision_ocr_model?: string;
     [key: string]: unknown;
   };
 }

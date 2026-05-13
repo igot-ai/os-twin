@@ -131,8 +131,9 @@ class InMemoryRetriever:
         model_name: str = "microsoft/harrier-oss-v1-270m",
         persist_dir: str | None = None,
         embedding_backend: str = "sentence-transformer",
+        embed_fn=None,
     ):
-        del collection_name, model_name, persist_dir, embedding_backend
+        del collection_name, model_name, persist_dir, embedding_backend, embed_fn
         self._documents: dict[str, dict] = {}
         self.client = SimpleNamespace(reset=lambda: None)
 
@@ -207,13 +208,17 @@ class InMemoryRetriever:
 def patched_memory_system(llm: DeterministicLLM | None = None, **kwargs):
     fake_llm = llm or DeterministicLLM()
 
-    def _controller_factory(*args, **inner_kwargs):
-        del args, inner_kwargs
-        return SimpleNamespace(llm=fake_llm)
+    def _dummy_embed(texts):
+        """Return zero vectors — tests use InMemoryRetriever which ignores embeddings."""
+        return [[0.0] * 768 for _ in texts]
 
     with (
-        patch("agentic_memory.memory_system.LLMController", new=_controller_factory),
         patch("agentic_memory.memory_system.ZvecRetriever", new=InMemoryRetriever),
     ):
-        system = AgenticMemorySystem(**kwargs)
+        # Inject completion_fn and embed_fn directly — no gateway needed.
+        system = AgenticMemorySystem(
+            completion_fn=fake_llm.get_completion,
+            embed_fn=_dummy_embed,
+            **kwargs,
+        )
         yield system, fake_llm

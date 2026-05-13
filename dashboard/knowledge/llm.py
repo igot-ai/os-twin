@@ -1,39 +1,43 @@
-"""Multi-provider LLM wrapper for knowledge extraction, query planning, and answer aggregation.
+"""Multi-provider LLM wrapper for knowledge extraction, query planning, answer aggregation,
+and vision OCR.
 
 Designed for graceful degradation: when no model or API key is configured, every method
 returns a sensible empty / fallback value so callers don't have to special-case
 the missing-key path.
 
-Uses ``dashboard.llm_client`` (unified multi-provider abstraction) instead of
-the legacy Anthropic SDK.  Providers are auto-detected from the model name or
-can be set explicitly via ``provider`` (or ``OSTWIN_KNOWLEDGE_LLM_PROVIDER``).
+Uses ``dashboard.llm_wrapper.BaseLLMWrapper`` (shared with MemoryLLM) for the
+common plumbing: API-key resolution, client creation, JSON extraction, timeout
+handling, and graceful degradation.
+
+Providers are auto-detected from the model name or can be set explicitly via
+``provider`` (or ``OSTWIN_KNOWLEDGE_LLM_PROVIDER``).
 
 EPIC-003 Hardening: LLM calls honour OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
 On timeout, log WARNING and return graceful empty result.
+
+Vision OCR (added for sliding-window PDF extraction):
+The :meth:`vision_ocr` method sends a base64-encoded image to the configured
+LLM with a data-URI, using ``ChatMessage.images``. Works with all providers
+that support multimodal input — OpenAI (gpt-4o), Google/Gemini (including
+Vertex AI), and Ollama (llama3.2-vision etc.).
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import re
 import time
 from typing import Any, Optional
 
 from dashboard.knowledge.config import LLM_MODEL, LLM_PROVIDER
 from dashboard.knowledge.audit import LLM_TIMEOUT  # noqa: WPS433
 from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433
+from dashboard.llm_wrapper import BaseLLMWrapper
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Prompt-service integration
-# ---------------------------------------------------------------------------
-
-# Keys in prompts/locales/*.yaml — used by _get_prompt() below.
 _KEY_EXTRACT_SYSTEM = "knowledge.extract_system"
 _KEY_EXTRACT_USER = "knowledge.extract_user"
 _KEY_PLAN_SYSTEM = "knowledge.plan_system"
@@ -43,26 +47,12 @@ _KEY_AGG_USER = "knowledge.aggregate_user"
 
 
 def _get_prompt(key: str, lang_code: str, **kwargs) -> str | None:
-    """Try to fetch a formatted prompt from the centralised prompt service.
-
-    Returns ``None`` on any failure (missing key, missing language, import
-    error) so the caller can fall back to the hardcoded template string.
-
-    ``lang_code`` selects the locale (e.g. ``"English"``, ``"vi"``).
-    ``**kwargs`` are forwarded as template variables (e.g. ``language=``,
-    ``domain=``, ``query=``).
-    """
     try:
-        from dashboard.prompts import prompt_service  # noqa: WPS433
-
+        from dashboard.prompts import prompt_service
         return prompt_service.get(key, lang=lang_code, **kwargs)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
-
-# ---------------------------------------------------------------------------
-# Prompt templates (English; language-parameterized at call site)
-# ---------------------------------------------------------------------------
 
 _EXTRACT_SYSTEM = """You are an expert knowledge-graph engineer. Given a chunk of text,
 extract the entities and relationships that appear in it. Respond with strict JSON only.
@@ -125,39 +115,8 @@ _AGG_USER = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Async event-loop runner (safe from both sync and async contexts)
-# ---------------------------------------------------------------------------
-
-def _run_sync(coro):
-    """Execute an async coroutine from sync code.
-
-    If an event loop is already running (e.g. called from asyncio.to_thread),
-    we spin up a new loop in a thread. Otherwise we use asyncio.run().
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    # Already inside a loop → use a thread-based loop
-    import concurrent.futures
-    def runner():
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(runner).result()
-
-
-# ---------------------------------------------------------------------------
-# KnowledgeLLM
-# ---------------------------------------------------------------------------
-
-
-class KnowledgeLLM:
-    """Multi-provider LLM helper backed by ``dashboard.llm_client``.
+class KnowledgeLLM(BaseLLMWrapper):
+    """Multi-provider LLM helper backed by ``dashboard.llm_wrapper``.
 
     Methods gracefully degrade to empty results when no model or API key is
     configured.  The user must explicitly set a model — there is no hardcoded
@@ -174,169 +133,39 @@ class KnowledgeLLM:
         model: str | None = None,
         provider: str | None = None,
     ) -> None:
-        # Resolve model: explicit > config (env / MasterSettings)
-        self.model: str = model or LLM_MODEL or ""
-        # Resolve provider: explicit > config env > auto-detect
-        self.provider: str | None = provider or LLM_PROVIDER or None
-        # Resolve API key: explicit > resolved from master_agent
-        self._explicit_key: str | None = api_key
-        self._client: Any | None = None  # cached LLMClient instance
-
-    # -- Capability -----------------------------------------------------
-
-    def is_available(self) -> bool:
-        """True iff a model is configured AND an API key can be resolved.
-
-        This is checked before every LLM call site; returning False triggers
-        graceful degradation (empty results, no crash).
-        """
-        if not self.model:
-            return False
-        return bool(self._resolve_api_key())
-
-    # -- Internals ------------------------------------------------------
-
-    def _resolve_api_key(self) -> Optional[str]:
-        """Resolve an API key for the configured provider.
-
-        Priority: explicit key > env var > Settings vault (providers) > master_agent vault.
-        """
-        if self._explicit_key:
-            return self._explicit_key
-
-        # Detect provider for key lookup
-        provider = self._effective_provider()
-
-        # 1. Try standard env vars first (fast path, no imports)
-        from dashboard.llm_client import PROVIDER_API_KEYS  # noqa: WPS433
-        env_name = PROVIDER_API_KEYS.get(provider)
-        if env_name:
-            val = os.environ.get(env_name)
-            if val:
-                return val
-
-        # 2. Settings vault — the Settings UI stores provider API keys here
-        #    (scope="providers", key=provider_name). This is the binding to
-        #    the master agent's provider configuration.
-        try:
-            from dashboard.lib.settings.vault import get_vault  # noqa: WPS433
-            key = get_vault().get("providers", provider)
-            if key:
-                return key
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("vault.get('providers', %s) failed: %s", provider, exc)
-
-        # 3. Fall back to master_agent.get_api_key (auth.json + vault)
-        try:
-            from dashboard.master_agent import get_api_key  # noqa: WPS433
-            key = get_api_key(provider)
-            if key:
-                return key
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("master_agent.get_api_key(%s) failed: %s", provider, exc)
-
-        return None
-
-    def _effective_provider(self) -> str:
-        """Return the provider name (explicit or auto-detected from model)."""
-        from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
-        return _detect_provider_from_model(self.model)
-
-    def _get_client(self) -> Any:
-        """Lazy-create the LLMClient via the unified factory."""
-        if self._client is not None:
-            return self._client
-        from dashboard.llm_client import LLMConfig, create_client  # noqa: WPS433
-
-        api_key = self._resolve_api_key()
-        config = LLMConfig(max_tokens=4096)
-        self._client = create_client(
-            model=self.model,
-            provider=self._effective_provider(),
+        super().__init__(
+            model=None,
+            provider=None,
             api_key=api_key,
-            config=config,
+            timeout=LLM_TIMEOUT,
         )
-        return self._client
+        self._resolve_model_settings(model, provider)
 
-    @staticmethod
-    def _extract_json(text: str) -> Any:
-        """Pull the first JSON object/array out of a text blob."""
-        text = text.strip()
-        # Strip markdown fences if present
-        fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.DOTALL)
-        if fenced:
-            text = fenced.group(1).strip()
-        # Try the whole thing first
+    def _resolve_model_settings(self, model: str | None, provider: str | None) -> None:
+        from dashboard.lib.settings.resolver import get_settings_resolver
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-        # Find first {...} or [...]
-        match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                logger.debug("Failed to parse JSON from LLM response")
-        return None
+            resolver = get_settings_resolver()
+            master = resolver.get_master_settings()
+            know_cfg = master.knowledge
+            master_model = know_cfg.knowledge_llm_model if know_cfg and know_cfg.knowledge_llm_model else ""
+            master_provider = know_cfg.knowledge_llm_backend if know_cfg and know_cfg.knowledge_llm_backend else ""
+        except Exception:
+            master_model = ""
+            master_provider = ""
+
+        self.model = model or master_model or LLM_MODEL or ""
+        self.provider = provider or master_provider or LLM_PROVIDER or None
 
     def _complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
-        """Run a single LLM chat call via ``llm_client``. Returns the text content.
-
-        EPIC-003: Honours OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
-        On timeout, logs WARNING and returns empty string (graceful degradation).
-        """
+        """Run a single LLM chat call with metrics instrumentation."""
         metrics = get_metrics_registry()
         metrics.counter("llm_calls_total").inc()
-        t0 = time.perf_counter()
 
-        from dashboard.llm_client import ChatMessage as CM, LLMConfig  # noqa: WPS433
+        result = super()._complete(system, user, max_tokens=max_tokens)
 
-        client = self._get_client()
-        # Override max_tokens for this call if different from default
-        client.config.max_tokens = max_tokens
-
-        messages = [
-            CM(role="system", content=system),
-            CM(role="user", content=user),
-        ]
-
-        async def _call():
-            return await asyncio.wait_for(
-                client.chat(messages),
-                timeout=LLM_TIMEOUT,
-            )
-
-        try:
-            response = _run_sync(_call())
-            result_text = response.content or ""
-            elapsed = time.perf_counter() - t0
-            metrics.histogram("llm_latency_seconds").observe(elapsed)
-            return result_text
-        except asyncio.TimeoutError:
+        if not result:
             metrics.counter("llm_errors_total").inc()
-            logger.warning(
-                "llm_timeout: LLM call timed out after %ss (model=%s, provider=%s)",
-                LLM_TIMEOUT,
-                self.model,
-                self._effective_provider(),
-            )
-            return ""
-        except Exception as exc:  # noqa: BLE001
-            metrics.counter("llm_errors_total").inc()
-            exc_name = type(exc).__name__
-            if "Timeout" in exc_name or "timeout" in str(exc).lower():
-                logger.warning(
-                    "llm_timeout: LLM call timed out after %ss (model=%s, provider=%s)",
-                    LLM_TIMEOUT,
-                    self.model,
-                    self._effective_provider(),
-                )
-                return ""
-            logger.error("LLM call failed (provider=%s): %s", self._effective_provider(), exc)
-            return ""
-
-    # -- Public API -----------------------------------------------------
+        return result
 
     def extract_entities(
         self, text: str, language: str = "English", domain: str = ""
@@ -359,7 +188,6 @@ class KnowledgeLLM:
             return [], []
         entities = parsed.get("entities", []) or []
         relations = parsed.get("relationships", []) or []
-        # Defensive: filter out non-dict items
         entities = [e for e in entities if isinstance(e, dict)]
         relations = [r for r in relations if isinstance(r, dict)]
         return entities, relations
@@ -397,7 +225,6 @@ class KnowledgeLLM:
         parsed = self._extract_json(raw)
         if not isinstance(parsed, list) or not parsed:
             return [{"term": query, "is_query": True}]
-        # Normalise step shape
         steps: list[dict] = []
         for step in parsed:
             if not isinstance(step, dict):
@@ -424,8 +251,6 @@ class KnowledgeLLM:
         When unavailable: returns "\\n\\n".join(community_summaries).
         """
         snippets = [s for s in community_summaries if isinstance(s, str) and s.strip()]
-        if not self.is_available():
-            return "\n\n".join(snippets)
         if not snippets:
             return ""
         system = _get_prompt(
@@ -438,3 +263,88 @@ class KnowledgeLLM:
         if not raw:
             return "\n\n".join(snippets)
         return raw.strip()
+
+    def vision_ocr(
+        self,
+        image_data_uri: str,
+        prompt: str | None = None,
+        max_tokens: int = 4096,
+    ) -> str:
+        """Extract text from an image using the configured vision-capable LLM.
+
+        Sends a base64-encoded image (as a data-URI) to the LLM via
+        ``ChatMessage.images``. Works with all providers that support
+        multimodal input: OpenAI (gpt-4o), Google/Gemini (including
+        Vertex AI), and Ollama (llama3.2-vision etc.).
+
+        Parameters
+        ----------
+        image_data_uri:
+            A ``data:image/...;base64,...`` URI containing the image.
+        prompt:
+            Optional extraction prompt. When None, uses a default
+            document OCR prompt that preserves structure and tables.
+        max_tokens:
+            Maximum tokens for the LLM response.
+
+        Returns
+        -------
+        str
+            Extracted markdown text. Empty string on failure or when
+            the LLM is unavailable.
+        """
+        if not self.is_available():
+            return ""
+
+        if not prompt or not prompt.strip():
+            prompt = (
+                "Extract all text content from this document page image. "
+                "Preserve the structure, tables, and formatting as markdown. "
+                "Include any headers, footers, and captions."
+            )
+
+        from dashboard.llm_client import ChatMessage, run_sync
+
+        client = self._get_client(max_tokens=max_tokens)
+
+        messages = [
+            ChatMessage(
+                role="system",
+                content="You are a document OCR assistant. Extract text from images as structured markdown.",
+            ),
+            ChatMessage(
+                role="user",
+                content=prompt,
+                images=[image_data_uri],
+            ),
+        ]
+
+        try:
+            result = run_sync(client.chat(messages))
+            content = result.content or ""
+            metrics = get_metrics_registry()
+            metrics.counter("llm_vision_ocr_total").inc()
+            return content
+        except Exception as exc:
+            logger.error(
+                "vision_ocr call failed (model=%s, provider=%s): %s",
+                self.model,
+                self.provider,
+                exc,
+            )
+            metrics = get_metrics_registry()
+            metrics.counter("llm_vision_ocr_errors").inc()
+            return ""
+
+    def create_vision_client(self) -> Any:
+        """Create an LLMClient suitable for vision calls.
+
+        Returns the ``dashboard.llm_client.LLMClient`` instance
+        configured with the current model and provider. Callers can
+        use this with ``ChatMessage.images`` for custom vision flows.
+
+        Returns None when no model is available.
+        """
+        if not self.is_available():
+            return None
+        return self._get_client(max_tokens=4096)

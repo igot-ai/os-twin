@@ -234,6 +234,15 @@ class KnowledgeService:
 
         Effective model resolution (ADR-15): ``MasterSettings.knowledge.embedding_model``
         > ``OSTWIN_KNOWLEDGE_EMBED_MODEL`` env var > hardcoded ``EMBEDDING_MODEL``.
+
+        Provider resolution: ``MasterSettings.knowledge.embedding_backend``
+        > ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER`` env var > ``EMBEDDING_PROVIDER``
+        (default: ``sentence-transformers`` — works offline with no server).
+
+        When provider is ``ollama`` but the server is unreachable, the
+        embedder will return empty vectors and log errors. Users who want
+        a true offline fallback should set
+        ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER=sentence-transformers`` explicitly.
         """
         # Test/programmatic injection takes priority — mirrors the pattern used
         # for _jm_override and _ingestor_override.
@@ -242,8 +251,11 @@ class KnowledgeService:
         if self._embedder is not None:
             return self._embedder
         settings_llm, settings_embed = self._resolve_settings_overrides()
-        effective_model = settings_embed or _DEFAULT_EMBED
-        effective_provider = _DEFAULT_EMBED_PROV
+        effective_model = settings_embed or _DEFAULT_EMBED or None
+        # Let KnowledgeEmbedder resolve the provider from MasterSettings /
+        # env vars / config defaults — don't hardcode it here. Passing
+        # None lets the embedder fall through its own resolution chain.
+        effective_provider = None
         self._embedder = KnowledgeEmbedder(
             model_name=effective_model,
             provider=effective_provider,
@@ -263,10 +275,8 @@ class KnowledgeService:
             return self._llm
         settings_llm, _ = self._resolve_settings_overrides()
         effective_model = settings_llm or _DEFAULT_LLM
-        effective_provider = _DEFAULT_LLM_PROV or None
         self._llm = KnowledgeLLM(
             model=effective_model,
-            provider=effective_provider,
         )
         return self._llm
 
@@ -341,6 +351,52 @@ class KnowledgeService:
         """
         engine = self._get_query_engine(namespace)
         return engine.get_graph(limit=limit)
+
+    # ---- Supernova Explorer APIs ----------------------------------------
+
+    def _get_explorer(self, namespace: str):
+        """Lazy-construct a :class:`KnowledgeExplorer` for *namespace*.
+
+        Uses the same cached Kuzu graph handle as the rest of the service.
+        """
+        from dashboard.knowledge.graph.explorer import KnowledgeExplorer  # noqa: WPS433
+        kg = self.get_kuzu_graph(namespace)
+        return KnowledgeExplorer(kg)
+
+    def explorer_summary(self, namespace: str) -> dict:
+        """Return lightweight topology stats for the namespace graph."""
+        explorer = self._get_explorer(namespace)
+        return explorer.summary()
+
+    def explorer_seed(self, namespace: str, top_k: int = 50) -> dict:
+        """Return the initial "sky" — top PageRank nodes + 1-hop neighborhood."""
+        explorer = self._get_explorer(namespace)
+        return explorer.seed(top_k=top_k)
+
+    def explorer_expand(self, namespace: str, node_ids: list[str], depth: int = 1) -> dict:
+        """Expand from a set of node IDs outward by N hops."""
+        explorer = self._get_explorer(namespace)
+        return explorer.expand(node_ids=node_ids, depth=depth)
+
+    def explorer_search(self, namespace: str, query: str, limit: int = 20) -> dict:
+        """Vector-similarity search over node embeddings + 1-hop context."""
+        explorer = self._get_explorer(namespace)
+        return explorer.search(query=query, limit=limit)
+
+    def explorer_path(self, namespace: str, source_id: str, target_id: str) -> dict:
+        """Find the shortest weighted path between two nodes."""
+        explorer = self._get_explorer(namespace)
+        return explorer.path(source_id=source_id, target_id=target_id)
+
+    def explorer_node_detail(self, namespace: str, node_id: str) -> dict:
+        """Full detail for a single node including incident edges and scores."""
+        explorer = self._get_explorer(namespace)
+        return explorer.node_detail(node_id=node_id)
+
+    def explorer_communities(self, namespace: str) -> dict:
+        """Return Louvain community mapping for the namespace graph."""
+        explorer = self._get_explorer(namespace)
+        return explorer.communities()
 
     def _get_graph_rag_engine(self, namespace: str) -> Any:
         """Cached per-namespace :class:`GraphRAGQueryEngine`.
@@ -606,7 +662,7 @@ class KnowledgeService:
         )
         return self._ingestor
 
-    def _build_graph_index(self, namespace: str) -> Any:
+    def _build_graph_index(self, namespace: str, *, llm_model: str = "") -> Any:
         """Construct a ``PropertyGraphIndex`` for ingestion into ``namespace``.
 
         Uses the same shared stores/adapters as ``_get_graph_rag_engine`` so
@@ -616,6 +672,10 @@ class KnowledgeService:
 
         The ``kg_extractors`` list is populated with a ``GraphRAGExtractor`` so
         ``insert_nodes()`` automatically runs entity extraction.
+
+        When ``llm_model`` is provided, creates a fresh ``KnowledgeLLM`` with
+        that model instead of using the service-level default. This supports
+        per-import model overrides from ``IngestOptions.llm_model``.
         """
         try:
             from llama_index.core import PropertyGraphIndex, StorageContext  # noqa: WPS433
@@ -636,7 +696,11 @@ class KnowledgeService:
                 knowledge_embedder=self._get_embedder(),
             )
 
-            llm = self._get_llm()
+            if llm_model:
+                from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
+                llm = KnowledgeLLM(model=llm_model)
+            else:
+                llm = self._get_llm()
 
             # Resolve namespace language for prompt selection.
             meta = self._nm.get(namespace)

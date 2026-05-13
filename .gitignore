@@ -21,6 +21,7 @@ gold-mining/
 .agents/mcp/config.json
 .agents/mcp/mcp-manifest.json
 .agents/conversations/plans/index.json
+.agents/config.json
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ docs/opencode-vertex-ai-partner-models.md
 
 A-mem-sys*/
 A-mem-sys*/**
+docs/pr
 
 AGENTS.md
 image.png
@@ -128,3 +130,7 @@ test_results.txt
 .agents/*
 !.agents/memory/
 test-results/
+
+docs/plan
+docs/plan/
+docs/plan/**

@@ -7,11 +7,13 @@ Uses provider_urls.json for base URLs.
 
 from __future__ import annotations
 
+import os
 import asyncio
 import base64
 import json
 import logging
 import mimetypes
+import threading
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -48,7 +50,7 @@ def _detect_mime_type(url: str) -> str:
         if mime_end > 5:
             return url[5:mime_end]
         return "image/jpeg"
-    
+
     parsed = urlparse(url)
     path = parsed.path.lower()
     mime_type, _ = mimetypes.guess_type(path)
@@ -83,7 +85,7 @@ class ChatMessage:
 
 @dataclass
 class LLMConfig:
-    max_tokens: int = 4096
+    max_tokens: int = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     stop: Optional[list[str]] = None
@@ -97,9 +99,10 @@ class LLMError(Exception):
 
 
 class LLMClient(ABC):
-    def __init__(self, model: str, config: Optional[LLMConfig] = None):
+    def __init__(self, model: str, config: Optional[LLMConfig] = None, provider: Optional[str] = None):
         self.model = model
         self.config = config or LLMConfig()
+        self.provider = provider
 
     @abstractmethod
     async def chat(
@@ -107,6 +110,7 @@ class LLMClient(ABC):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
         pass
 
@@ -116,8 +120,43 @@ class LLMClient(ABC):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
         pass
+
+    def _truncate_messages(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+        """Truncate message content to fit within the model's context window.
+
+        Delegates all context-limit lookup and content trimming to
+        :func:`models_dev_loader.truncate_messages_for_model`.  This method
+        only handles ChatMessage ↔ dict conversion.
+        """
+        try:
+            from dashboard.lib.settings.models_dev_loader import truncate_messages_for_model
+
+            provider = self.provider or ""
+            dicts = [{"role": m.role, "content": m.content or ""} for m in messages]
+            truncated = truncate_messages_for_model(dicts, provider, self.model)
+
+            result = []
+            for orig, trunc in zip(messages, truncated):
+                new_content = trunc.get("content", orig.content)
+                if new_content != (orig.content or ""):
+                    result.append(ChatMessage(
+                        role=orig.role,
+                        content=new_content,
+                        tool_calls=orig.tool_calls,
+                        tool_call_id=orig.tool_call_id,
+                        name=orig.name,
+                        thought_signature=orig.thought_signature,
+                        images=orig.images,
+                    ))
+                else:
+                    result.append(orig)
+            return result
+        except Exception as exc:
+            logger.debug("Message truncation skipped: %s", exc)
+            return messages
 
     async def _retry_with_backoff(self, coro, *args, **kwargs):
         last_error = None
@@ -127,8 +166,10 @@ class LLMClient(ABC):
             except Exception as e:
                 last_error = e
                 if attempt < MAX_RETRIES - 1:
-                    delay = RETRY_DELAY * (2 ** attempt)
-                    logger.warning(f"LLM request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {delay}s...")
+                    delay = RETRY_DELAY * (2**attempt)
+                    logger.warning(
+                        f"LLM request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {delay}s..."
+                    )
                     await asyncio.sleep(delay)
         raise LLMError(f"LLM request failed after {MAX_RETRIES} retries", original_error=last_error)
 
@@ -146,8 +187,9 @@ class OpenAIClient(LLMClient):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
+        provider: Optional[str] = None,
     ):
-        super().__init__(model, config)
+        super().__init__(model, config, provider=provider)
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=REQUEST_TIMEOUT)
@@ -157,33 +199,34 @@ class OpenAIClient(LLMClient):
         result = []
         for msg in messages:
             if msg.role == "tool":
-                result.append({
-                    "role": "tool",
-                    "tool_call_id": msg.tool_call_id,
-                    "content": msg.content or "",
-                })
+                result.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": msg.tool_call_id,
+                        "content": msg.content or "",
+                    }
+                )
             elif msg.tool_calls:
-                result.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-                        }
-                        for tc in msg.tool_calls
-                    ],
-                })
+                result.append(
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                            }
+                            for tc in msg.tool_calls
+                        ],
+                    }
+                )
             elif msg.images:
                 content_parts = []
                 if msg.content:
                     content_parts.append({"type": "text", "text": msg.content})
                 for img_url in msg.images:
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": img_url}
-                    })
+                    content_parts.append({"type": "image_url", "image_url": {"url": img_url}})
                 result.append({"role": msg.role, "content": content_parts})
             else:
                 result.append({"role": msg.role, "content": msg.content})
@@ -199,7 +242,10 @@ class OpenAIClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
         async def _make_request():
             kwargs: dict = {
                 "model": self.model,
@@ -210,6 +256,8 @@ class OpenAIClient(LLMClient):
                 kwargs["tools"] = self._convert_tools(tools)
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
+            if response_format:
+                kwargs["response_format"] = response_format
             if self.config.temperature is not None:
                 kwargs["temperature"] = self.config.temperature
 
@@ -245,7 +293,9 @@ class OpenAIClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
         kwargs: dict = {
             "model": self.model,
             "messages": self._convert_messages(messages),
@@ -256,6 +306,8 @@ class OpenAIClient(LLMClient):
             kwargs["tools"] = self._convert_tools(tools)
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
+        if response_format:
+            kwargs["response_format"] = response_format
         if self.config.temperature is not None:
             kwargs["temperature"] = self.config.temperature
 
@@ -294,6 +346,7 @@ class OpenAIClient(LLMClient):
             raise LLMError(f"OpenAI streaming error: {e}", provider="openai", original_error=e)
 
 
+
 class GoogleClient(LLMClient):
     # Gemini AI (consumer) OpenAI-compatible endpoint.
     # Vertex AI uses a separate region-scoped URL resolved by create_client.
@@ -305,15 +358,23 @@ class GoogleClient(LLMClient):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
+        vertexai: bool = False,
+        provider: Optional[str] = None,
     ):
-        super().__init__(model, config)
+        super().__init__(model, config, provider=provider)
         from google.genai import Client
 
         # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
         # The genai SDK expects only the bare model ID (last segment after "/").
         self.model_id = model.split("/")[-1]
 
-        self._client = Client()
+        if vertexai:
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = os.environ.get("VERTEX_LOCATION")
+            self._client = Client(vertexai=True, project=project, location=location)
+        else:
+            self._client = Client(api_key=api_key)
+
         self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
@@ -326,15 +387,11 @@ class GoogleClient(LLMClient):
             elif msg.role == "tool":
                 tool_name = msg.name or (msg.tool_call_id.replace("fc_", "") if msg.tool_call_id else "unknown_tool")
                 func_response = types.Part.from_function_response(
-                    name=tool_name,
-                    response={"result": msg.content or ""}
+                    name=tool_name, response={"result": msg.content or ""}
                 )
                 if msg.thought_signature:
                     func_response.thought_signature = msg.thought_signature
-                result.append(types.Content(
-                    role="tool",
-                    parts=[func_response]
-                ))
+                result.append(types.Content(role="tool", parts=[func_response]))
             else:
                 role = "user" if msg.role == "user" else "model"
                 parts = []
@@ -344,18 +401,12 @@ class GoogleClient(LLMClient):
                     mime_type = _detect_mime_type(img_url)
                     if img_url.startswith("data:"):
                         base64_data = img_url.split(",", 1)[-1] if "," in img_url else img_url
-                        parts.append(types.Part.from_bytes(
-                            data=base64.b64decode(base64_data),
-                            mime_type=mime_type
-                        ))
+                        parts.append(types.Part.from_bytes(data=base64.b64decode(base64_data), mime_type=mime_type))
                     else:
                         parts.append(types.Part.from_uri(file_uri=img_url, mime_type=mime_type))
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
-                        func_call_part = types.Part.from_function_call(
-                            name=tc.name,
-                            args=tc.arguments
-                        )
+                        func_call_part = types.Part.from_function_call(name=tc.name, args=tc.arguments)
                         if tc.thought_signature:
                             func_call_part.thought_signature = tc.thought_signature
                         parts.append(func_call_part)
@@ -384,15 +435,29 @@ class GoogleClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
         async def _make_request():
             from google.genai import types
 
             converted = self._convert_messages(messages)
             kwargs: dict = {"model": self.model_id, "contents": converted}
             converted_tools = self._convert_tools(tools)
+
+            # Build GenerateContentConfig with tools and/or structured output
+            config_kwargs: dict = {}
             if converted_tools:
-                kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
+                config_kwargs["tools"] = converted_tools
+            if response_format:
+                # Convert OpenAI-style response_format to Gemini's native format
+                schema = response_format.get("json_schema", {}).get("schema", {})
+                config_kwargs["response_mime_type"] = "application/json"
+                if schema:
+                    config_kwargs["response_schema"] = schema
+            if config_kwargs:
+                kwargs["config"] = types.GenerateContentConfig(**config_kwargs)
 
             response = await self._client.aio.models.generate_content(**kwargs)
 
@@ -406,7 +471,7 @@ class GoogleClient(LLMClient):
                                 id=f"fc_{uuid.uuid4().hex[:8]}",
                                 name=part.function_call.name,
                                 arguments=dict(part.function_call.args) if part.function_call.args else {},
-                                thought_signature=getattr(part, 'thought_signature', None),
+                                thought_signature=getattr(part, "thought_signature", None),
                             )
                         )
                     elif part.text:
@@ -426,14 +491,25 @@ class GoogleClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
         from google.genai import types
 
         converted = self._convert_messages(messages)
         kwargs: dict = {"model": self.model_id, "contents": converted}
         converted_tools = self._convert_tools(tools)
+
+        config_kwargs: dict = {}
         if converted_tools:
-            kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
+            config_kwargs["tools"] = converted_tools
+        if response_format:
+            schema = response_format.get("json_schema", {}).get("schema", {})
+            config_kwargs["response_mime_type"] = "application/json"
+            if schema:
+                config_kwargs["response_schema"] = schema
+        if config_kwargs:
+            kwargs["config"] = types.GenerateContentConfig(**config_kwargs)
 
         try:
             async for chunk in await self._client.aio.models.generate_content_stream(**kwargs):
@@ -446,11 +522,191 @@ class GoogleClient(LLMClient):
                                 id=f"fc_{uuid.uuid4().hex[:8]}",
                                 name=part.function_call.name,
                                 arguments=dict(part.function_call.args) if part.function_call.args else {},
-                                thought_signature=getattr(part, 'thought_signature', None),
+                                thought_signature=getattr(part, "thought_signature", None),
                             )
         except Exception as e:
             raise LLMError(f"Google streaming error: {e}", provider="google", original_error=e)
 
+
+
+
+class OllamaClient(LLMClient):
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        config: Optional[LLMConfig] = None,
+    ):
+        super().__init__(model, config, provider="ollama")
+        from ollama import AsyncClient
+
+        self._client = AsyncClient(host=base_url)
+        self.base_url = base_url
+
+    def _convert_messages(self, messages: list[ChatMessage]) -> list[dict]:
+        result = []
+        for msg in messages:
+            if msg.role == "tool":
+                # Ollama maps function responses using role="tool"
+                result.append({
+                    "role": "tool",
+                    "content": msg.content or "",
+                })
+            elif msg.tool_calls:
+                tool_calls = [
+                    {
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments
+                        }
+                    }
+                    for tc in msg.tool_calls
+                ]
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or "",
+                    "tool_calls": tool_calls,
+                })
+            elif msg.images:
+                images = []
+                for img_url in msg.images:
+                    if img_url.startswith("data:"):
+                        b64 = img_url.split(",", 1)[-1]
+                        images.append(b64)
+                    else:
+                        images.append(img_url)
+
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or "",
+                    "images": images
+                })
+            else:
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or ""
+                })
+        return result
+
+    def _convert_tools(self, tools: Optional[list[dict]]) -> Optional[list[dict]]:
+        if not tools:
+            return None
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {}),
+                }
+            }
+            for t in tools
+        ]
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
+    ) -> ChatMessage:
+        messages = self._truncate_messages(messages)
+
+        async def _make_request():
+            kwargs: dict = {
+                "model": self.model,
+                "messages": self._convert_messages(messages),
+            }
+
+            options = {}
+            if self.config.temperature is not None:
+                options["temperature"] = self.config.temperature
+            if self.config.top_p is not None:
+                options["top_p"] = self.config.top_p
+            if self.config.stop is not None:
+                options["stop"] = self.config.stop
+
+            if options:
+                kwargs["options"] = options
+
+            if tools:
+                kwargs["tools"] = self._convert_tools(tools)
+
+            response = await self._client.chat(**kwargs)
+            message = response.get("message", {})
+
+            tool_calls = []
+            if "tool_calls" in message and message["tool_calls"]:
+                for tc in message["tool_calls"]:
+                    func = tc.get("function", {})
+                    if func:
+                        tool_calls.append(
+                            ToolCall(
+                                id=f"call_{uuid.uuid4().hex}",
+                                name=func.get("name", ""),
+                                arguments=func.get("arguments", {}),
+                            )
+                        )
+
+            return ChatMessage(
+                role=message.get("role", "assistant"),
+                content=message.get("content", ""),
+                tool_calls=tool_calls,
+            )
+
+        try:
+            return await self._retry_with_backoff(_make_request)
+        except LLMError:
+            raise
+        except Exception as e:
+            raise LLMError(f"Ollama API error: {e}", provider="ollama", original_error=e)
+
+    async def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncIterator[str | ToolCall]:
+        messages = self._truncate_messages(messages)
+        kwargs: dict = {
+            "model": self.model,
+            "messages": self._convert_messages(messages),
+            "stream": True,
+        }
+
+        options = {}
+        if self.config.temperature is not None:
+            options["temperature"] = self.config.temperature
+        if self.config.top_p is not None:
+            options["top_p"] = self.config.top_p
+        if self.config.stop is not None:
+            options["stop"] = self.config.stop
+
+        if options:
+            kwargs["options"] = options
+
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        try:
+            async for chunk in await self._client.chat(**kwargs):
+                message = chunk.get("message", {})
+
+                if "tool_calls" in message and message["tool_calls"]:
+                    for tc in message["tool_calls"]:
+                        func = tc.get("function", {})
+                        if func:
+                            yield ToolCall(
+                                id=f"call_{uuid.uuid4().hex}",
+                                name=func.get("name", ""),
+                                arguments=func.get("arguments", {}),
+                            )
+
+                content = message.get("content", "")
+                if content:
+                    yield content
+        except Exception as e:
+            raise LLMError(f"Ollama streaming error: {e}", provider="ollama", original_error=e)
 
 PROVIDER_API_KEYS = {
     "openai": "OPENAI_API_KEY",
@@ -468,8 +724,20 @@ PROVIDER_API_KEYS = {
     "fireworks": "FIREWORKS_API_KEY",
     "xai": "XAI_API_KEY",
     "cohere": "CO_API_KEY",
-    "huggingface": "HF_TOKEN",
+    "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
+
+
+_TRANSPORT_PROVIDERS = frozenset({"openai-compatible", "ollama"})
+
+_PROVIDER_ALIASES: dict[str, str] = {
+    "google-genai": "google",
+    "google_gemini": "google",
+}
+
+
+def _normalize_provider(provider: str) -> str:
+    return _PROVIDER_ALIASES.get(provider, provider)
 
 
 def _detect_provider_from_model(model: str) -> str:
@@ -478,7 +746,9 @@ def _detect_provider_from_model(model: str) -> str:
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
-    elif "gemini" in model_lower or "vertex" in model_lower:
+    elif "gemini" in model_lower or "google" in model_lower:
+        if "vertex" in model_lower:
+            return "google-vertex"
         return "google"
     elif "deepseek" in model_lower:
         return "deepseek"
@@ -498,25 +768,672 @@ def _detect_provider_from_model(model: str) -> str:
     return "openai"
 
 
+def resolve_provider_and_model(
+    model: str,
+    provider: Optional[str] = None,
+) -> tuple[str, str, Optional[str]]:
+    """Single source of truth for resolving provider and model.
+
+    Parses ``provider/model`` format, normalises provider aliases, and
+    returns a triple of ``(effective_provider, clean_model, model_provider)``.
+
+    * ``effective_provider`` — the *transport* that routes the request
+      (e.g. ``"openai-compatible"``, ``"ollama"``, or a native provider
+      like ``"google-vertex"``).
+    * ``clean_model`` — the bare model identifier with any ``provider/``
+      prefix always stripped.  When the effective provider is a transport
+      (openai-compatible, ollama), the original ``model`` string (with
+      prefix intact) is passed directly to the client constructor instead.
+    * ``model_provider`` — the provider embedded in the model string
+      (e.g. ``"google-vertex"`` from ``"google-vertex/gemini-3.1-flash"``).
+      ``None`` when the model string has no ``provider/`` prefix.
+
+    Resolution order:
+      1. If *provider* is given and is a transport provider, keep it as
+         the effective provider.  Parse any ``provider/`` prefix from the
+         model to populate ``model_provider`` but **do not** strip it from
+         ``clean_model`` (the transport server needs it).
+      2. If the model starts with ``provider/`` and *provider* is not given,
+         extract the prefix as both the effective provider and
+         ``model_provider``, and strip it from ``clean_model``.
+      3. If neither (1) nor (2) applies, auto-detect the provider from the
+         model name.
+    """
+    model_provider: Optional[str] = None
+    rest: str = model
+
+    if "/" in model:
+        prefix, rest = model.split("/", 1)
+        if prefix:
+            model_provider = _normalize_provider(prefix)
+
+    if provider is not None:
+        effective = _normalize_provider(provider)
+    elif model_provider is not None:
+        effective = model_provider
+    else:
+        effective = _detect_provider_from_model(model)
+
+    if model_provider is not None:
+        clean_model = rest
+    else:
+        clean_model = model
+
+    return effective, clean_model, model_provider
+
+
+def _resolve_transport_api_key(provider: Optional[str]) -> Optional[str]:
+    if not provider:
+        return None
+
+    env_name = PROVIDER_API_KEYS.get(provider)
+    if env_name:
+        val = os.environ.get(env_name)
+        if val:
+            return val
+
+    auth_path = Path.home() / ".local" / "share" / "opencode" / "auth.json"
+    if auth_path.exists():
+        try:
+            auth_data = json.loads(auth_path.read_text())
+            entry = auth_data.get(provider)
+            if isinstance(entry, dict) and entry.get("type") == "api":
+                return entry.get("key")
+        except Exception as e:
+            logger.warning("[OPENCODE_MODELS] auth.json read failed: %s", e)
+
+    return None
+
+
 def create_client(
     model: str,
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
 ) -> LLMClient:
-    if provider is None:
-        provider = _detect_provider_from_model(model)
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
 
-    if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
-        base_url = _get_base_url(provider)
-        if provider == "google-vertex" and base_url:
-            import os as _os
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master_settings = resolver.get_master_settings()
+        providers = master_settings.providers if master_settings else None
+    except Exception:
+        providers = None
 
-            region = _os.environ.get("VERTEX_LOCATION", "global")
-            project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+    if effective_provider in ("google", "google-vertex"):
+        base_url = _get_base_url(effective_provider)
+        is_vertex = effective_provider == "google-vertex"
+        if is_vertex and base_url:
+            region = os.environ.get("VERTEX_LOCATION", "global")
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        return GoogleClient(model=model, base_url=base_url, config=config)
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        return GoogleClient(model=clean_model, api_key=resolved_key, base_url=base_url, config=config, vertexai=is_vertex, provider=effective_provider)
 
-    base_url = _get_base_url(provider)
+    if effective_provider == "ollama":
+        cfg = providers.ollama if providers else None
+        base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        return OllamaClient(model=model, base_url=base_url, config=config)
 
-    return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
+    base_url = _get_base_url(effective_provider)
+    resolved_key = api_key or _resolve_transport_api_key(effective_provider)
+    return OpenAIClient(model=model, api_key=resolved_key, base_url=base_url, config=config, provider=effective_provider)
+
+
+# ---------------------------------------------------------------------------
+# Sync helper — run an async coroutine from sync code
+# ---------------------------------------------------------------------------
+
+def run_sync(coro):
+    """Execute an async coroutine from synchronous code.
+
+    If no event loop is running, uses ``asyncio.run()``.  If a loop is
+    already running (e.g. inside ``asyncio.to_thread``), spins up a new
+    loop in a dedicated thread so we don't collide with the existing one.
+
+    This is the shared version of the ``_run_sync`` helpers that were
+    duplicated in ``dashboard.knowledge.llm`` and elsewhere.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Already inside a loop → use a thread-based loop
+    import concurrent.futures
+
+    def _runner():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_runner).result()
+
+
+def create_openai_sync_client(
+    model: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: float = REQUEST_TIMEOUT,
+) -> Optional["OpenAI"]:
+    """Create a sync OpenAI SDK client for any provider.
+
+    Uses the same ``resolve_provider_and_model`` pipeline as
+    :func:`create_client` so provider prefixes (e.g. ``"google/gemini-2.0-flash"``)
+    and aliases are resolved correctly.  Returns a ``openai.OpenAI`` sync
+    client configured with the resolved ``base_url`` and ``api_key``,
+    making it compatible with MarkItDown's ``ImageConverter`` and any
+    other library that expects the standard OpenAI SDK interface.
+
+    For Google/Gemini models, uses Gemini's OpenAI-compatible endpoint
+    (``https://generativelanguage.googleapis.com/v1beta/openai/``).
+    For Ollama, uses the Ollama OpenAI-compatible endpoint.
+
+    Returns ``None`` when no API key can be resolved (graceful degradation).
+    """
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
+
+    resolved_key = api_key
+
+    if effective_provider in ("google", "google-vertex"):
+        base_url = _get_base_url(effective_provider) or GoogleClient._GEMINI_OPENAI_BASE
+        if not resolved_key:
+            resolved_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    elif effective_provider == "ollama":
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+            resolver = get_settings_resolver()
+            master_settings = resolver.get_master_settings()
+            cfg = master_settings.providers.ollama if master_settings else None
+            base_url = cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        except Exception:
+            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        if not resolved_key:
+            resolved_key = "ollama"
+    else:
+        base_url = _get_base_url(effective_provider)
+        if not resolved_key:
+            resolved_key = _resolve_transport_api_key(effective_provider)
+
+    if not resolved_key:
+        return None
+
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=resolved_key, base_url=base_url, timeout=timeout)
+    except Exception as exc:
+        logger.warning("Failed to create OpenAI sync client for %s: %s", model, exc)
+        return None
+
+
+# Single source of truth for embedding dimension across the entire system.
+# Fixed at startup from OSTWIN_EMBEDDING_DIM env var; cannot be changed
+# dynamically via settings.  All embedding clients, vector stores, and
+# retrievers (memory + knowledge) MUST use this value to avoid dimension
+# conflicts in shared collections.
+DEFAULT_EMBEDDING_DIMENSION: int = int(
+    os.environ.get("OSTWIN_EMBEDDING_DIM", "1024")
+)
+
+# ---------------------------------------------------------------------------
+# Embedding client abstraction
+# ---------------------------------------------------------------------------
+
+# Known native model dimensions — avoids a test-embedding probe on first use.
+_KNOWN_EMBEDDING_DIMENSIONS: dict[str, int] = {
+    "all-MiniLM-L6-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "all-MiniLM-L12-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "all-mpnet-base-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "paraphrase-MiniLM-L6-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "paraphrase-multilingual-MiniLM-L12-v2": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-base-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-small-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "BAAI/bge-large-en-v1.5": DEFAULT_EMBEDDING_DIMENSION,
+    "gemini-embedding-001": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-004": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-005": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-3-small": DEFAULT_EMBEDDING_DIMENSION,
+    "text-embedding-3-large": DEFAULT_EMBEDDING_DIMENSION,
+    # Ollama embedding models
+    "leoipulsar/harrier-0.6b": DEFAULT_EMBEDDING_DIMENSION,
+    "embeddinggemma": DEFAULT_EMBEDDING_DIMENSION,
+    "qwen3-embedding:0.6b": DEFAULT_EMBEDDING_DIMENSION,
+    "qwen3-embedding:4b": DEFAULT_EMBEDDING_DIMENSION,
+}
+
+
+class EmbeddingClient(ABC):
+    """Base class for embedding providers.
+
+    Subclasses implement ``embed(texts)`` which returns a list of float-lists.
+    The ``dimension`` property returns the output vector size (cached on first
+    call when not explicitly set).
+    """
+
+    def __init__(self, model: str, dimension: Optional[int] = None):
+        self.model = model
+        self._dimension = dimension
+
+    @abstractmethod
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed a batch of texts. Returns a list of float-lists."""
+
+    def embed_one(self, text: str) -> list[float]:
+        """Embed a single text string."""
+        if text is None:
+            return []
+        result = self.embed([text])
+        return result[0] if result else []
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension (cached after first probe)."""
+        if self._dimension is not None:
+            return self._dimension
+        # Probe once and cache
+        try:
+            probe = self.embed_one("dimension probe")
+            self._dimension = len(probe) if probe else DEFAULT_EMBEDDING_DIMENSION
+        except Exception:
+            self._dimension = DEFAULT_EMBEDDING_DIMENSION
+        return self._dimension
+
+    @staticmethod
+    def _truncate_to_dim(embeddings: list[list[float]], dim: int) -> list[list[float]]:
+        """Truncate (or zero-pad) each vector to exactly *dim* floats.
+
+        Truncation of MRL (Matryoshka Representation Learning) models is
+        dimension-preserving: the first *dim* components retain full semantic
+        quality.  Zero-padding is a lossy fallback for models whose native
+        dimension is smaller than the target.
+        """
+        out: list[list[float]] = []
+        for vec in embeddings:
+            if len(vec) >= dim:
+                out.append(vec[:dim])
+            else:
+                out.append(vec + [0.0] * (dim - len(vec)))
+        return out
+
+
+class OllamaEmbeddingClient(EmbeddingClient):
+    """Ollama embedding via the native ``ollama`` Python SDK.
+
+    No litellm dependency.  Output is truncated to the configured dimension
+    (default: 1024) for cross-backend consistency.
+
+    When the Ollama server is unreachable (connection refused, timeout),
+    the client falls back to ``SentenceTransformersEmbeddingClient`` with
+    ``all-MiniLM-L6-v2`` so the knowledge pipeline doesn't hard-fail on
+    an offline machine.  The fallback is tried once and cached; subsequent
+    calls reuse the local model.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        dimension: Optional[int] = None,
+    ):
+        super().__init__(model, dimension)
+        self._base_url = base_url  # None → ollama default (localhost:11434)
+        self._fallback: Any = None
+        self._fallback_attempted = False
+
+    def _try_fallback(self) -> Any:
+        """Return a cached sentence-transformers fallback, or None if already tried."""
+        if self._fallback_attempted:
+            return self._fallback
+        self._fallback_attempted = True
+        try:
+            self._fallback = SentenceTransformersEmbeddingClient(
+                model="all-MiniLM-L6-v2",
+                dimension=self._dimension,
+            )
+            logger.info(
+                "Ollama unavailable; falling back to sentence-transformers "
+                "(all-MiniLM-L6-v2) for embedding. Set "
+                "OSTWIN_KNOWLEDGE_EMBED_PROVIDER=sentence-transformers to "
+                "suppress this fallback."
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Ollama fallback to sentence-transformers also failed: %s", exc
+            )
+        return self._fallback
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import ollama as _ollama  # noqa: WPS433
+
+        if not texts:
+            return []
+        kwargs: dict = {"model": self.model, "input": texts}
+        if self._dimension is not None:
+            kwargs["dimensions"] = self._dimension
+        try:
+            response = _ollama.embed(**kwargs)
+            result = response["embeddings"]
+        except Exception as exc:
+            logger.error("Ollama embedding failed: %s", exc)
+            # Try sentence-transformers fallback before returning empty
+            fb = self._try_fallback()
+            if fb is not None:
+                try:
+                    return fb.embed(texts)
+                except Exception as fb_exc:  # noqa: BLE001
+                    logger.error("Sentence-transformers fallback also failed: %s", fb_exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+class OpenAICompatibleEmbeddingClient(EmbeddingClient):
+    """Embedding via any OpenAI-compatible /v1/embeddings endpoint.
+
+    Uses ``OPENAI_COMPATIBLE_BASE_URL`` and ``OPENAI_COMPATIBLE_API_KEY``
+    env vars when not explicitly set.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        dimension: Optional[int] = None,
+    ):
+        super().__init__(model, dimension)
+        self._base_url = base_url
+        self._api_key = api_key
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import httpx
+
+        if not texts:
+            return []
+
+        base_url = self._base_url or os.environ.get(
+            "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
+        )
+        api_key = self._api_key or os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+
+        try:
+            with httpx.Client() as client:
+                payload: dict = {"model": self.model, "input": texts}
+                if self._dimension is not None:
+                    payload["dimensions"] = self._dimension
+                response = client.post(
+                    f"{base_url}/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    json=payload,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                result = [item["embedding"] for item in data["data"]]
+        except Exception as exc:
+            logger.error("OpenAI-compatible embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+class GeminiEmbeddingClient(EmbeddingClient):
+    """Embedding via Google Gemini / Vertex AI embedding API.
+
+    Uses the ``google-genai`` SDK (same as ``GoogleClient`` for chat).
+    Supports both AI Studio (api_key) and Vertex AI (project + location).
+    """
+
+    def __init__(
+        self,
+        model: str = "gemini-embedding-001",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        dimension: Optional[int] = None,
+        vertexai: bool = False,
+    ):
+        super().__init__(model, dimension)
+        from google.genai import Client
+
+        if vertexai:
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = os.environ.get("VERTEX_LOCATION")
+            self._client = Client(vertexai=True, project=project, location=location)
+        else:
+            key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            self._client = Client(api_key=key)
+        self._base_url = base_url
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+
+        if not texts:
+            return []
+        try:
+            # The genai SDK supports batch embedding
+            result = self._client.models.embed_content(
+                model=self.model,
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=self._dimension,
+                ) if self._dimension is not None else None,
+            )
+            embeddings = [e.values for e in result.embeddings]
+        except Exception as exc:
+            logger.error("Gemini embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(embeddings, target_dim)
+
+
+class SentenceTransformersEmbeddingClient(EmbeddingClient):
+    """Embedding via local sentence-transformers model.
+
+    Loads the model lazily on first use.
+    """
+
+    def __init__(
+        self,
+        model: str = "all-MiniLM-L6-v2",
+        dimension: Optional[int] = None,
+    ):
+        if not model:
+            model = "all-MiniLM-L6-v2"
+        super().__init__(model, dimension)
+        self._st_model = None
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        if self._st_model is None:
+            from sentence_transformers import SentenceTransformer
+            self._st_model = SentenceTransformer(self.model)
+
+        try:
+            embeddings = self._st_model.encode(texts, convert_to_numpy=True)
+            result = embeddings.tolist()
+        except Exception as exc:
+            logger.error("Sentence-transformers embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+        target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION
+        return self._truncate_to_dim(result, target_dim)
+
+
+# Embedding-client singleton cache: keyed by (provider, model, dimension)
+_embedding_cache: dict[str, Any] = {}
+_embedding_cache_lock = threading.Lock()
+
+
+def _detect_embedding_provider_from_model(model: str) -> str:
+    """Auto-detect embedding provider from a bare model name (no provider/ prefix).
+
+    Mirrors the logic in ``_detect_provider_from_model`` but returns embedding-
+    specific provider identifiers (e.g. ``"ollama"`` instead of ``"openai"``).
+    """
+    if not model:
+        return "sentence-transformers"
+    model_lower = model.lower()
+    if "gemini" in model_lower or "text-embedding" in model_lower:
+        if "vertex" in model_lower:
+            return "google-vertex"
+        return "google"
+    if any(x in model_lower for x in ["gpt-", "text-embedding-3"]):
+        return "openai-compatible"
+    if "bge-" in model_lower or "minilm" in model_lower or model_lower.startswith("all-"):
+        return "sentence-transformers"
+    return "ollama"
+
+
+def create_embedding_client(
+    model: str,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    dimension: Optional[int] = None,
+    *,
+    shared: bool = True,
+) -> EmbeddingClient:
+    """Factory: create (or retrieve cached) embedding client.
+
+    Uses the same ``resolve_provider_and_model`` pipeline as ``create_client``
+    so that ``provider/model`` prefixes (e.g. ``"google-vertex/gemini-embedding-001"``)
+    are parsed, aliases normalised, and the provider prefix stripped from the
+    model name before construction.
+
+    Args:
+        model: Embedding model identifier.  May include a ``provider/`` prefix
+            (e.g. ``"google-vertex/gemini-embedding-001"``).
+        provider: Backend: ``"ollama"``, ``"google"``, ``"google-vertex"``,
+            ``"openai-compatible"``, ``"sentence-transformers"``.
+            Auto-detected from model name when ``None``.
+        api_key: API key (provider-specific).
+        base_url: Override base URL for the provider.
+        dimension: Output vector dimension.  ``None`` means use the model's
+            native dimension (or ``DEFAULT_EMBEDDING_DIMENSION`` as fallback).
+        shared: If ``True`` (default), return a singleton cached by
+            ``(provider, model, dimension)``.  ``False`` creates a private
+            instance.
+
+    Returns:
+        An ``EmbeddingClient`` instance.
+    """
+    effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
+
+    # model_provider (from "provider/model" prefix) is the strongest signal —
+    # the user explicitly chose this provider for this model.  Fall back to
+    # effective_provider only when no prefix was present.
+    embed_provider = model_provider if model_provider is not None else effective_provider
+
+    _CHAT_TO_EMBED_PROVIDER: dict[str, str] = {
+        "openai": "openai-compatible",
+        "anthropic": "openai-compatible",
+        "deepseek": "openai-compatible",
+        "mistral": "openai-compatible",
+        "groq": "openai-compatible",
+        "cerebras": "openai-compatible",
+        "perplexity": "openai-compatible",
+        "together": "openai-compatible",
+        "togetherai": "openai-compatible",
+        "fireworks": "openai-compatible",
+        "xai": "openai-compatible",
+        "cohere": "openai-compatible",
+        "alibaba": "openai-compatible",
+    }
+
+    if embed_provider in _CHAT_TO_EMBED_PROVIDER:
+        embed_provider = _CHAT_TO_EMBED_PROVIDER[embed_provider]
+    elif embed_provider == "ollama":
+        pass
+    elif embed_provider in ("google", "google-vertex"):
+        pass
+    elif embed_provider == "openai-compatible":
+        pass
+    elif embed_provider == "sentence-transformers":
+        pass
+    else:
+        embed_provider = _detect_embedding_provider_from_model(clean_model)
+
+    # Use known dimension if not explicitly set
+    if dimension is None:
+        dimension = _KNOWN_EMBEDDING_DIMENSIONS.get(clean_model)
+
+    cache_key = f"{embed_provider}:{clean_model}:{dimension}"
+
+    if shared:
+        with _embedding_cache_lock:
+            cached = _embedding_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master_settings = resolver.get_master_settings()
+        providers_cfg = master_settings.providers if master_settings else None
+    except Exception:
+        providers_cfg = None
+
+    if model_provider in ("google", "google-genai", "google_gemini", "google-vertex"):
+        is_vertex = embed_provider == "google-vertex"
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        client = GeminiEmbeddingClient(
+            model=clean_model,
+            api_key=resolved_key,
+            base_url=base_url,
+            dimension=dimension,
+            vertexai=is_vertex,
+        )
+    elif embed_provider == "openai-compatible" and embed_provider != model_provider:
+        cfg = providers_cfg.openai_compatible if providers_cfg else None
+        resolved_base = base_url or (
+            cfg.base_url if cfg and cfg.base_url else os.environ.get(
+                "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
+            )
+        )
+        resolved_key = api_key or _resolve_transport_api_key(model_provider)
+        client = OpenAICompatibleEmbeddingClient(
+            model=clean_model,
+            base_url=resolved_base,
+            api_key=resolved_key,
+            dimension=dimension,
+        )
+    elif embed_provider == "sentence-transformers":
+        client = SentenceTransformersEmbeddingClient(
+            model=clean_model,
+            dimension=dimension,
+        )
+    elif embed_provider == "ollama" or provider == "ollama":
+        cfg = providers_cfg.ollama if providers_cfg else None
+        resolved_base = base_url or (
+            cfg.base_url if cfg and cfg.base_url else os.environ.get(
+                "OLLAMA_BASE_URL", "http://localhost:11434"
+            )
+        )
+        client = OllamaEmbeddingClient(
+            model=clean_model,
+            base_url=resolved_base,
+            dimension=dimension,
+        )
+    else:
+        logger.warning("Unknown embedding provider %r; falling back to ollama", embed_provider)
+        client = OllamaEmbeddingClient(
+            model=clean_model,
+            base_url=base_url,
+            dimension=dimension,
+        )
+
+    if shared:
+        with _embedding_cache_lock:
+            existing = _embedding_cache.get(cache_key)
+            if existing is not None:
+                return existing
+            _embedding_cache[cache_key] = client
+
+    return client

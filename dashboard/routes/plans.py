@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 def _resolve_plans_dir_for_write() -> Path:
     """Resolve where new plans should be written.
-    
+
     Always writes to global store (~/.ostwin/.agents/plans) so plans are
     accessible across all projects and from the bot.
     """
@@ -76,7 +76,7 @@ def _find_plan_assets_dir(plan_id: str) -> Optional[Path]:
 
 def _plan_file_path(plan_id: str) -> Path:
     """Get the path to a plan file (for reading or writing).
-    
+
     For reading: returns the first existing path (local then global).
     For writing: returns the appropriate store based on where the plan exists.
     """
@@ -140,33 +140,33 @@ def _extract_plan_title(content: str, default: str) -> str:
 
 def _normalize_plan_header(content: str, title: str) -> str:
     """Ensure plan content starts with '# Plan: {title}' header.
-    
+
     This normalizes various header formats:
     - ': Title' → '# Plan: Title'
     - '# PLAN: Title' → '# Plan: Title'
     - No header → Prepends '# Plan: {title}'
     - Existing '# Plan: ...' → Preserved
-    
+
     Args:
         content: The plan markdown content
         title: The expected title (used if header is missing)
-    
+
     Returns:
         Content with normalized '# Plan:' header
     """
     if not content or not content.strip():
         return f"# Plan: {title}\n"
-    
+
     # Check for existing # Plan: or # PLAN: header
     header_match = _re_mod.search(r"^# (Plan|PLAN):\s*(.+)", content, _re_mod.MULTILINE)
-    
+
     if header_match:
         existing_title = header_match.group(2).strip()
         # Normalize # PLAN: to # Plan:
         if header_match.group(1) == "PLAN":
             content = _re_mod.sub(r"^# PLAN:", "# Plan:", content, count=1, flags=_re_mod.MULTILINE)
         return content
-    
+
     # Check for colon-only prefix (': Title')
     colon_match = _re_mod.match(r"^:\s*(.+?)(\n|$)", content)
     if colon_match:
@@ -174,7 +174,7 @@ def _normalize_plan_header(content: str, title: str) -> str:
         # Replace ': Title' with '# Plan: Title'
         content = _re_mod.sub(r"^:\s*.+?(\n|$)", f"# Plan: {extracted_title}\\1", content, count=1)
         return content
-    
+
     # No header found - prepend one
     return f"# Plan: {title}\n\n{content}"
 
@@ -344,54 +344,54 @@ def _replace_existing_assets(
 
 def _inject_assets_to_working_directory(plan_id: str, working_dir: Path) -> None:
     """Inject plan assets into the working directory for agent access.
-    
+
     Creates a .assets/ directory in the working directory and copies/symlinks
     all assets from the plan's asset directory. This ensures agents have
     direct access to assets during execution.
-    
+
     Args:
         plan_id: The plan ID
         working_dir: The working directory path
     """
     import shutil
-    
+
     # Get plan assets
     meta = _ensure_plan_meta(plan_id)
     assets = _normalize_plan_assets(plan_id, meta)
-    
+
     if not assets:
         logger.info(f"No assets to inject for plan {plan_id}")
         return
-    
+
     # Create .assets directory in working directory
     assets_target_dir = working_dir / ".assets"
     assets_target_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Get source assets directory
     assets_source_dir = _plan_assets_dir(plan_id)
-    
+
     # Copy/symlink assets
     LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
     injected_count = 0
-    
+
     for asset in assets:
         stored_name = asset.get("filename")
         original_name = asset.get("original_name", stored_name)
-        
+
         if not stored_name:
             continue
-        
+
         source_file = assets_source_dir / stored_name
         if not source_file.exists():
             logger.warning(f"Asset file not found: {source_file}")
             continue
-        
+
         # Use original name for better readability
         target_file = assets_target_dir / original_name
-        
+
         # Check file size for symlink vs copy decision
         file_size = source_file.stat().st_size
-        
+
         try:
             if file_size > LARGE_FILE_THRESHOLD:
                 # Symlink large files to save disk space
@@ -404,11 +404,11 @@ def _inject_assets_to_working_directory(plan_id: str, working_dir: Path) -> None
                 if target_file.exists():
                     target_file.unlink()
                 shutil.copy2(source_file, target_file)
-            
+
             injected_count += 1
         except Exception as e:
             logger.warning(f"Failed to inject asset {original_name}: {e}")
-    
+
     # Create asset manifest file
     manifest_file = assets_target_dir / "ASSETS.md"
     manifest_lines = [
@@ -416,20 +416,20 @@ def _inject_assets_to_working_directory(plan_id: str, working_dir: Path) -> None
         f"This directory contains {injected_count} asset(s) for plan `{plan_id}`.\n",
         "\n## Available Files\n\n",
     ]
-    
+
     for asset in assets:
         original_name = asset.get("original_name", asset.get("filename", "unknown"))
         atype = asset.get("asset_type", "unspecified")
         desc = asset.get("description", "")
         size = asset.get("size_bytes", 0)
-        
+
         line = f"- **{original_name}** ({atype}, {size} bytes)"
         if desc:
             line += f" — {desc}"
         manifest_lines.append(line + "\n")
-    
+
     manifest_file.write_text("".join(manifest_lines))
-    
+
     logger.info(f"Injected {injected_count} assets into {assets_target_dir} for plan {plan_id}")
 
 
@@ -441,54 +441,54 @@ def _extract_files_from_zip(
     tags: List[str] = None,
 ) -> List[Dict[str, Any]]:
     """Extract all files from a ZIP archive and return asset records.
-    
+
     Args:
         zip_data: Raw bytes of the ZIP file
         original_zip_name: Original filename of the ZIP (for logging)
         epic_ref: Epic to bind all extracted files to
         asset_type: Asset type for all extracted files
         tags: Tags for all extracted files
-    
+
     Returns:
         List of asset dictionaries with filename, original_name, mime_type, data, etc.
     """
     import io
     from mimetypes import guess_type
-    
+
     if tags is None:
         tags = []
-    
+
     extracted = []
-    
+
     try:
         with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
             for zip_info in zf.infolist():
                 # Skip directories
                 if zip_info.is_dir():
                     continue
-                
+
                 # Skip hidden files and macOS metadata
                 filename = zip_info.filename
                 if filename.startswith('.') or filename.startswith('__MACOSX'):
                     continue
-                
+
                 # Extract filename from path (handle nested directories)
                 original_name = Path(filename).name
                 if not original_name:
                     continue
-                
+
                 try:
                     file_data = zf.read(zip_info)
-                    
+
                     # Skip empty files
                     if len(file_data) == 0:
                         continue
-                    
+
                     # Guess MIME type
                     mime_type, _ = guess_type(original_name)
                     if not mime_type:
                         mime_type = "application/octet-stream"
-                    
+
                     # Guess asset type if unspecified
                     inferred_type = asset_type
                     if asset_type == "unspecified":
@@ -504,7 +504,7 @@ def _extract_files_from_zip(
                                 inferred_type = "config"
                         elif any(ext in name_lower for ext in [".csv", ".sql", ".db"]):
                             inferred_type = "test-data"
-                    
+
                     extracted.append({
                         "original_name": original_name,
                         "data": file_data,
@@ -514,18 +514,18 @@ def _extract_files_from_zip(
                         "tags": tags,
                         "bound_epics": [epic_ref] if epic_ref else [],
                     })
-                    
+
                 except Exception as e:
                     logger.warning(f"Failed to extract {filename} from {original_zip_name}: {e}")
                     continue
-        
+
         logger.info(f"Extracted {len(extracted)} files from ZIP: {original_zip_name}")
-        
+
     except zipfile.BadZipFile as e:
         logger.error(f"Invalid ZIP file {original_zip_name}: {e}")
     except Exception as e:
         logger.error(f"Failed to process ZIP {original_zip_name}: {e}")
-    
+
     return extracted
 
 
@@ -558,7 +558,7 @@ def _merge_markdown_asset_edits_into_meta(plan_id: str, markdown_content: str) -
             raw_name = entry.split(" (")[0].strip() if " (" in entry else entry.strip()
             # Strip portable prefix if present
             original_name = raw_name[len(".assets/"):] if raw_name.startswith(".assets/") else raw_name
-            
+
             asset = assets_by_original.get(original_name) or assets_by_filename.get(original_name)
             if asset:
                 fn = asset["filename"]
@@ -834,13 +834,13 @@ def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path
                 atype = asset.get("asset_type", "unspecified")
                 mime = asset.get("mime_type", "unknown")
                 desc = asset.get("description", "")
-                
+
                 # Format: .assets/spec.yaml (api-spec, text/yaml) — API spec
                 entry = f".assets/{original} ({atype}, {mime})"
                 if desc:
                     entry += f" — {desc}"
                 asset_entries.append(entry)
-            
+
             asset_line = "> Assets: " + "; ".join(asset_entries) + "\n"
 
             # Insert after Skills: if present, or before depends_on:/---
@@ -949,7 +949,7 @@ def _parse_multipart_files(content_type: str, body: bytes) -> List[Dict[str, Any
 
 def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
     """Merge {plan_id}.meta.json fields into a plan dict (in-place).
-    
+
     Adds working_dir, warrooms_dir, launched_at, and a nested 'meta' object
     so the frontend has the full project context from plan creation.
     """
@@ -1002,18 +1002,18 @@ async def upload_plan_assets(
 
     saved_assets: List[Dict[str, Any]] = []
     extracted_count = 0
-    
+
     for upload in files:
         original_name = upload["filename"]
         upload_data = upload["data"]
         content_type = upload["content_type"]
-        
+
         # Check if file is a ZIP archive
         is_zip = (
             content_type in ["application/zip", "application/x-zip-compressed", "application/x-zip"] or
             original_name.lower().endswith('.zip')
         )
-        
+
         if is_zip:
             # Extract all files from ZIP
             extracted_files = _extract_files_from_zip(
@@ -1023,15 +1023,15 @@ async def upload_plan_assets(
                 asset_type=asset_type,
                 tags=tags,
             )
-            
+
             # Save extracted files
             for extracted in extracted_files:
                 stored_name = _safe_asset_filename(extracted["original_name"])
                 asset_path = assets_dir / stored_name
-                
+
                 with asset_path.open("wb") as handle:
                     handle.write(extracted["data"])
-                
+
                 saved_assets.append({
                     "filename": stored_name,
                     "original_name": extracted["original_name"],
@@ -1063,7 +1063,7 @@ async def upload_plan_assets(
                 "tags": tags,
                 "description": "",
             })
-    
+
     if extracted_count > 0:
         logger.info(f"Extracted {extracted_count} files from ZIP archives for plan {plan_id}")
 
@@ -1188,29 +1188,29 @@ async def generate_plan_from_assets(
     user: dict = Depends(get_current_user),
 ):
     """Generate a plan based on uploaded assets using AI.
-    
+
     Takes the assets already uploaded to this plan and generates a structured plan
     using the PLAN.template.md. The generated plan replaces the current plan content.
     The AI analyzes the actual file contents, not just metadata.
     """
     from dashboard.plan_agent import PlanAgent
-    
+
     _require_plan_file(plan_id)
     meta = _ensure_plan_meta(plan_id)
     assets = _normalize_plan_assets(plan_id, meta)
     assets_dir = _plan_assets_dir(plan_id)
-    
+
     if not assets:
         raise HTTPException(status_code=400, detail="No assets found in this plan")
-    
+
     # Build asset context for AI - including actual file contents
     asset_sections = []
-    
+
     # Read text-based files (limit to reasonable size)
     MAX_FILE_SIZE = 50000  # 50KB per file
     TEXT_MIME_PREFIXES = ['text/', 'application/json', 'application/xml', 'application/yaml']
     TEXT_EXTENSIONS = ['.txt', '.md', '.yaml', '.yml', '.json', '.xml', '.csv', '.log', '.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.sql', '.sh', '.env', '.cfg', '.ini', '.toml']
-    
+
     for asset in assets:
         name = asset.get("original_name", asset.get("filename", "unknown"))
         stored_name = asset.get("filename", name)
@@ -1219,9 +1219,9 @@ async def generate_plan_from_assets(
         size = asset.get("size_bytes", 0)
         mime = asset.get("mime_type", "unknown")
         epics = asset.get("bound_epics", [])
-        
+
         asset_path = assets_dir / stored_name
-        
+
         # Build asset section
         section = f"\n### Asset: {name}\n"
         section += f"- **Type:** {atype}\n"
@@ -1231,13 +1231,13 @@ async def generate_plan_from_assets(
             section += f"- **Description:** {desc}\n"
         if epics:
             section += f"- **Bound to:** {', '.join(epics)}\n"
-        
+
         # Try to read file contents if it's text-based
         is_text = (
             any(mime.startswith(prefix) for prefix in TEXT_MIME_PREFIXES) or
             any(name.lower().endswith(ext) for ext in TEXT_EXTENSIONS)
         )
-        
+
         if asset_path.exists() and size > 0 and size <= MAX_FILE_SIZE and is_text:
             try:
                 content = asset_path.read_text(encoding='utf-8', errors='ignore')
@@ -1258,13 +1258,13 @@ async def generate_plan_from_assets(
             section += f"\n**Note:** This is a video file. Consider adding a content creation or media epic.\n"
         elif mime.startswith('audio/'):
             section += f"\n**Note:** This is an audio file. Consider adding a content creation or media epic.\n"
-        
+
         asset_sections.append(section)
-    
+
     asset_context = "\n".join(asset_sections)
-    
+
     # Build prompt for AI
-    prompt = f"""Create a detailed, actionable plan based on the following uploaded assets. 
+    prompt = f"""Create a detailed, actionable plan based on the following uploaded assets.
 
 Analyze the actual file contents provided below and create specific, concrete epics and tasks.
 
@@ -1292,7 +1292,7 @@ Create a detailed, concrete plan that directly uses the information in these fil
     # Use PlanAgent to generate the plan
     try:
         agent = PlanAgent(plans_dir=PLANS_DIR, agents_dir=AGENTS_DIR)
-        
+
         # Stream the generation
         result_text = ""
         async for chunk in agent.stream_refinement(
@@ -1302,35 +1302,35 @@ Create a detailed, concrete plan that directly uses the information in these fil
         ):
             if chunk.get("type") == "token":
                 result_text += chunk.get("content", "")
-        
+
         # Parse the result
         from dashboard.plan_agent import parse_structured_response
         parsed = parse_structured_response(result_text)
-        
+
         if not parsed.get("plan"):
             raise HTTPException(status_code=500, detail="AI failed to generate a valid plan")
-        
+
         # Save the generated plan
         plan_file = PLANS_DIR / f"{plan_id}.md"
         plan_file.write_text(parsed["plan"])
-        
+
         # Update meta
         title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", parsed["plan"], re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
         meta["title"] = title
         meta["status"] = "draft"
         _write_plan_meta(plan_id, meta)
-        
+
         # Sync asset sections
         _sync_asset_sections(plan_id)
-        
+
         return {
             "status": "generated",
             "plan_id": plan_id,
             "plan": parsed["plan"],
             "explanation": parsed.get("explanation", ""),
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to generate plan from assets: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate plan: {str(e)}")
@@ -1536,7 +1536,7 @@ def _save_stats_snapshot(current_stats: Dict):
     history = _get_stats_history()
     now = datetime.now(timezone.utc)
     now_str = now.isoformat()
-    
+
     # One snapshot per day is enough for the trends/sparkline requested
     today_str = now_str[:10]
     if history and history[-1]["timestamp"][:10] == today_str:
@@ -1544,11 +1544,11 @@ def _save_stats_snapshot(current_stats: Dict):
         history[-1]["timestamp"] = now_str
     else:
         history.append({"timestamp": now_str, **current_stats})
-    
+
     # Keep last 14 days
     if len(history) > 14:
         history = history[-14:]
-    
+
     (AGENTS_DIR / "stats_history.json").write_text(json.dumps(history, indent=2) + "\n")
 
 @router.get("/api/stats")
@@ -1564,17 +1564,17 @@ async def get_stats(user: dict = Depends(get_current_user)):
     escalations = 0
 
     seen_progress_files = set()
-    
+
     if plans_dir.exists():
         for f in sorted(plans_dir.glob("*.md")):
             if f.stem == "PLAN.template" or f.name.endswith(".refined.md"):
                 continue
             total_plans += 1
-            
+
             plan_id = f.stem
             meta_file = plans_dir / f"{plan_id}.meta.json"
             plan_status = "draft"
-            
+
             if meta_file.exists():
                 try:
                     meta = json.loads(meta_file.read_text())
@@ -1587,7 +1587,7 @@ async def get_stats(user: dict = Depends(get_current_user)):
                             pct = prog.get("pct_complete", 0)
                             active = prog.get("active", 0)
                             passed = prog.get("passed", 0)
-                            
+
                             if pct >= 100:
                                 plan_status = "completed"
                             elif active > 0 or passed > 0:
@@ -1596,7 +1596,7 @@ async def get_stats(user: dict = Depends(get_current_user)):
                                 plan_status = "draft"
                 except (json.JSONDecodeError, OSError):
                     pass
-            
+
             plan_status_counts[plan_status] += 1
 
     # Aggregate from unique progress files to avoid double-counting
@@ -1614,7 +1614,7 @@ async def get_stats(user: dict = Depends(get_current_user)):
 
     # Weighted average completion rate
     completion_rate = (passed_epics / total_epics * 100) if total_epics > 0 else 0
-    
+
     current_stats = {
         "total_plans": total_plans,
         "active_epics": active_epics,
@@ -1622,10 +1622,10 @@ async def get_stats(user: dict = Depends(get_current_user)):
         "escalations_pending": escalations,
         "plan_status_counts": plan_status_counts
     }
-    
+
     # Load history
     history = _get_stats_history()
-    
+
     # Calculate trends
     def get_trend(key, days_ago):
         target_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()[:10]
@@ -1636,7 +1636,7 @@ async def get_stats(user: dict = Depends(get_current_user)):
                 if h["timestamp"][:10] <= target_date:
                     past_val = h[key]
                     break
-        
+
         delta = current_stats[key] - past_val
         direction = "up" if delta > 0 else "down" if delta < 0 else "flat"
         return {"direction": direction, "delta": abs(round(delta, 1))}
@@ -1645,7 +1645,7 @@ async def get_stats(user: dict = Depends(get_current_user)):
     sparkline_points = []
     # history currently has 14 mock points + 1 current snapshot
     full_history = history + [{"timestamp": datetime.now(timezone.utc).isoformat(), **current_stats}]
-    
+
     # Take up to 7 samples from history
     if len(full_history) >= 7:
         # Sample evenly across history
@@ -1708,16 +1708,16 @@ async def reload_plan_from_disk(plan_id: str, user: dict = Depends(get_current_u
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan file not found")
-    
+
     content = plan_file.read_text()
     mtime = plan_file.stat().st_mtime
-    
+
     # Re-parse metadata
     title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
     epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
     epic_count = len(epics_found)
-    
+
     # Get created_at from meta.json if available
     meta_file = plans_dir / f"{plan_id}.meta.json"
     created_at = ""
@@ -1745,7 +1745,7 @@ async def reload_plan_from_disk(plan_id: str, user: dict = Depends(get_current_u
         except Exception as e:
             logger.error(f"Failed to update zvec in reload_plan: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-            
+
     return {"status": "reloaded", "plan_id": plan_id}
 
 @router.get("/api/plans/{plan_id}/sync-status")
@@ -1755,19 +1755,19 @@ async def get_plan_sync_status(plan_id: str, user: dict = Depends(get_current_us
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan file not found")
-    
+
     disk_mtime = plan_file.stat().st_mtime
-    
+
     store = global_state.store
     zvec_mtime = 0.0
     if store:
         p = store.get_plan(plan_id)
         if p:
             zvec_mtime = p.get("file_mtime", 0.0)
-    
+
     # Simple float comparison for mtime
     in_sync = abs(disk_mtime - zvec_mtime) < 0.001
-    
+
     return {
         "in_sync": in_sync,
         "disk_mtime": disk_mtime,
@@ -1802,18 +1802,61 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
     # Bug 3 Fix: Initialize assets and epic_assets in meta.json
     meta_file = plans_dir / f"{plan_id}.meta.json"
     meta = {
-        "plan_id": plan_id, 
-        "title": title, 
-        "working_dir": working_dir, 
-        "warrooms_dir": str(Path(working_dir) / ".war-rooms"), 
-        "created_at": datetime.now(timezone.utc).isoformat(), 
+        "plan_id": plan_id,
+        "title": title,
+        "working_dir": working_dir,
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "draft",
         "assets": [],
         "epic_assets": {}
     }
+    # Migrate thread assets to plan assets if thread_id is provided
     if thread_id:
         meta["thread_id"] = thread_id
+        try:
+            from dashboard.asset_store import ASSETS_DIR
+            thread_assets_dir = ASSETS_DIR / "threads" / thread_id
+            if thread_assets_dir.exists() and thread_assets_dir.is_dir():
+                import shutil
+                assets_target_dir = _plan_assets_dir(plan_id)
+                assets_target_dir.mkdir(parents=True, exist_ok=True)
+
+                migrated_assets = []
+                for asset_file in sorted(thread_assets_dir.iterdir()):
+                    if asset_file.is_file():
+                        stored_name = _safe_asset_filename(asset_file.name)
+                        target_path = assets_target_dir / stored_name
+                        shutil.copy2(str(asset_file), str(target_path))
+
+                        ext = asset_file.suffix.lower()
+                        mime_map = {".jpg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+
+                        migrated_assets.append({
+                            "filename": stored_name,
+                            "original_name": asset_file.name,
+                            "mime_type": mime_map.get(ext, "application/octet-stream"),
+                            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                            "size_bytes": asset_file.stat().st_size,
+                            "bound_epics": [],
+                            "asset_type": "unspecified",
+                            "tags": [],
+                            "description": "Migrated from brainstorming session"
+                        })
+                if migrated_assets:
+                    meta["assets"] = migrated_assets
+                    logger.info(f"Migrated {len(migrated_assets)} assets from thread {thread_id} to plan {plan_id}")
+        except Exception as e:
+            logger.warning(f"Failed to migrate thread assets: {e}")
+
     meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+
+    if meta.get("assets"):
+        try:
+            _sync_asset_sections(plan_id)
+        except Exception as e:
+            logger.warning(f"Failed to sync asset sections to markdown for plan {plan_id}: {e}")
+
 
     plan_roles_file = plans_dir / f"{plan_id}.roles.json"
     if not plan_roles_file.exists():
@@ -1834,18 +1877,18 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
     if store:
         try:
             store.index_plan(
-                plan_id=plan_id, title=title, content=plan_file.read_text(), 
-                epic_count=1, filename=f"{plan_id}.md", status="draft", 
+                plan_id=plan_id, title=title, content=plan_file.read_text(),
+                epic_count=1, filename=f"{plan_id}.md", status="draft",
                 created_at=meta["created_at"], file_mtime=plan_file.stat().st_mtime
             )
         except Exception as e:
             logger.warning("Failed to index new plan %s in zvec: %s", plan_id, e)
 
     return {
-        "plan_id": plan_id, 
-        "url": f"/plans/{plan_id}", 
-        "title": title, 
-        "working_dir": working_dir, 
+        "plan_id": plan_id,
+        "url": f"/plans/{plan_id}",
+        "title": title,
+        "working_dir": working_dir,
         "filename": f"{plan_id}.md"
     }
 
@@ -1897,10 +1940,10 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
-    
+
     # Bug 1 Fix: Normalize header before saving
     normalized_content = _normalize_plan_header(request.content, plan_id)
-    
+
     store = global_state.store
     old_content = plan_file.read_text()
     if old_content.strip() and old_content.strip() != normalized_content.strip():
@@ -1918,11 +1961,11 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
 
     plan_file.write_text(normalized_content)
     new_mtime = plan_file.stat().st_mtime
-    
+
     # Update meta if title changed (best effort)
     title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", normalized_content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
-    
+
     meta = {"plan_id": plan_id, "title": title, "status": "draft", "created_at": datetime.now(timezone.utc).isoformat()}
     meta_file = plans_dir / f"{plan_id}.meta.json"
     if meta_file.exists():
@@ -1939,9 +1982,9 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
             # Re-parse epic count
             epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", normalized_content, re.MULTILINE)
             epic_count = len(epics_found)
-            
+
             store.index_plan(
-                plan_id=plan_id, 
+                plan_id=plan_id,
                 title=title,
                 content=normalized_content,
                 epic_count=epic_count,
@@ -2053,14 +2096,14 @@ async def attach_skill(plan_id: str, skill: Dict[str, str], user: dict = Depends
     config = get_plan_roles_config(plan_id)
     if "attached_skills" not in config:
         config["attached_skills"] = []
-    
+
     skill_name = skill.get("name")
     if not skill_name:
         raise HTTPException(status_code=400, detail="Skill name is required")
-         
+
     if skill_name not in config["attached_skills"]:
         config["attached_skills"].append(skill_name)
-    
+
     plans_dir = PLANS_DIR
     config_file = plans_dir / f"{plan_id}.roles.json"
     config_file.write_text(json.dumps(config, indent=2) + "\n")
@@ -2072,7 +2115,7 @@ async def detach_skill(plan_id: str, skill_name: str, user: dict = Depends(get_c
     config = get_plan_roles_config(plan_id)
     if "attached_skills" in config and skill_name in config["attached_skills"]:
         config["attached_skills"].remove(skill_name)
-    
+
     plans_dir = PLANS_DIR
     config_file = plans_dir / f"{plan_id}.roles.json"
     config_file.write_text(json.dumps(config, indent=2) + "\n")
@@ -2240,7 +2283,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
             logger.info(f"run_plan: ostwin init completed in {wd_path}")
         else:
             logger.warning(f"ostwin binary not found at {ostwin_bin}, skipping init")
-    
+
     # Inject assets into working directory
     try:
         _inject_assets_to_working_directory(plan_id, wd_path)
@@ -2303,7 +2346,7 @@ async def update_plan_status(plan_id: str, request: dict):
     meta = json.loads(meta_file.read_text())
     meta["status"] = request.get("status", meta["status"])
     meta_file.write_text(json.dumps(meta, indent=2) + "\n")
-    
+
     # Update zvec if available
     store = global_state.store
     if store:
@@ -2401,7 +2444,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
     store = global_state.store
     plans_dir = PLANS_DIR
     plan_file = plans_dir / f"{plan_id}.md"
-    
+
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
 
@@ -2414,7 +2457,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
             working_dir = meta.get("working_dir")
         except Exception:
             pass
-    
+
     if not working_dir:
         # Try resolving via api_utils
         from dashboard.api_utils import resolve_plan_warrooms_dir
@@ -2423,7 +2466,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
             working_dir = str(warrooms_dir.parent)
 
     changes = []
-    
+
     # 2. Get git log and status if available
     if working_dir and Path(working_dir).exists():
         try:
@@ -2435,7 +2478,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
                 stderr=asyncio.subprocess.PIPE
             )
             await proc_check.communicate()
-            
+
             if proc_check.returncode == 0:
                 # 2.1. Get uncommitted changes (git status)
                 proc_status = await asyncio.create_subprocess_exec(
@@ -2451,7 +2494,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
                     for line in status_lines:
                         if len(line) > 3:
                             uncommitted_files.append(line[3:].strip())
-                    
+
                     if uncommitted_files:
                         changes.append({
                             "id": "uncommitted",
@@ -2529,7 +2572,7 @@ async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)
 
     # 4. Sort all changes by timestamp desc
     changes.sort(key=lambda x: x["timestamp"], reverse=True)
-    
+
     return {"plan_id": plan_id, "changes": changes, "count": len(changes)}
 
 @router.get("/api/plans/{plan_id}/changes/{change_id}/diff")
@@ -2542,18 +2585,18 @@ async def get_change_diff(plan_id: str, change_id: str, file_path: str = Query(N
     if change_id.startswith(f"{plan_id}-v"):
         if not store or not hasattr(store, 'get_plan_version'):
             raise HTTPException(status_code=503, detail="Version store not available")
-        
+
         try:
             # We want to compare v with v-1
             m = re.match(rf"{plan_id}-v(\d+)", change_id)
             if not m:
                 raise HTTPException(status_code=400, detail="Invalid change ID")
             v_num = int(m.group(1))
-            
+
             v_curr = store.get_plan_version(plan_id, v_num)
             if not v_curr:
                 raise HTTPException(status_code=404, detail="Version not found")
-            
+
             # Get previous content
             v_prev_content = ""
             if v_num > 1:
@@ -2614,7 +2657,7 @@ async def get_change_diff(plan_id: str, change_id: str, file_path: str = Query(N
                 cmd = ["git", "show", change_id, "--no-color"]
                 if file_path:
                     cmd = ["git", "show", change_id, "--no-color", "--", file_path]
-            
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=working_dir,
@@ -2640,7 +2683,7 @@ async def get_all_goals():
     plans_dir = PLANS_DIR
     if not plans_dir.exists():
         return {"goals": []}
-    
+
     all_goals = []
     for f in plans_dir.glob("*.md"):
         if f.stem == "PLAN.template":
@@ -2654,6 +2697,72 @@ async def get_all_goals():
                 "goal": goal_section.group(1).strip()
             })
     return {"goals": all_goals}
+
+def _persist_plan_images_from_data_uris(plan_id: str, images: list) -> None:
+    """Persist data URI images from a refine request as plan assets."""
+    if not images or not plan_id:
+        return
+
+    try:
+        meta = _ensure_plan_meta(plan_id)
+        existing_assets = _normalize_plan_assets(plan_id, meta)
+        assets_dir = _plan_assets_dir(plan_id)
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_assets = []
+        for img in images:
+            data_uri = img.get("url", "")
+            if not data_uri.startswith("data:"):
+                continue
+
+            original_name = img.get("name", "attachment")
+
+            import base64
+            import hashlib
+            m = re.match(r"data:([^;]+);base64,(.+)", data_uri, re.DOTALL)
+            if not m:
+                continue
+
+            mime_type = m.group(1)
+            raw_bytes = base64.b64decode(m.group(2))
+
+            # Reuse _safe_asset_filename but ensure we have an extension
+            ext = ""
+            if mime_type == "image/jpeg": ext = ".jpg"
+            elif mime_type == "image/png": ext = ".png"
+            elif mime_type == "image/gif": ext = ".gif"
+            elif mime_type == "image/webp": ext = ".webp"
+
+            if ext and not original_name.lower().endswith(ext):
+                original_name += ext
+
+            stored_name = _safe_asset_filename(original_name)
+            asset_path = assets_dir / stored_name
+
+            with asset_path.open("wb") as handle:
+                handle.write(raw_bytes)
+
+            saved_assets.append({
+                "filename": stored_name,
+                "original_name": original_name,
+                "mime_type": mime_type,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "size_bytes": len(raw_bytes),
+                "bound_epics": [],
+                "asset_type": "unspecified",
+                "tags": [],
+                "description": "Uploaded during plan refinement"
+            })
+
+        if saved_assets:
+            all_assets = existing_assets + saved_assets
+            meta["assets"] = all_assets
+            _write_plan_meta(plan_id, meta)
+            _sync_asset_sections(plan_id)
+            logger.info(f"Persisted {len(saved_assets)} images as assets for plan {plan_id}")
+    except Exception as e:
+        logger.warning(f"Failed to persist refine images for plan {plan_id}: {e}")
+
 @router.post("/api/plans/refine")
 async def refine_plan_endpoint(request: RefineRequest):
     try:
@@ -2686,6 +2795,10 @@ async def refine_plan_endpoint(request: RefineRequest):
             for i, img in enumerate(images[:3]):  # Log first 3
                 url_preview = img["url"][:100] + "..." if len(img["url"]) > 100 else img["url"]
                 logger.info(f"[REFINE] Image {i+1}: {url_preview}")
+
+            # Persist these images to the plan's assets!
+            if request.plan_id:
+                _persist_plan_images_from_data_uris(request.plan_id, [img.model_dump() for img in request.images])
         result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
@@ -2716,6 +2829,10 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
         images = None
         if request.images:
             images = [{"url": img.get("url", "")} for img in request.images if img.get("url")]
+
+            # Persist these images to the plan's assets!
+            if request.plan_id:
+                _persist_plan_images_from_data_uris(request.plan_id, [img.model_dump() for img in request.images])
         async def event_generator():
             try:
                 from plan_agent import parse_structured_response
@@ -2729,7 +2846,7 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
                     else:
                         full_response += chunk
                         yield f"data: {json.dumps({'token': chunk})}\n\n"
-                
+
                 # After streaming is complete, parse the full response and emit as a structured result event
                 result = parse_structured_response(full_response)
                 yield f"data: {json.dumps({'result': result})}\n\n"
@@ -2801,11 +2918,11 @@ async def get_plan_role_assignments(plan_id: str, user: dict = Depends(get_curre
             if role_instances:
                 rooms_with_roles.append({"room_id": room_dir.name, "task_ref": room_config.get("task_ref", "UNKNOWN"), "roles": role_instances})
     return {
-        "plan_id": plan_id, 
-        "warrooms_dir": str(warrooms_dir) if warrooms_dir else None, 
-        "role_defaults": roles, 
-        "rooms": rooms_with_roles, 
-        "summary": role_summary, 
+        "plan_id": plan_id,
+        "warrooms_dir": str(warrooms_dir) if warrooms_dir else None,
+        "role_defaults": roles,
+        "rooms": rooms_with_roles,
+        "summary": role_summary,
         "total_assignments": sum(role_summary.values()),
         "attached_skills": config.get("attached_skills", [])
     }
@@ -3034,7 +3151,7 @@ async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
             "critical_path_length": 0,
             "error": "DAG.json not found and Plan markdown not found"
         }
-    
+
     content = plan_file.read_text()
     epics = OSTwinStore._parse_plan_epics(content, plan_id)
     return generate_fallback_dag(epics)
@@ -3072,7 +3189,7 @@ async def get_plan_epic(
 
         if current_ref == task_ref:
             room_data = read_room(room_dir, include_metadata=include_metadata, include_messages=include_messages)
-            
+
             # Enrich with plan title
             plan_file = PLANS_DIR / f"{plan_id}.md"
             if plan_file.exists():
@@ -3080,7 +3197,7 @@ async def get_plan_epic(
                 title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
                 if title_match:
                     room_data["plan_title"] = title_match.group(1).strip()
-            
+
             # Enrich with DAG info (dependents)
             dag_file = warrooms_dir / "DAG.json"
             if dag_file.exists():
@@ -3096,7 +3213,7 @@ async def get_plan_epic(
                         room_data["dependents"] = node_info["dependents"]
                 except (json.JSONDecodeError, OSError):
                     pass
-            
+
             return room_data
 
     raise HTTPException(status_code=404, detail=f"EPIC {task_ref} not found in plan {plan_id}")
@@ -3335,14 +3452,14 @@ def _parse_roles_from_markdown(text: str) -> list[str]:
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/roles")
 async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
     """Get roles list for a specific Epic, including overrides from war-room config.
-    
+
     Returns markdown_roles (from Roles: directive in brief.md) alongside
     candidate_roles (manually assigned). When candidate_roles is empty the
     frontend should fall back to markdown_roles.
     """
     room_dir = _resolve_room_dir(plan_id, task_ref)
     if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
-    
+
     plan_config = get_plan_roles_config(plan_id)
     room_config_file = room_dir / "config.json"
     room_overrides = {}
@@ -3379,7 +3496,7 @@ async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_c
         if role_name not in merged_config:
              merged_config[role_name] = {}
         merged_config[role_name].update(role_overrides)
-        
+
     roles = build_roles_list(merged_config, include_skills=True)
     return {
         "roles": roles,
@@ -3395,24 +3512,24 @@ class UpdateEpicAssignmentRequest(BaseModel):
 
 @router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/assignment")
 async def update_epic_role_assignment(
-    plan_id: str, 
-    task_ref: str, 
-    request: UpdateEpicAssignmentRequest, 
+    plan_id: str,
+    task_ref: str,
+    request: UpdateEpicAssignmentRequest,
     user: dict = Depends(get_current_user)
 ):
     """Update role assignment (candidate_roles) for a specific Epic."""
     room_dir = _resolve_room_dir(plan_id, task_ref)
     if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
-    
+
     room_config_file = room_dir / "config.json"
     if not room_config_file.exists():
          raise HTTPException(status_code=404, detail="config.json missing")
-         
+
     try:
         rc = json.loads(room_config_file.read_text())
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Invalid config.json")
-        
+
     if "assignment" not in rc: rc["assignment"] = {}
     rc["assignment"]["candidate_roles"] = request.candidate_roles
 
@@ -3421,28 +3538,28 @@ async def update_epic_role_assignment(
 
 @router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/config")
 async def update_epic_role_config(
-    plan_id: str, 
-    task_ref: str, 
-    role_name: str, 
-    request: UpdatePlanRoleConfigRequest, 
+    plan_id: str,
+    task_ref: str,
+    role_name: str,
+    request: UpdatePlanRoleConfigRequest,
     user: dict = Depends(get_current_user)
 ):
     """Update role configuration for a specific Epic (saved in war-room config.json)."""
     room_dir = _resolve_room_dir(plan_id, task_ref)
     if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
-    
+
     room_config_file = room_dir / "config.json"
     if not room_config_file.exists():
          raise HTTPException(status_code=404, detail="config.json missing")
-         
+
     try:
         rc = json.loads(room_config_file.read_text())
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Invalid config.json")
-        
+
     if "roles" not in rc: rc["roles"] = {}
     if role_name not in rc["roles"]: rc["roles"][role_name] = {}
-    
+
     if request.default_model is not None: rc["roles"][role_name]["default_model"] = request.default_model
     if request.temperature is not None: rc["roles"][role_name]["temperature"] = request.temperature
     if request.timeout_seconds is not None: rc["roles"][role_name]["timeout_seconds"] = request.timeout_seconds
@@ -3455,9 +3572,9 @@ async def update_epic_role_config(
 
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/preview")
 async def preview_epic_role_prompt(
-    plan_id: str, 
-    task_ref: str, 
-    role_name: str, 
+    plan_id: str,
+    task_ref: str,
+    role_name: str,
     user: dict = Depends(get_current_user)
 ):
     """Generate and return the final system prompt preview for a role in an Epic."""

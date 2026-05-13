@@ -1,0 +1,296 @@
+---
+title: Debugging Guide
+description: Debugging log files, war-room inspection, MCP audit logs, memory issues, dashboard problems, and common failure patterns.
+sidebar:
+  order: 3
+  badge:
+    text: Advanced
+    variant: caution
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers systematic debugging of OSTwin components, from log file analysis to common failure patterns and their resolutions.
+
+## Log Files
+
+OSTwin generates logs at multiple levels:
+
+| Log | Location | Content |
+|-----|----------|---------|
+| Manager log | `.agents/logs/manager.log` | Orchestration events, state transitions |
+| Agent logs | `.agents/logs/room-NNN.log` | Per-room agent output |
+| MCP log | `.agents/mcp/mcp.log` | MCP server requests and responses |
+| Dashboard log | `dashboard/logs/` | API and frontend logs |
+| Audit log | `war-rooms/room-NNN/audit.log` | Room-level audit trail |
+
+### Viewing Logs
+
+<Tabs>
+<TabItem label="Tail Live">
+```bash
+.agents/logs.sh tail
+.agents/logs.sh tail --room room-003
+```
+</TabItem>
+<TabItem label="Search">
+```bash
+.agents/logs.sh search "error"
+.agents/logs.sh search "EPIC-001"
+```
+</TabItem>
+<TabItem label="Direct Access">
+```bash
+tail -f .agents/logs/manager.log
+tail -100 .agents/logs/room-003.log
+```
+</TabItem>
+</Tabs>
+
+## War-Room Inspection
+
+When a room is stuck or failing, inspect its state files directly:
+
+<Steps>
+1. **Check current status**
+
+   ```bash
+   cat .agents/war-rooms/room-001/status
+   cat .agents/war-rooms/room-001/retries
+   cat .agents/war-rooms/room-001/state_changed_at
+   ```
+
+2. **Read the latest channel messages**
+
+   <Tabs>
+   <TabItem label="Python CLI">
+   ```bash
+   python .agents/bin/channel_cmd.py read --room .agents/war-rooms/room-001 --last 5
+   ```
+   </TabItem>
+   <TabItem label="Direct Read">
+   ```bash
+   tail -5 .agents/war-rooms/room-001/channel.jsonl | python -m json.tool
+   ```
+   </TabItem>
+   </Tabs>
+
+3. **Check the lifecycle definition**
+
+   ```bash
+   cat .agents/war-rooms/room-001/lifecycle.json | python -m json.tool
+   ```
+
+   Verify the current status maps to a valid state with appropriate signals.
+
+4. **Inspect the room config**
+
+   ```bash
+   cat .agents/war-rooms/room-001/config.json | python -m json.tool
+   ```
+
+   Check `depends_on`, `assigned_role`, and `constraints`.
+
+5. **Review the audit log**
+
+   ```bash
+   cat .agents/war-rooms/room-001/audit.log
+   ```
+
+   The audit log records every state transition with timestamps.
+</Steps>
+
+## MCP Audit Logs
+
+The MCP server logs all tool calls and responses:
+
+```bash
+cat .agents/mcp/mcp.log | python -m json.tool
+```
+
+Key things to look for:
+- Tool call failures (non-zero exit codes)
+- Timeout errors
+- Permission denied errors
+- Malformed tool parameters
+
+### MCP Configuration
+
+The MCP config lives at `.agents/mcp/config.json`:
+
+```bash
+cat .agents/mcp/config.json | python -m json.tool
+```
+
+Verify the transport mode (stdio vs SSE) and server endpoints.
+
+## Memory Debugging
+
+When cross-room context is missing or incorrect:
+
+<Steps>
+1. **Check if memory is enabled**
+
+   ```bash
+   python -c "import json; print(json.load(open('.agents/config.json'))['memory'])"
+   ```
+
+2. **Verify the memory daemon is running**
+
+   ```bash
+   .agents/health.sh
+   ```
+
+   Look for the memory daemon status in the output.
+
+3. **List all memory entries**
+
+   Use the memory CLI:
+
+   ```bash
+   python .agents/memory/memory-cli.py list
+   python .agents/memory/memory-cli.py search "grid rendering"
+   ```
+
+4. **Check for superseded entries**
+
+   Superseded entries are excluded from queries. If an expected memory is missing, it may have been superseded:
+
+   ```bash
+   python .agents/memory/memory-cli.py list --include-superseded
+   ```
+
+5. **Restart the memory daemon**
+
+   ```bash
+   .agents/memory/start-memory-daemon.sh
+   ```
+</Steps>
+
+## Dashboard Issues
+
+<Tabs>
+<TabItem label="API Not Responding">
+```bash
+# Check if the API process is running
+cat .agents/dashboard.pid
+ps aux | grep uvicorn
+
+# Restart the dashboard
+.agents/dashboard.sh stop
+.agents/dashboard.sh start
+
+# Check API logs
+tail -50 dashboard/logs/api.log
+```
+</TabItem>
+<TabItem label="Frontend Build Errors">
+```bash
+# Check Node.js version
+node --version  # Should be 20+
+
+# Rebuild
+cd dashboard/fe
+pnpm install
+pnpm build
+
+# Check for TypeScript errors
+pnpm tsc --noEmit
+```
+</TabItem>
+<TabItem label="WebSocket Disconnects">
+```bash
+# Check if the API supports WebSocket
+curl -v http://localhost:8000/ws
+
+# Verify CORS settings in API config
+# Check browser console for connection errors
+```
+</TabItem>
+</Tabs>
+
+## Common Failure Patterns
+
+### Room Stuck in "developing"
+
+**Symptoms**: Room status shows `developing` but no agent is running.
+
+**Diagnosis**:
+```bash
+cat .agents/war-rooms/room-NNN/status
+cat .agents/war-rooms/room-NNN/state_changed_at
+```
+
+If `state_changed_at` is older than `state_timeout_seconds`, the room has timed out.
+
+**Resolution**: The manager should detect this and transition to `failed`. If the manager itself is stuck, restart it.
+
+### Retry Loop
+
+**Symptoms**: Room cycles between `optimize` and `review` without passing.
+
+**Diagnosis**:
+```bash
+cat .agents/war-rooms/room-NNN/retries
+cat .agents/war-rooms/room-NNN/channel.jsonl | grep '"type":"fail"'
+```
+
+**Resolution**: Read the QA fail messages to understand why. Consider escalating via `triage` or increasing `max_retries`.
+
+### DAG Cycle Detection
+
+**Symptoms**: `ostwin run` fails with "Circular dependency detected."
+
+**Diagnosis**: Check `depends_on` fields in the plan for circular references.
+
+**Resolution**: Remove the cycle. Use `ostwin run PLAN.md --dry-run` to validate without executing.
+
+### Agent Timeout
+
+**Symptoms**: Room transitions to `failed` with "timeout exceeded" in the error message.
+
+**Diagnosis**:
+```bash
+cat .agents/war-rooms/room-NNN/channel.jsonl | grep '"type":"error"'
+```
+
+**Resolution**: Increase `timeout_seconds` in the role config or reduce the scope of the epic.
+
+### Channel File Corruption
+
+**Symptoms**: JSON parse errors when reading `channel.jsonl`.
+
+**Diagnosis**:
+```bash
+python -c "
+import json
+with open('.agents/war-rooms/room-NNN/channel.jsonl') as f:
+    for i, line in enumerate(f, 1):
+        try:
+            json.loads(line)
+        except json.JSONDecodeError as e:
+            print(f'Line {i}: {e}')
+"
+```
+
+**Resolution**: The corrupted line was likely caused by an interrupted write. Remove or fix the malformed line. Future writes will use file locking to prevent recurrence.
+
+### Memory Daemon Crash
+
+**Symptoms**: Agents report "memory operation failed" but continue working.
+
+**Diagnosis**:
+```bash
+.agents/health.sh  # Check memory daemon status
+cat .agents/memory/mcp.log  # Check for crash logs
+```
+
+**Resolution**: Restart the daemon with `start-memory-daemon.sh`. Memory operations fail silently by design, so no data is lost — only cross-room context is temporarily unavailable.
+
+:::tip
+When debugging a complex failure, start with `ostwin status --json` for a full snapshot, then drill into the specific room that is failing.
+:::
+
+:::caution
+Never manually edit `status` or `retries` files while the manager is running. Use the channel to send signals instead.
+:::

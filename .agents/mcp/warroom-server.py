@@ -59,15 +59,14 @@ def _resolve_room_dir(room_dir: str) -> str:
 mcp = FastMCP("agent-os-warroom", log_level="CRITICAL")
 
 
-def _get_lifecycle_states(room_dir: str) -> set[str] | None:
-    """Read lifecycle.json and return the set of defined state names, or None."""
+def _get_lifecycle(room_dir: str) -> dict | None:
+    """Read lifecycle.json and return the parsed JSON dictionary, or None."""
     lc_path = os.path.join(room_dir, "lifecycle.json")
     if not os.path.exists(lc_path):
         return None
     try:
         with open(lc_path) as f:
-            lc = json.load(f)
-        return set(lc.get("states", {}).keys())
+            return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -86,6 +85,19 @@ def update_status(
     """
     room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
+
+    # Validate status against lifecycle.json if present
+    lc = _get_lifecycle(room_dir)
+    if lc is not None:
+        valid_states = lc.get("states", {})
+        if status not in valid_states:
+            error_msg = f"Error: Invalid status '{status}'.\n\nValid statuses in lifecycle.json are:\n"
+            for s_name, s_info in valid_states.items():
+                role = s_info.get("role", "none")
+                s_type = s_info.get("type", "unknown")
+                error_msg += f"- {s_name} (assigned role: {role}, type: {s_type})\n"
+            raise ValueError(error_msg)
+
     status_file = os.path.join(room_dir, "status")
 
     # Read old status for audit

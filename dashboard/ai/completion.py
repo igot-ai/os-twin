@@ -38,6 +38,7 @@ class CompletionResult:
 # Async → Sync bridge
 # ---------------------------------------------------------------------------
 
+
 def _run_sync(coro):
     """Execute an async coroutine from sync code.
 
@@ -51,6 +52,7 @@ def _run_sync(coro):
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
+
     # Already inside a loop → use a thread-based loop
     def runner():
         loop = asyncio.new_event_loop()
@@ -58,6 +60,7 @@ def _run_sync(coro):
             return loop.run_until_complete(coro)
         finally:
             loop.close()
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(runner).result()
 
@@ -65,6 +68,7 @@ def _run_sync(coro):
 # ---------------------------------------------------------------------------
 # Error mapping
 # ---------------------------------------------------------------------------
+
 
 def _map_llm_error(exc: Exception) -> AIError:
     """Map a ``LLMError`` (or generic exception) to the ``AIError`` hierarchy.
@@ -178,9 +182,10 @@ def complete(
 
         t0 = _time.time()
         try:
+
             async def _async_chat():
                 return await asyncio.wait_for(
-                    client.chat(chat_messages, tools=tools),
+                    client.chat(chat_messages, tools=tools, response_format=response_format),
                     timeout=cfg.timeout,
                 )
 
@@ -212,8 +217,7 @@ def complete(
                     "id": tc.id,
                     "function": {
                         "name": tc.name,
-                        "arguments": json.dumps(tc.arguments)
-                            if isinstance(tc.arguments, dict) else tc.arguments,
+                        "arguments": json.dumps(tc.arguments) if isinstance(tc.arguments, dict) else tc.arguments,
                     },
                 }
                 for tc in response.tool_calls

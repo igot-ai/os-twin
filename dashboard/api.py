@@ -1,5 +1,19 @@
 import os
 import sys
+import multiprocessing
+
+# ── macOS fork safety — MUST run before ANY C extension loads ──
+# Without this, Python's default `fork` start method triggers
+# "MallocStackLogging: can't turn off malloc stack logging" on macOS
+# when multiprocessing spawns child processes after tokenizers/PyTorch
+# have initialised background threads (common during graph extraction).
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+try:
+    multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass  # Already set by another module
+
 import asyncio
 import time
 import json
@@ -58,8 +72,8 @@ from dashboard.tasks import startup_all
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth, system, mcp, threads, plans, rooms, skills, 
-    roles, memory, amem, channels, command, tunnel, 
+    ai, agent_costs, auth, system, mcp, threads, plans, rooms, skills,
+    roles, memory, amem, channels, command, tunnel,
     files, settings, engagement, knowledge, memory_mcp
 )
 
@@ -90,6 +104,9 @@ _console_handler.setFormatter(
 # triggered default logging configuration before this line.
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
+# Silence noisy httpx/httpcore request logging (connection pools, redirects, etc.)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 if _file_handler not in _root.handlers:
     _root.addHandler(_file_handler)
 if _console_handler not in _root.handlers:
@@ -314,6 +331,8 @@ app.include_router(tunnel.router)
 app.include_router(files.router)
 app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
+app.include_router(ai.router)         # Plan 006: /api/ai/* unified gateway
+app.include_router(agent_costs.router) # Plan 015: /api/ai/agent-costs
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP

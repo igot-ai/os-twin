@@ -63,7 +63,11 @@ def _ensure_correct_interpreter() -> None:
     _os.execv(target, [target, _os.path.abspath(__file__), *_sys.argv[1:]])
 
 
-_ensure_correct_interpreter()
+# Only re-exec when running as a standalone stdio process.  When imported as
+# a module (e.g. by the dashboard for HTTP transport), the host process
+# already has the right interpreter and deps.
+if __name__ == "__main__":
+    _ensure_correct_interpreter()
 
 import json
 import logging
@@ -330,12 +334,13 @@ def _init_memory(cfg=None):
             cfg.vector.backend,
         )
         with _memory_lock:
+            # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
+            # model/provider from MasterSettings. No explicit llm_backend/llm_model
+            # params needed here.
             _memory = AgenticMemorySystem(
                 model_name=cfg.embedding.model,
                 embedding_backend=cfg.embedding.backend,
                 vector_backend=cfg.vector.backend,
-                llm_backend=cfg.llm.backend,
-                llm_model=cfg.llm.model,
                 persist_dir=PERSIST_DIR,
                 context_aware_analysis=cfg.evolution.context_aware,
                 context_aware_tree=cfg.evolution.context_aware_tree,

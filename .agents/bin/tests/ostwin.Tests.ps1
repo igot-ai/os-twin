@@ -393,7 +393,7 @@ Describe "ostwin.ps1 — AGENTS_DIR Resolution" {
             Push-Location '$projectDir'
             try {
                 `$cwd = (Get-Location).Path
-                if ((Test-Path (Join-Path `$cwd '.agents\config.json'))) {
+                if ((Test-Path (Join-Path `$cwd '.agents/config.json'))) {
                     `$AgentsDir = (Resolve-Path (Join-Path `$cwd '.agents')).Path
                     Write-Output `$AgentsDir
                 } else {
@@ -491,7 +491,7 @@ Describe "ostwin.ps1 — Stop Command PID Management" {
         # Test the actual fallback behavior: loop through PID files, skip invalid, use valid one
         # This simulates the production code path in ostwin.ps1 stop command
         $primaryPidFile = Join-Path $script:TempDir "channels.pid"
-        $secondaryPidFile = Join-Path $script:TempDir ".agents\channel.pid"
+        $secondaryPidFile = Join-Path $script:TempDir ".agents/channel.pid"
 
         # Create secondary directory
         $secondaryDir = Split-Path $secondaryPidFile -Parent

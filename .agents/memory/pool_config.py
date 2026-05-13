@@ -83,13 +83,38 @@ class PoolConfig:
     """How often the background sweep thread checks for idle slots (seconds)."""
 
 
+def _load_settings_pool() -> dict:
+    """Load pool overrides from dashboard Settings (config.json["memory"])."""
+    config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            mem = json.load(f).get("memory", {})
+        result = {}
+        for src, dst in [
+            ("pool_idle_timeout_s", "idle_timeout_s"),
+            ("pool_max_instances", "max_instances"),
+            ("pool_eviction_policy", "eviction_policy"),
+            ("pool_sync_interval_s", "sync_interval_s"),
+        ]:
+            if src in mem:
+                result[dst] = mem[src]
+        return result
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return {}
+
+
 def load_pool_config() -> PoolConfig:
-    """Build a PoolConfig from config.default.json ``pool`` section + env vars."""
+    """Build a PoolConfig from Settings → env vars → config.default.json."""
+    # Layer 1: config.default.json defaults
     config_path = _CONFIG_DIR / "config.default.json"
     pool_d: dict = {}
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8") as f:
             pool_d = json.load(f).get("pool", {})
+
+    # Layer 2: Dashboard Settings overrides (config.json["memory"] pool_* fields)
+    settings_pool = _load_settings_pool()
+    pool_d.update(settings_pool)
 
     allowed_env = os.getenv("MEMORY_POOL_ALLOWED_PATHS")
     if allowed_env is not None:

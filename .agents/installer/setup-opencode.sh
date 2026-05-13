@@ -30,7 +30,7 @@ setup_opencode_permissions() {
   mkdir -p "$oc_dir"
 
   if "$py_cmd" "${_OPENCODE_SCRIPTS_DIR}/patch_opencode_permissions.py" "$oc_config"; then
-    ok "OpenCode permissions patched at $oc_config"
+    ok "OpenCode permissions ensured at $oc_config"
   else
     warn "Failed to patch OpenCode permissions — agents may not be able to read .env files"
     info "Manually add to $oc_config:"

@@ -15,6 +15,7 @@ import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
+import { AgentCostsPanel } from '@/components/settings/AgentCostsPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
@@ -126,23 +127,43 @@ function SettingsPageContent() {
 
   const handleRemoveProvider = async (providerId: string) => {
     try {
-      await apiDelete(`/settings/vault/providers/${providerId}`);
-      await apiPost('/models/reload');
-      // Refresh vault status
-      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
-      const entries = raw.keys ?? raw;
-      const status: Record<string, boolean> = {};
-      Object.entries(entries).forEach(([key, value]) => {
-        if (value && typeof value === 'object' && 'is_set' in value) {
-          status[key] = value.is_set;
-        }
-      });
-      setVaultStatus(status);
-      reloadModels();
+      const isSet = vaultStatus[providerId];
+
+      if (isSet) {
+        // First click: remove key
+        await apiDelete(`/settings/vault/providers/${providerId}`);
+        await apiPost('/models/reload');
+
+        // Refresh vault status
+        const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+        const entries = raw.keys ?? raw;
+        const status: Record<string, boolean> = {};
+        Object.entries(entries).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && 'is_set' in value) {
+            status[key] = value.is_set;
+          }
+        });
+        setVaultStatus(status);
+        reloadModels();
+      } else {
+        // Second click (or no key existed): dismiss from UI
+        const provSettings = (providers as Record<string, ProviderSettings>)[providerId] || { enabled: false };
+        updateProvider(providerId, provSettings, { dismissed: true });
+
+        await apiDelete(`/settings/vault/providers/${providerId}`).catch(() => {});
+        await apiPost('/models/reload');
+        reloadModels();
+      }
     } catch { /* ignore */ }
   };
 
-  const handleProviderAdded = async (_providerId: string) => {
+  const handleProviderAdded = async (providerId: string) => {
+    // If the provider was previously dismissed, un-dismiss it
+    const provSettings = (providers as Record<string, ProviderSettings>)[providerId];
+    if (provSettings?.dismissed) {
+      updateProvider(providerId, provSettings, { dismissed: false });
+    }
+
     // Refresh vault status + model catalog
     try {
       const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
@@ -172,13 +193,20 @@ function SettingsPageContent() {
 
 
   // Flat model IDs for backward-compat consumers (RolesPanel)
+  const providers = settings?.providers || {};
+  const defaultProvider = { enabled: true } as ProviderSettings;
+  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
+  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
+  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
+  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
+
   const allModelIds = allModels.length > 0
     ? allModels.map((m) => m.id)
     : Object.values(modelRegistry).flat().map((m) => m.id);
 
-  // Dynamic providers: those configured in auth.json but NOT legacy primary
+  // Dynamic providers: those configured in auth.json but NOT legacy primary, and NOT dismissed
   const dynamicProviderIds = Object.keys(configuredProviders).filter(
-    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid),
+    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid) && !(providers as Record<string, ProviderSettings>)[pid]?.dismissed,
   );
 
   if (isLoading) {
@@ -195,21 +223,19 @@ function SettingsPageContent() {
   if (isError || !settings) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-6xl mb-4 block text-error">error</span>
-          <p className="text-sm text-error">Failed to load settings</p>
+        <div className="text-center text-error">
+          <span className="material-symbols-outlined text-4xl mb-2">error</span>
+          <p className="font-medium">Failed to load settings.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-error text-on-error rounded hover:bg-error/90 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
   }
-
-  // Build provider settings with defaults for the four known providers
-  const defaultProvider = { enabled: true } as ProviderSettings;
-  const providers = settings.providers || {};
-  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
-  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
-  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
-  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
 
   const updateProvider = (name: string, current: ProviderSettings, updates: Partial<ProviderSettings>) =>
     updateNamespace('providers', { ...providers, [name]: { ...current, ...updates } });
@@ -429,6 +455,7 @@ function SettingsPageContent() {
         return (
           <MemoryPanel
             memory={settings.memory || {}}
+            allModels={allModels}
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
           />
         );
@@ -449,6 +476,9 @@ function SettingsPageContent() {
 
       case 'channels':
         return <ChannelsPanel />;
+
+      case 'ai-monitor':
+        return <AgentCostsPanel />;
 
       default:
         return null;

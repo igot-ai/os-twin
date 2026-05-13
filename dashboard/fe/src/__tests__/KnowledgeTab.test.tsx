@@ -185,6 +185,52 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/plans/test-plan-id'),
 }));
 
+// Mock useKnowledgeExplorer hook (used by NexusCanvas's WebGL graph)
+vi.mock('@/hooks/use-knowledge-explorer', () => ({
+  useKnowledgeExplorer: vi.fn(() => ({
+    nodes: [],
+    edges: [],
+    stats: { node_count: 0, edge_count: 0 },
+    activeIgnitionPoints: [],
+    selectedPath: null,
+    activeLens: 'structural',
+    expansionDepth: 1,
+    nodeBrightness: new Map(),
+    isSeeded: false,
+    isSeeding: false,
+    isExpanding: false,
+    isSearching: false,
+    isFindingPath: false,
+    isLoading: false,
+    seed: vi.fn(),
+    ignite: vi.fn(),
+    expand: vi.fn(),
+    search: vi.fn(),
+    findPath: vi.fn(),
+    getNodeDetail: vi.fn(),
+    clearPath: vi.fn(),
+    reset: vi.fn(),
+    setLens: vi.fn(),
+    setExpansionDepth: vi.fn(),
+  })),
+  useKnowledgeExplorerSummary: vi.fn(() => ({
+    summary: null,
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+// Mock next/dynamic to render components directly
+vi.mock('next/dynamic', () => ({
+  __esModule: true,
+  default: () => {
+    return function DynamicMock() {
+      return <div data-testid="webgl-graph" />;
+    };
+  },
+}));
+
+
 vi.mock('@/components/plan/PlanWorkspace', () => ({
   usePlanContext: vi.fn(() => ({
     planId: 'test-plan-id',
@@ -228,7 +274,6 @@ vi.mock('@/components/plan/PlanWorkspace', () => ({
 import KnowledgeTab from '@/components/plan/KnowledgeTab';
 import NamespaceList from '@/components/knowledge/NamespaceList';
 import ImportPanel from '@/components/knowledge/ImportPanel';
-import QueryPanel from '@/components/knowledge/QueryPanel';
 
 describe('KnowledgeTab', () => {
   beforeEach(() => {
@@ -237,41 +282,41 @@ describe('KnowledgeTab', () => {
 
   it('renders the knowledge tab with sub-view tabs', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to finish loading (auto-create namespace logic)
     await waitFor(() => {
       // Check header - shows "Plan Knowledge" in plan context
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check sub-view tabs - in plan context, Namespaces is HIDDEN
     expect(screen.queryByText('Namespaces')).not.toBeInTheDocument();
     expect(screen.getByText('Import')).toBeInTheDocument();
-    expect(screen.getByText('Query')).toBeInTheDocument();
+    expect(screen.getByText('Nexus')).toBeInTheDocument();
   });
 
   it('displays query view by default in plan context', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Should show query form (default in plan context)
-    expect(screen.getByPlaceholderText('Enter your query...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Explore knowledge...')).toBeInTheDocument();
   });
 
   it('switches to Import tab when clicked', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     fireEvent.click(screen.getByText('Import'));
-    
+
     // Since plan namespace is auto-selected, the import form is shown
     // (not "Select a Namespace" anymore)
     expect(screen.getByPlaceholderText('/absolute/path/to/folder')).toBeInTheDocument();
@@ -279,49 +324,49 @@ describe('KnowledgeTab', () => {
 
   it('switches to Query tab when clicked', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
-    fireEvent.click(screen.getByText('Query'));
-    
+
+    fireEvent.click(screen.getByText('Nexus'));
+
     // Since plan namespace is auto-selected, the query form is shown
     // (not "Select a Namespace" anymore)
-    expect(screen.getByPlaceholderText('Enter your query...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Explore knowledge...')).toBeInTheDocument();
   });
-  
+
   it('auto-selects plan namespace and shows it in header', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check that the plan namespace badge is shown in the header
     // (there are multiple elements with the namespace name, so use getAllByText)
     const namespaceElements = screen.getAllByText('test-plan-id');
     expect(namespaceElements.length).toBeGreaterThan(0);
   });
-  
+
   it('shows View All Knowledge button in plan context', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check that the View All Knowledge button is shown
     expect(screen.getByText('View All Knowledge')).toBeInTheDocument();
   });
-  
+
   it('auto-creates namespace if it does not exist', async () => {
     const { useKnowledgeNamespaces } = await import('@/hooks/use-knowledge-namespaces');
     const mockCreateNamespace = vi.fn().mockResolvedValue({});
-    
+
     // Mock namespaces without the plan namespace
     (useKnowledgeNamespaces as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       namespaces: [], // Empty namespaces
@@ -330,9 +375,9 @@ describe('KnowledgeTab', () => {
       createNamespace: mockCreateNamespace,
       refresh: vi.fn(),
     });
-    
+
     render(<KnowledgeTab />);
-    
+
     await waitFor(() => {
       expect(mockCreateNamespace).toHaveBeenCalledWith({
         name: 'test-plan-id',
@@ -420,12 +465,12 @@ describe('NamespaceList', () => {
     );
 
     fireEvent.click(screen.getByText('New'));
-    
+
     // Enter invalid name
-    fireEvent.change(screen.getByPlaceholderText('my-namespace'), { 
-      target: { value: 'Invalid Name!' } 
+    fireEvent.change(screen.getByPlaceholderText('my-namespace'), {
+      target: { value: 'Invalid Name!' }
     });
-    
+
     fireEvent.click(screen.getByText('Create'));
 
     // Should show validation error
@@ -519,7 +564,7 @@ describe('NamespaceList', () => {
 
   it('calls onDelete when delete confirmed', async () => {
     mockOnDelete.mockResolvedValueOnce(undefined);
-    
+
     const namespaces = [
       {
         schema_version: 1,
@@ -726,249 +771,5 @@ describe('ImportPanel', () => {
     // Import button should be disabled
     const importButton = screen.getByText('Import');
     expect(importButton).toBeDisabled();
-  });
-});
-
-describe('QueryPanel', () => {
-  const mockOnExecuteQuery = vi.fn();
-  const mockOnClearResult = vi.fn();
-  const mockOnRefreshGraph = vi.fn();
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('shows select namespace message when none selected', async () => {
-    render(
-      <QueryPanel
-        selectedNamespace={null}
-        queryResult={null}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    expect(screen.getByText('Select a Namespace')).toBeInTheDocument();
-  });
-
-  it('shows query form when namespace selected', async () => {
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={null}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    expect(screen.getByPlaceholderText('Enter your query...')).toBeInTheDocument();
-    expect(screen.getByText('Search')).toBeInTheDocument();
-  });
-
-  it('renders query result with chunks', async () => {
-    const result = {
-      query: 'test query',
-      mode: 'raw',
-      namespace: 'test-ns',
-      chunks: [
-        {
-          text: 'This is a test chunk of text.',
-          score: 0.95,
-          file_path: '/test/file.txt',
-          filename: 'file.txt',
-          chunk_index: 0,
-          total_chunks: 1,
-          file_hash: 'abc123',
-          mime_type: 'text/plain',
-          category_id: null,
-          memory_links: [],
-        },
-      ],
-      entities: [],
-      answer: null,
-      citations: [],
-      latency_ms: 150,
-      warnings: [],
-    };
-
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={result}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    expect(screen.getByText('Relevant Chunks (1)')).toBeInTheDocument();
-    expect(screen.getByText('This is a test chunk of text.')).toBeInTheDocument();
-  });
-
-  it('renders query result with entities', async () => {
-    const result = {
-      query: 'test query',
-      mode: 'graph',
-      namespace: 'test-ns',
-      chunks: [],
-      entities: [
-        {
-          id: 'ent-1',
-          name: 'Test Entity',
-          label: 'person',
-          score: 0.8,
-          description: 'A test entity',
-          category_id: null,
-        },
-      ],
-      answer: null,
-      citations: [],
-      latency_ms: 200,
-      warnings: [],
-    };
-
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={result}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    expect(screen.getByText('Entities (1)')).toBeInTheDocument();
-    expect(screen.getByText('Test Entity')).toBeInTheDocument();
-  });
-
-  it('shows LLM unavailable warning for summarized mode', async () => {
-    const result = {
-      query: 'test query',
-      mode: 'summarized',
-      namespace: 'test-ns',
-      chunks: [],
-      entities: [],
-      answer: null,
-      citations: [],
-      latency_ms: 100,
-      warnings: ['llm_unavailable'],
-    };
-
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={result}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    // Change mode to summarized
-    const modeSelect = screen.getByRole('combobox');
-    fireEvent.change(modeSelect, { target: { value: 'summarized' } });
-
-    // Now the warning should appear
-    await waitFor(() => {
-      expect(screen.getByText('LLM Not Configured')).toBeInTheDocument();
-    });
-  });
-
-  it('renders empty state when no graph nodes', async () => {
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={null}
-        isLoading={false}
-        error={null}
-        graphNodes={[]}
-        graphEdges={[]}
-        graphStats={{ node_count: 0, edge_count: 0 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    expect(screen.getByText('No entities yet')).toBeInTheDocument();
-  });
-
-  it('renders graph with nodes', async () => {
-    const nodes = [
-      {
-        id: 'node-1',
-        label: 'person',
-        name: 'John Doe',
-        score: 1.0,
-        properties: {},
-      },
-      {
-        id: 'node-2',
-        label: 'organization',
-        name: 'Acme Corp',
-        score: 0.9,
-        properties: {},
-      },
-    ];
-
-    const edges = [
-      {
-        source: 'node-1',
-        target: 'node-2',
-        label: 'WORKS_FOR',
-      },
-    ];
-
-    render(
-      <QueryPanel
-        selectedNamespace="test-ns"
-        queryResult={null}
-        isLoading={false}
-        error={null}
-        graphNodes={nodes}
-        graphEdges={edges}
-        graphStats={{ node_count: 2, edge_count: 1 }}
-        graphLoading={false}
-        onExecuteQuery={mockOnExecuteQuery}
-        onClearResult={mockOnClearResult}
-        onRefreshGraph={mockOnRefreshGraph}
-      />
-    );
-
-    // Should show stats badge in the graph panel
-    expect(screen.getByText('2 nodes · 1 edges')).toBeInTheDocument();
   });
 });

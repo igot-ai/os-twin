@@ -10,6 +10,7 @@ agents to access .env files without interactive prompts.
 import json
 import sys
 import os
+from copy import deepcopy
 
 
 def patch_permissions(config_path: str) -> None:
@@ -19,9 +20,10 @@ def patch_permissions(config_path: str) -> None:
             config = json.load(f)
     else:
         config = {"$schema": "https://opencode.ai/config.json"}
+    original_config = deepcopy(config)
 
-    # Ensure "permission" key exists as a dict
-    read_perm = {
+    # Ensure permission.read exists and allows .env-style files.
+    env_read_allow = {
         "*": "allow",
         "*.env": "allow",
         "*.env.*": "allow",
@@ -30,7 +32,7 @@ def patch_permissions(config_path: str) -> None:
     perm = config.get("permission")
     if perm is None:
         config["permission"] = {}
-        config["permission"] = read_perm
+        perm = config["permission"]
     if isinstance(perm, str):
         # e.g. "allow" — convert to dict, preserving intent
         config["permission"] = {"*": perm}
@@ -55,12 +57,11 @@ def patch_permissions(config_path: str) -> None:
             read_perm["*.env.*"] = "allow"
             read_perm["*.env.example"] = "allow"
         else:
-            perm["read"] = {
-                "*": "allow",
-                "*.env": "allow",
-                "*.env.*": "allow",
-                "*.env.example": "allow",
-            }
+            perm["read"] = dict(env_read_allow)
+
+    if config == original_config:
+        print(f"    OpenCode permissions already up to date at {config_path}")
+        return
 
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)

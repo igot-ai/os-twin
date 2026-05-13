@@ -66,8 +66,8 @@ class TestGeminiEmbeddingFunction(unittest.TestCase):
 
     @patch.object(_retrievers_mod, 'litellm')
     def test_call_returns_truncated_embeddings(self, mock_litellm):
-        """__call__ delegates to litellm and truncates/pads to 768."""
-        # Return 1024-dim vectors — should be truncated to 768
+        """__call__ delegates to litellm and truncates/pads to 1024."""
+        # Return 1024-dim vectors — should be truncated to 1024
         mock_item = {"embedding": [0.1] * 1024}
         mock_response = MagicMock()
         mock_response.data = [mock_item]
@@ -80,15 +80,15 @@ class TestGeminiEmbeddingFunction(unittest.TestCase):
             model="gemini/test-model", input=["hello"],
             dimensions=EMBEDDING_DIMENSION,
         )
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
 
-    def test_dimension_always_returns_768(self):
+    def test_dimension_always_returns_1024(self):
         """dimension always returns EMBEDDING_DIMENSION regardless of model."""
         fn = GeminiEmbeddingFunction()
-        self.assertEqual(fn.dimension, 768)
+        self.assertEqual(fn.dimension, 1024)
 
         fn2 = GeminiEmbeddingFunction(model_name="gemini/unknown-model")
-        self.assertEqual(fn2.dimension, 768)
+        self.assertEqual(fn2.dimension, 1024)
 
 
 # =========================================================================
@@ -104,7 +104,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         self.assertIsNone(fn._model)
 
     @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
-    def test_call_truncates_to_768(self, mock_ensure):
+    def test_call_truncates_to_1024(self, mock_ensure):
         """__call__ truncates output to EMBEDDING_DIMENSION."""
         mock_model = MagicMock()
         # Simulate a model that returns 1024-dim vectors
@@ -114,7 +114,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         fn = SentenceTransformerEmbedding()
         result = fn(["test"])
 
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
 
     @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
     def test_call_pads_short_vectors(self, mock_ensure):
@@ -126,17 +126,17 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         fn = SentenceTransformerEmbedding()
         result = fn(["test"])
 
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
         self.assertEqual(result[0][:3], [1.0, 2.0, 3.0])
         self.assertEqual(result[0][3], 0.0)  # padded with zeros
 
-    def test_dimension_always_returns_768(self):
+    def test_dimension_always_returns_1024(self):
         """dimension always returns EMBEDDING_DIMENSION regardless of model."""
         fn = SentenceTransformerEmbedding()
-        self.assertEqual(fn.dimension, 768)
+        self.assertEqual(fn.dimension, 1024)
 
         fn2 = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
-        self.assertEqual(fn2.dimension, 768)
+        self.assertEqual(fn2.dimension, 1024)
 
     def test_ensure_model_imports_sentence_transformer(self):
         """_ensure_model imports and instantiates SentenceTransformer."""
@@ -204,8 +204,8 @@ class TestOllamaEmbeddingFunction(unittest.TestCase):
         self.assertEqual(fn._model_name, "leoipulsar/harrier-0.6b")
 
     @patch.dict("sys.modules", {"ollama": MagicMock()})
-    def test_call_truncates_to_768(self):
-        """__call__ should truncate 1024-dim Ollama output to 768."""
+    def test_call_truncates_to_1024(self):
+        """__call__ should truncate 1024-dim Ollama output to 1024."""
         import sys
         mock_ollama = sys.modules["ollama"]
         mock_ollama.embed.return_value = {
@@ -215,11 +215,11 @@ class TestOllamaEmbeddingFunction(unittest.TestCase):
         fn = OllamaEmbeddingFunction(model_name="leoipulsar/harrier-0.6b")
         result = fn(["hello"])
 
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
 
     @patch.dict("sys.modules", {"ollama": MagicMock()})
     def test_call_pads_short_vectors(self):
-        """__call__ should pad <768-dim Ollama output to 768."""
+        """__call__ should pad <1024-dim Ollama output to 1024."""
         import sys
         mock_ollama = sys.modules["ollama"]
         mock_ollama.embed.return_value = {
@@ -229,20 +229,20 @@ class TestOllamaEmbeddingFunction(unittest.TestCase):
         fn = OllamaEmbeddingFunction(model_name="small-model")
         result = fn(["hello"])
 
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
         self.assertEqual(result[0][255], 0.5)
         self.assertEqual(result[0][256], 0.0)  # zero-padded
 
-    def test_dimension_always_returns_768(self):
+    def test_dimension_always_returns_1024(self):
         """dimension always returns EMBEDDING_DIMENSION regardless of model."""
         fn = OllamaEmbeddingFunction(model_name="leoipulsar/harrier-0.6b")
-        self.assertEqual(fn.dimension, 768)
+        self.assertEqual(fn.dimension, 1024)
 
         fn2 = OllamaEmbeddingFunction(model_name="embeddinggemma")
-        self.assertEqual(fn2.dimension, 768)
+        self.assertEqual(fn2.dimension, 1024)
 
         fn3 = OllamaEmbeddingFunction(model_name="qwen3-embedding:0.6b")
-        self.assertEqual(fn3.dimension, 768)
+        self.assertEqual(fn3.dimension, 1024)
 
 
 # =========================================================================
@@ -264,13 +264,13 @@ class TestVertexEmbeddingFunction(unittest.TestCase):
         self.assertEqual(fn._model_name, "text-embedding-005")
         self.assertEqual(fn._task_type, "RETRIEVAL_QUERY")
 
-    def test_dimension_always_returns_768(self):
+    def test_dimension_always_returns_1024(self):
         """dimension always returns EMBEDDING_DIMENSION."""
         fn = VertexEmbeddingFunction()
-        self.assertEqual(fn.dimension, 768)
+        self.assertEqual(fn.dimension, 1024)
 
         fn2 = VertexEmbeddingFunction(model_name="text-embedding-005")
-        self.assertEqual(fn2.dimension, 768)
+        self.assertEqual(fn2.dimension, 1024)
 
 
 # =========================================================================
@@ -281,16 +281,16 @@ class TestTruncateToDim(unittest.TestCase):
 
     def test_truncates_long_vectors(self):
         result = _truncate_to_dim([[0.1] * 1024])
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
 
     def test_pads_short_vectors(self):
         result = _truncate_to_dim([[1.0, 2.0, 3.0]])
-        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(len(result[0]), 1024)
         self.assertEqual(result[0][:3], [1.0, 2.0, 3.0])
         self.assertTrue(all(v == 0.0 for v in result[0][3:]))
 
     def test_exact_dimension_unchanged(self):
-        vec = [0.5] * 768
+        vec = [0.5] * 1024
         result = _truncate_to_dim([vec])
         self.assertEqual(result[0], vec)
 

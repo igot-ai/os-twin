@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { apiGet } from '@/lib/api-client';
 import { JobStatusResponse } from '@/hooks/use-knowledge-import';
+import { useSettings } from '@/hooks/use-settings';
+import { useConfiguredModels } from '@/hooks/use-configured-models';
+import { ModelSelect } from '@/components/settings/ModelSelect';
 
 /* ── Inline Folder Browser ─────────────────────────────────────────── */
 
@@ -101,12 +104,12 @@ function FolderBrowserInline({
   const dirCount = browseResult?.dirs?.length ?? 0;
 
   return (
-    <div 
+    <div
       className="rounded-lg border overflow-hidden"
       style={{ borderColor: 'var(--color-border)', background: 'var(--color-background)' }}
     >
       {/* Breadcrumb */}
-      <div 
+      <div
         className="flex items-center gap-1 px-3 py-2 border-b text-xs font-mono overflow-x-auto whitespace-nowrap"
         style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-faint)' }}
       >
@@ -138,7 +141,7 @@ function FolderBrowserInline({
           );
         })}
         {isLoading && (
-          <span 
+          <span
             className="ml-auto w-3 h-3 border border-t-transparent rounded-full animate-spin shrink-0"
             style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }}
           />
@@ -240,8 +243,8 @@ function formatTimestamp(isoString: string): string {
 }
 
 function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean }) {
-  const progress = job.progress_total > 0 
-    ? Math.round((job.progress_current / job.progress_total) * 100) 
+  const progress = job.progress_total > 0
+    ? Math.round((job.progress_current / job.progress_total) * 100)
     : 0;
 
   const stateColors: Record<string, string> = {
@@ -263,21 +266,21 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
   };
 
   return (
-    <div 
+    <div
       className={`rounded-xl border p-4 ${isLatest ? 'ring-2 ring-primary/20' : ''}`}
-      style={{ 
-        background: 'var(--color-surface-hover)', 
-        borderColor: 'var(--color-border)' 
+      style={{
+        background: 'var(--color-surface-hover)',
+        borderColor: 'var(--color-border)'
       }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span 
+          <span
             className="w-2 h-2 rounded-full animate-pulse"
             style={{ background: stateColors[job.state] }}
           />
-          <span 
+          <span
             className="text-xs font-semibold uppercase tracking-wide"
             style={{ color: stateColors[job.state] }}
           >
@@ -305,11 +308,11 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
               {job.progress_current} / {job.progress_total} ({progress}%)
             </span>
           </div>
-          <div 
+          <div
             className="h-1.5 rounded-full overflow-hidden"
             style={{ background: 'var(--color-border)' }}
           >
-            <div 
+            <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${progress}%`, background: 'var(--color-primary)' }}
             />
@@ -333,7 +336,7 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
 
       {/* Errors */}
       {job.errors.length > 0 && (
-        <div 
+        <div
           className="mt-3 p-2 rounded-lg text-xs"
           style={{ background: 'var(--color-danger-muted)', color: 'var(--color-danger)' }}
         >
@@ -356,31 +359,47 @@ export default function ImportPanel({
   selectedNamespace,
   jobs,
   activeJob,
-  isLoading,
   onStartImport,
   onRefresh,
 }: ImportPanelProps) {
   const [folderPath, setFolderPath] = useState('');
-  const [chunkSize, setChunkSize] = useState(512);
-  const [overlap, setOverlap] = useState(50);
+  const chunkSize = 2048;
+  const overlap = 512;
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [llmModel, setLlmModel] = useState('');
+  const [visionOcr, setVisionOcr] = useState(true);
+  const [visionOcrModel, setVisionOcrModel] = useState('gemini-2.0-flash');
+  const [showModelSettings, setShowModelSettings] = useState(false);
+
+  const { settings } = useSettings();
+  const configuredLlmModel = settings?.knowledge?.knowledge_llm_model ?? '';
+  const { allModels, providers } = useConfiguredModels();
+  const chatModels = useMemo(
+    () => allModels.filter((m) => !m.id.toLowerCase().includes('embed')),
+    [allModels],
+  );
 
   const handleImport = useCallback(async () => {
     if (!folderPath.trim()) return;
-    
+
     setIsSubmitting(true);
     try {
-      await onStartImport(folderPath.trim(), {
+      const options: Record<string, unknown> = {
         chunk_size: chunkSize,
         overlap,
-      });
+        vision_ocr: visionOcr,
+        vision_ocr_model: visionOcr ? visionOcrModel : '',
+      };
+      if (llmModel.trim()) {
+        options.llm_model = llmModel.trim();
+      }
+      await onStartImport(folderPath.trim(), options);
       setFolderPath('');
     } finally {
       setIsSubmitting(false);
     }
-  }, [folderPath, chunkSize, overlap, onStartImport]);
+  }, [folderPath, chunkSize, overlap, visionOcr, visionOcrModel, llmModel, onStartImport]);
 
   const handleBrowseSelect = useCallback((path: string) => {
     setFolderPath(path);
@@ -394,7 +413,7 @@ export default function ImportPanel({
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-3">
-          <span 
+          <span
             className="material-symbols-outlined text-[48px]"
             style={{ color: 'var(--color-text-muted)' }}
           >
@@ -414,11 +433,11 @@ export default function ImportPanel({
   return (
     <div className="h-full overflow-y-auto p-4" style={{ scrollbarWidth: 'thin' }}>
       {/* Import form */}
-      <div 
+      <div
         className="rounded-xl border p-4 mb-4"
-        style={{ 
-          background: 'var(--color-surface)', 
-          borderColor: 'var(--color-border)' 
+        style={{
+          background: 'var(--color-surface)',
+          borderColor: 'var(--color-border)'
         }}
       >
         <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-main)' }}>
@@ -428,7 +447,7 @@ export default function ImportPanel({
         <div className="space-y-3">
           {/* Folder path input */}
           <div>
-            <label 
+            <label
               className="block text-xs font-medium mb-1.5"
               style={{ color: 'var(--color-text-muted)' }}
             >
@@ -441,8 +460,8 @@ export default function ImportPanel({
                 onChange={(e) => setFolderPath(e.target.value)}
                 placeholder="/absolute/path/to/folder"
                 className="flex-1 px-3 py-2 rounded-lg border text-sm"
-                style={{ 
-                  background: 'var(--color-background)', 
+                style={{
+                  background: 'var(--color-background)',
                   borderColor: 'var(--color-border)',
                   color: 'var(--color-text-main)'
                 }}
@@ -450,8 +469,8 @@ export default function ImportPanel({
               <button
                 onClick={() => setShowBrowser(!showBrowser)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                  showBrowser 
-                    ? 'bg-primary/10 border-primary/30 text-primary' 
+                  showBrowser
+                    ? 'bg-primary/10 border-primary/30 text-primary'
                     : 'border-border text-text-muted hover:bg-surface-hover hover:text-text-main'
                 }`}
                 aria-label="Browse folders"
@@ -496,69 +515,160 @@ export default function ImportPanel({
             </div>
           )}
 
-          {/* Options toggle */}
+          {/* Model Settings toggle */}
           <button
-            onClick={() => setShowOptions(!showOptions)}
+            onClick={() => setShowModelSettings(!showModelSettings)}
             className="flex items-center gap-1 text-xs font-medium transition-colors"
             style={{ color: 'var(--color-text-muted)' }}
           >
             <span className="material-symbols-outlined text-[16px]">
-              {showOptions ? 'expand_less' : 'expand_more'}
+              {showModelSettings ? 'expand_less' : 'expand_more'}
             </span>
-            Import Options
+            Advanced Settings
           </button>
 
-          {/* Options panel */}
-          {showOptions && (
-            <div 
-              className="p-3 rounded-lg space-y-3"
-              style={{ background: 'var(--color-background)' }}
+          {/* Model Settings panel */}
+          {showModelSettings && (
+            <div
+              className="p-4 rounded-lg space-y-5 border"
+              style={{ background: 'var(--color-background)', borderColor: 'var(--color-border)' }}
             >
-              <div>
-                <label 
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  Chunk Size: {chunkSize}
-                </label>
-                <input
-                  type="range"
-                  min={128}
-                  max={2048}
-                  step={128}
-                  value={chunkSize}
-                  onChange={(e) => setChunkSize(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-              <div>
-                <label 
-                  className="block text-xs font-medium mb-1"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  Overlap: {overlap}
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={256}
-                  step={16}
-                  value={overlap}
-                  onChange={(e) => setOverlap(Number(e.target.value))}
-                  className="w-full"
-                />
+              <div className="space-y-4">
+                <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Processing Models</h4>
+                {/* Entity Extraction Model */}
+                <div>
+                  <label
+                    className="block text-xs font-medium mb-1"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    <span className="flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">hub</span>
+                      Entity Extraction Model
+                    </span>
+                  </label>
+                  {chatModels.length > 0 ? (
+                    <ModelSelect
+                      value={llmModel}
+                      onChange={setLlmModel}
+                      models={chatModels}
+                      providers={providers}
+                      placeholder={configuredLlmModel || 'Use server default'}
+                      showTier={true}
+                      showContext={true}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      placeholder={configuredLlmModel || 'e.g. gpt-4o, claude-sonnet-4-20250514'}
+                      className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
+                      style={{
+                        background: 'var(--color-surface)',
+                        borderColor: 'var(--color-border)',
+                        color: 'var(--color-text-main)'
+                      }}
+                    />
+                  )}
+                  <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+                    {configuredLlmModel
+                      ? `Default from settings: ${configuredLlmModel}. Leave blank to use default.`
+                      : 'Leave blank to use the default model from settings.'}
+                  </p>
+                </div>
+
+                {/* Vision OCR */}
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={() => setVisionOcr(!visionOcr)}
+                      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 mt-0.5"
+                      style={{ background: visionOcr ? 'var(--color-primary)' : 'var(--color-border)' }}
+                      role="switch"
+                      aria-checked={visionOcr}
+                    >
+                      <span
+                        className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+                        style={{ transform: visionOcr ? 'translateX(18px)' : 'translateX(2px)' }}
+                      />
+                    </button>
+                    <div>
+                      <label
+                        className="block text-xs font-medium"
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px]">document_scanner</span>
+                          Vision OCR
+                        </span>
+                      </label>
+                      <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+                        Extract text from PDF/DOCX/PPTX pages via vision model
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Vision OCR Model */}
+                  {visionOcr && (
+                    <div className="ml-12 pl-3 border-l-2" style={{ borderColor: 'var(--color-border)' }}>
+                      <label
+                        className="block text-xs font-medium mb-1"
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px]">visibility</span>
+                          OCR Model
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                            style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+                          >
+                            Gemini Flash recommended
+                          </span>
+                        </span>
+                      </label>
+                      {chatModels.length > 0 ? (
+                        <ModelSelect
+                          value={visionOcrModel}
+                          onChange={setVisionOcrModel}
+                          models={chatModels}
+                          providers={providers}
+                          placeholder="gemini-2.0-flash"
+                          showTier={true}
+                          showContext={true}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={visionOcrModel}
+                          onChange={(e) => setVisionOcrModel(e.target.value)}
+                          placeholder="gemini-2.0-flash"
+                          className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
+                          style={{
+                            background: 'var(--color-surface)',
+                            borderColor: 'var(--color-border)',
+                            color: 'var(--color-text-main)'
+                          }}
+                        />
+                      )}
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+                        Gemini Flash offers the best speed/cost ratio for document OCR. Also supports gpt-4o, claude-sonnet-4-20250514, etc.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
+
         </div>
 
         {/* Active job warning */}
         {activeJob && (
-          <div 
+          <div
             className="mt-3 p-2 rounded-lg text-xs flex items-center gap-2"
-            style={{ 
-              background: 'var(--color-warning-muted)', 
-              color: 'var(--color-warning)' 
+            style={{
+              background: 'var(--color-warning-muted)',
+              color: 'var(--color-warning)'
             }}
           >
             <span className="material-symbols-outlined text-[16px]">info</span>
@@ -585,7 +695,7 @@ export default function ImportPanel({
 
       {jobs.length === 0 ? (
         <div className="text-center py-8">
-          <span 
+          <span
             className="material-symbols-outlined text-[32px] mb-2"
             style={{ color: 'var(--color-text-muted)' }}
           >

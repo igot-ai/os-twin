@@ -23,6 +23,8 @@ import os
 import time
 import urllib.request
 import urllib.error
+import ollama
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -136,15 +138,7 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
 
             cost = model_data.get("cost", {})
 
-            # Companion models (google-vertex/*, google-vertex-anthropic/*) already
-            # have the companion-provider prefix baked into their model_id key, so
-            # they must be kept as-is.  All other providers need the
-            # "provider_id/model_id" composite so the registry id is routable
-            # (e.g. "poe/topazlabs-co/topazlabs", "anthropic/claude-opus-4-6").
-            if model_data.get("companion_provider"):
-                registry_id = model_id  # already like "google-vertex/gemini-3-flash"
-            else:
-                registry_id = f"{provider_id}/{model_id}"
+            registry_id = f"{provider_id}/{model_id}"
 
             model_entry = {
                 "id": registry_id,
@@ -168,35 +162,233 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
     return registry
 
 
-def get_available_providers() -> List[Dict[str, Any]]:
-    """Return ALL providers from models.dev (not just configured ones).
+@lru_cache(maxsize=1024)
+def get_context_limit(provider_id: str, model_id: str) -> tuple[int, int]:
+    """Return (context_limit, output_limit) for a given provider and model.
 
-    Used by the "Add Provider" modal so users can browse and select
-    a provider to configure.  Each entry has:
-    ``id``, ``name``, ``logo_url``, ``model_count``, ``doc``, ``env``.
+    If model_id contains a slash (e.g. "openai/gpt-4o"), it will be split.
+    Uses @lru_cache for performance.
+
+    Returns (0, 0) if not found.
     """
-    raw = _read_cached_raw()
-    if raw is None:
-        raw = _fetch_models_dev() or {}
 
-    configured = set((_read_configured_providers() or {}).keys())
+    if provider_id == "ollama":
+        extra = show_ollama_model(model_id)
+        ctx = extra.get("context_length") or 32768
+        out = 2048
+        return ctx, out
 
-    result: List[Dict[str, Any]] = []
-    for pid, pdata in sorted(raw.items(), key=lambda kv: kv[1].get("name", kv[0])):
-        if not isinstance(pdata, dict) or "models" not in pdata:
+    if "/" in model_id:
+        p_prefix, m_id = model_id.split("/", 1)
+        if p_prefix:
+            provider_id = p_prefix
+            model_id = m_id
+
+    configured = get_configured_models()
+    provider_data = configured.get("providers", {}).get(provider_id)
+    if not provider_data:
+        return 0, 0
+
+    model_data = provider_data.get("models", {}).get(model_id)
+    if not model_data:
+        return 0, 0
+
+    limit = model_data.get("limit", {})
+    ctx = limit.get("context", 0)
+    out = limit.get("output", 0)
+
+    return ctx, out
+
+
+def count_tokens(messages: List[Dict[str, Any]], model: str = "gpt-4o") -> int:
+    """Approximate token count for a list of messages.
+
+    Uses tiktoken if available, falls back to character count heuristic.
+    """
+    try:
+        import tiktoken
+
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+
+        n = 0
+        for m in messages:
+            n += 4  # overhead
+            for k, v in m.items():
+                if isinstance(v, str):
+                    n += len(encoding.encode(v))
+        n += 2  # priming
+        return n
+    except Exception:
+        # Fallback: sum of string lengths / 4
+        return sum(len(str(v)) for m in messages for v in m.values()) // 4
+
+
+def _trim_text(text: str, max_chars: int) -> str:
+    """Trim text to at most max_chars, preserving start of content."""
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 0:
+        return ""
+    return text[:max_chars]
+
+
+def truncate_messages(
+    messages: List[Dict[str, Any]],
+    context_limit: int,
+    buffer_percent: float = 0.1,
+    model: str = "gpt-4o",
+) -> List[Dict[str, Any]]:
+    """Truncate messages to fit within context_limit with a buffer (default 10%).
+
+    Instead of removing messages, this trims message content from the tail
+    so that the total token count fits within 90% of context_limit.
+    System messages are preserved intact as long as possible; the last
+    non-system message is trimmed first.
+    """
+    if context_limit <= 0:
+        return messages
+
+    target = int(context_limit * (1.0 - buffer_percent))
+    result = [dict(m) for m in messages]
+
+    total = count_tokens(result, model)
+    if total <= target:
+        return result
+
+    # Strategy: trim from the end of the last non-system message content.
+    # If that is still too large after trimming to empty, proceed to the
+    # previous non-system message, and so on.
+    non_system_indices = [i for i, m in enumerate(result) if m.get("role") != "system"]
+
+    for idx in reversed(non_system_indices):
+        if total <= target:
+            break
+        content = result[idx].get("content", "")
+        if not isinstance(content, str) or not content:
             continue
-        result.append(
-            {
-                "id": pid,
-                "name": pdata.get("name", pid),
-                "logo_url": get_provider_logo_url(pid),
-                "model_count": len(pdata.get("models", {})),
-                "doc": pdata.get("doc", ""),
-                "env": pdata.get("env", []),
-                "already_configured": pid in configured,
-            }
-        )
+
+        # Binary-search for the max content length that fits
+        lo, hi = 0, len(content)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            result[idx]["content"] = content[:mid]
+            if count_tokens(result, model) <= target:
+                lo = mid
+            else:
+                hi = mid - 1
+
+        result[idx]["content"] = content[:lo]
+        total = count_tokens(result, model)
+
+    # If still over (e.g. system message alone exceeds limit), trim it too
+    if total > target:
+        for idx, m in enumerate(result):
+            if total <= target:
+                break
+            content = m.get("content", "")
+            if not isinstance(content, str) or not content:
+                continue
+            lo, hi = 0, len(content)
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                result[idx]["content"] = content[:mid]
+                if count_tokens(result, model) <= target:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            result[idx]["content"] = content[:lo]
+            total = count_tokens(result, model)
+
     return result
+
+
+# ── Ollama SDK Integration ──────────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def list_ollama_models() -> List[Dict[str, Any]]:
+    """List locally available Ollama models using the Python SDK (cached)."""
+    try:
+        resp = ollama.list()
+        # resp.models is a list of Model objects
+        result = []
+        for m in getattr(resp, "models", []):
+            details = getattr(m, "details", None)
+            result.append(
+                {
+                    "model": m.model,
+                    "modified_at": m.modified_at.isoformat() if m.modified_at else "",
+                    "size": m.size,
+                    "family": details.family if details else "",
+                    "parameter_size": details.parameter_size if details else "",
+                    "quantization_level": details.quantization_level if details else "",
+                }
+            )
+        return result
+    except Exception as exc:
+        logger.debug("Failed to list Ollama models: %s", exc)
+        return []
+
+
+@lru_cache(maxsize=128)
+def show_ollama_model(model_name: str) -> Dict[str, Any]:
+    """Return detailed information about an Ollama model (cached).
+
+    Extracts context length and other metadata from modelinfo if available.
+    """
+    try:
+        resp = ollama.show(model_name)
+        info = getattr(resp, "modelinfo", {})
+        arch = info.get("general.architecture")
+        ctx_len = 0
+        if arch:
+            ctx_len = info.get(f"{arch}.context_length", 0)
+
+        return {
+            "modelfile": getattr(resp, "modelfile", ""),
+            "parameters": getattr(resp, "parameters", ""),
+            "template": getattr(resp, "template", ""),
+            "system": getattr(resp, "system", ""),
+            "details": getattr(resp, "details", {}),
+            "modelinfo": info,
+            "context_length": ctx_len,
+        }
+    except Exception as exc:
+        logger.debug("Failed to show Ollama model '%s': %s", model_name, exc)
+        return {}
+
+
+def truncate_messages_for_model(
+    messages: List[Dict[str, Any]],
+    provider: str,
+    model: str,
+    buffer_percent: float = 0.1,
+) -> List[Dict[str, Any]]:
+    """Truncate message content to fit within a model's context window.
+
+    Orchestrates context-limit lookup (including Ollama SDK fallback) and
+    delegates to :func:`truncate_messages` for the actual content trimming.
+
+    Returns the input list unchanged when the context limit cannot be
+    determined or the messages already fit.
+    """
+    clean_model = model
+    if "/" in clean_model:
+        clean_model = clean_model.split("/", 1)[1]
+
+    ctx_limit, _ = get_context_limit(provider, clean_model)
+
+    if ctx_limit <= 0 and provider == "ollama":
+        info = show_ollama_model(clean_model)
+        ctx_limit = info.get("context_length", 0)
+
+    if ctx_limit <= 0:
+        return messages
+
+    return truncate_messages(messages, ctx_limit, buffer_percent=buffer_percent, model=clean_model)
 
 
 def invalidate_cache() -> None:
@@ -204,9 +396,13 @@ def invalidate_cache() -> None:
     global _cached_models, _cached_timestamp
     _cached_models = None
     _cached_timestamp = 0.0
+    get_context_limit.cache_clear()
+    list_ollama_models.cache_clear()
+    show_ollama_model.cache_clear()
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
+
 
 
 def _fetch_models_dev() -> Optional[Dict[str, Any]]:
@@ -313,6 +509,11 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
             }
     except Exception as exc:
         logger.debug("Vault provider discovery skipped: %s", exc)
+
+    # 5. Always inject Google deployment mode if Google is present.
+    # Because it dictates which companion catalogs to merge.
+    if "google" in providers:
+        providers["google"]["deployment_mode"] = _read_google_deployment_mode()
 
     return providers
 
@@ -423,21 +624,16 @@ def _build_configured_models(
                 "models": {},
             }
 
-        # Resolve companion providers early so step 1 can skip base
-        # models when companions will supply properly-prefixed ones.
+        # Resolve companion providers.
         mode = provider_cfg.get("deployment_mode", "")
         companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
         companion_ids = companions_by_mode.get(mode, []) if mode else []
-        # If no mode-specific entry, try a flat list fallback
         if not companion_ids and isinstance(companions_by_mode, list):
             companion_ids = companions_by_mode
 
-        # ── 1) Ingest models.dev models ───────────────────────────
-        # When companion providers are active (e.g. google in vertex
-        # mode), skip base models — they have bare IDs and aren't
-        # routable via the companion API.  All models come from the
-        # companion catalog with properly prefixed IDs instead.
-        if raw_provider is not None and not companion_ids:
+        # ── 1) Ingest models.dev base models ──────────────────────
+        # Always include base models regardless of deployment mode.
+        if raw_provider is not None:
             for model_id, model_data in raw_provider.get("models", {}).items():
                 provider_entry["models"][model_id] = {
                     "id": model_id,
@@ -455,20 +651,29 @@ def _build_configured_models(
                     "source": "models.dev",
                 }
 
-        # ── 2) Ingest companion provider models ───────────────────
-
+        # ── 2) Emit companion providers as SEPARATE top-level entries
+        # This ensures the UI groups them independently (e.g. "Google
+        # Vertex AI" vs "Google") rather than merging everything under
+        # one flat list.
         for companion_id in companion_ids:
-            companion = raw_catalog.get(companion_id)
-            if companion is None:
+            companion_raw = raw_catalog.get(companion_id)
+            if companion_raw is None:
                 continue
-            for model_id, model_data in companion.get("models", {}).items():
-                # Prefix model id with companion provider so it's
-                # unique and routable: "google-vertex/gemini-3-flash"
-                prefixed_id = f"{companion_id}/{model_id}"
-                if prefixed_id in provider_entry["models"]:
-                    continue
-                provider_entry["models"][prefixed_id] = {
-                    "id": prefixed_id,
+            companion_entry = {
+                "id": companion_id,
+                "name": companion_raw.get("name", companion_id),
+                "doc": companion_raw.get("doc", ""),
+                "api": companion_raw.get("api", ""),
+                "npm": companion_raw.get("npm", ""),
+                "env": companion_raw.get("env", []),
+                "logo_url": get_provider_logo_url(provider_id),
+                "source": "companion",
+                "parent_provider": provider_id,
+                "models": {},
+            }
+            for model_id, model_data in companion_raw.get("models", {}).items():
+                companion_entry["models"][model_id] = {
+                    "id": model_id,
                     "name": model_data.get("name", model_id),
                     "family": model_data.get("family", ""),
                     "reasoning": model_data.get("reasoning", False),
@@ -483,6 +688,8 @@ def _build_configured_models(
                     "source": "models.dev",
                     "companion_provider": companion_id,
                 }
+            if companion_entry["models"]:
+                result["providers"][companion_id] = companion_entry
 
         # ── 3) Merge custom models from opencode.json ─────────────
         if custom_block is not None:
@@ -509,6 +716,33 @@ def _build_configured_models(
                     "release_date": "",
                     "source": "custom",
                 }
+
+        # ── 4) Merge local Ollama models if provider is ollama ────
+        if provider_id == "ollama":
+            local_models = list_ollama_models()
+            for lm in local_models:
+                m_id = lm["model"]
+                if m_id not in provider_entry["models"]:
+                    # Fetch extra details (context window) for local models
+                    extra = show_ollama_model(m_id)
+                    ctx_len = extra.get("context_length") or 32768
+
+                    provider_entry["models"][m_id] = {
+                        "id": m_id,
+                        "name": m_id,
+                        "family": lm.get("family", ""),
+                        "reasoning": False,
+                        "tool_call": True,  # Heuristic for Ollama models
+                        "attachment": False,
+                        "temperature": True,
+                        "cost": {"input": 0, "output": 0},
+                        "limit": {"context": ctx_len, "output": 4096},
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                        "source": "ollama-local",
+                        "size": lm.get("size"),
+                        "parameter_size": lm.get("parameter_size"),
+                        "quantization_level": lm.get("quantization_level"),
+                    }
 
         if provider_entry["models"]:
             result["providers"][provider_id] = provider_entry

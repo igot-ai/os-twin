@@ -1,28 +1,18 @@
+"""Unit tests for memory_llm.MemoryLLM (replaces old llm_controller tests).
+
+These tests verify the MemoryLLM class which is the replacement for the
+old llm_controller.py that had 6 separate backend classes.
+"""
+
 import json
-import unittest
-from unittest.mock import Mock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_memory.llm_controller import (
-    BaseLLMController,
-    LLMController,
-    OllamaController,
-    OpenAIController,
-    SGLangController,
-)
+from dashboard.llm_wrapper import BaseLLMWrapper
+from agentic_memory.memory_llm import MemoryLLM
 
 
-class DummyLLMController(BaseLLMController):
-    def get_completion(
-        self, prompt: str, response_format: dict = None, temperature: float = 1.0
-    ) -> str:
-        del prompt, response_format, temperature
-        return "{}"
-
-
-class TestBaseLLMController(unittest.TestCase):
-    def setUp(self):
-        self.controller = DummyLLMController()
-
+class TestBaseLLMWrapperEmptyResponse:
     def test_generate_empty_response_matches_schema(self):
         response_format = {
             "json_schema": {
@@ -36,89 +26,125 @@ class TestBaseLLMController(unittest.TestCase):
                 }
             }
         }
+        result = BaseLLMWrapper._generate_empty_response(response_format)
+        assert result == {
+            "keywords": [],
+            "context": "",
+            "score": 0,
+            "enabled": False,
+        }
 
-        self.assertEqual(
-            self.controller._generate_empty_response(response_format),
-            {
-                "keywords": [],
-                "context": "",
-                "score": 0,
-                "enabled": False,
-            },
-        )
+    def test_generate_empty_response_no_json_schema(self):
+        result = BaseLLMWrapper._generate_empty_response({})
+        assert result == {}
+
+    def test_generate_empty_value_all_types(self):
+        assert BaseLLMWrapper._generate_empty_value("array") == []
+        assert BaseLLMWrapper._generate_empty_value("string") == ""
+        assert BaseLLMWrapper._generate_empty_value("object") == {}
+        assert BaseLLMWrapper._generate_empty_value("number") == 0
+        assert BaseLLMWrapper._generate_empty_value("integer") == 0
+        assert BaseLLMWrapper._generate_empty_value("boolean") is False
+        assert BaseLLMWrapper._generate_empty_value("unknown") is None
 
 
-class TestSGLangController(unittest.TestCase):
-    def setUp(self):
-        self.controller = SGLangController(
-            model="meta-llama/Llama-3.1-8B-Instruct",
-            sglang_host="http://localhost",
-            sglang_port=30000,
-        )
+class TestMemoryLLMInit:
+    def test_init_with_explicit_params(self):
+        llm = MemoryLLM(model="gemini-pro", provider="google", api_key="test-key")
+        assert llm.model == "gemini-pro"
+        assert llm.provider == "google"
+        assert llm._explicit_key == "test-key"
 
-    @patch("agentic_memory.llm_controller.requests.post")
-    def test_get_completion_success_uses_stringified_schema(self, mock_post):
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"text": '{"keywords": ["memory"]}'}
-        mock_post.return_value = mock_response
+    @patch.dict("os.environ", {"MEMORY_LLM_MODEL": "gpt-4", "MEMORY_LLM_BACKEND": "openai"})
+    def test_init_resolves_from_env(self):
+        with patch("agentic_memory.memory_llm.MemoryLLM._resolve_model", return_value="gpt-4"):
+            with patch("agentic_memory.memory_llm.MemoryLLM._resolve_provider", return_value="openai"):
+                llm = MemoryLLM()
+                assert llm.model == "gpt-4"
+                assert llm.provider == "openai"
 
+    def test_is_available_no_model(self):
+        llm = MemoryLLM(model="", api_key="test-key")
+        assert not llm.is_available()
+
+    def test_is_available_with_model_and_key(self):
+        llm = MemoryLLM(model="gemini-pro", api_key="test-key")
+        assert llm.is_available()
+
+
+class TestMemoryLLMGetCompletion:
+    def test_get_completion_unavailable_returns_empty(self):
+        llm = MemoryLLM(model="", api_key="")
+        result = llm.get_completion("test prompt")
+        assert result == ""
+
+    def test_get_completion_unavailable_with_format_returns_empty_json(self):
+        llm = MemoryLLM(model="", api_key="")
         response_format = {
             "json_schema": {
                 "schema": {
-                    "properties": {"keywords": {"type": "array"}},
+                    "properties": {"keywords": {"type": "array"}}
                 }
             }
         }
+        result = llm.get_completion("test prompt", response_format=response_format)
+        parsed = json.loads(result)
+        assert parsed == {"keywords": []}
 
-        result = self.controller.get_completion(
-            "test prompt", response_format, temperature=0.4
-        )
+    @patch("dashboard.llm_wrapper.run_sync")
+    def test_get_completion_available_returns_text(self, mock_run_sync):
+        mock_response = MagicMock()
+        mock_response.content = "Hello from LLM"
+        mock_run_sync.return_value = mock_response
 
-        self.assertEqual(result, '{"keywords": ["memory"]}')
-        payload = mock_post.call_args.kwargs["json"]
-        self.assertEqual(payload["text"], "test prompt")
-        self.assertEqual(payload["sampling_params"]["temperature"], 0.4)
-        self.assertIsInstance(payload["sampling_params"]["json_schema"], str)
-        self.assertEqual(
-            json.loads(payload["sampling_params"]["json_schema"]),
-            response_format["json_schema"]["schema"],
-        )
+        llm = MemoryLLM(model="gemini-pro", provider="google", api_key="test-key")
+        with patch.object(llm, "is_available", return_value=True):
+            result = llm.get_completion("test prompt")
+        assert result == "Hello from LLM"
 
-    @patch("agentic_memory.llm_controller.requests.post")
-    def test_get_completion_returns_empty_payload_on_server_error(self, mock_post):
-        mock_response = Mock()
-        mock_response.status_code = 500
-        mock_response.text = "Internal Server Error"
-        mock_post.return_value = mock_response
+    @patch("dashboard.llm_wrapper.run_sync")
+    def test_get_completion_timeout_returns_empty(self, mock_run_sync):
+        import asyncio
+        mock_run_sync.side_effect = asyncio.TimeoutError()
 
-        result = self.controller.get_completion(
-            "test prompt",
-            {
+        llm = MemoryLLM(model="gemini-pro", provider="google", api_key="test-key")
+        with patch.object(llm, "is_available", return_value=True):
+            result = llm.get_completion("test prompt")
+        assert result == ""
+
+    @patch("dashboard.llm_wrapper.run_sync")
+    def test_get_completion_with_format_and_schema(self, mock_run_sync):
+        mock_response = MagicMock()
+        mock_response.content = '{"keywords": ["memory", "test"]}'
+        mock_run_sync.return_value = mock_response
+
+        llm = MemoryLLM(model="gemini-pro", provider="google", api_key="test-key")
+        with patch.object(llm, "is_available", return_value=True):
+            response_format = {
                 "json_schema": {
-                    "schema": {"properties": {"context": {"type": "string"}}}
+                    "schema": {
+                        "properties": {"keywords": {"type": "array", "items": {"type": "string"}}}
+                    }
                 }
-            },
-        )
+            }
+            result = llm.get_completion("Extract keywords", response_format=response_format)
+        parsed = json.loads(result)
+        assert parsed["keywords"] == ["memory", "test"]
 
-        self.assertEqual(json.loads(result), {"context": ""})
 
+class TestExtractJson:
+    def test_extract_json_plain(self):
+        assert BaseLLMWrapper._extract_json('{"a": 1}') == {"a": 1}
 
-class TestLLMControllerDispatch(unittest.TestCase):
-    def test_openai_backend_selection_is_patchable(self):
-        with patch.object(OpenAIController, "__init__", return_value=None):
-            controller = LLMController(
-                backend="openai", model="gpt-4o-mini", api_key="test-key"
-            )
+    def test_extract_json_fenced(self):
+        assert BaseLLMWrapper._extract_json('```json\n{"a": 1}\n```') == {"a": 1}
 
-        self.assertIsInstance(controller.llm, OpenAIController)
+    def test_extract_json_embedded(self):
+        result = BaseLLMWrapper._extract_json('Here is the data: {"a": 1} done')
+        assert result == {"a": 1}
 
-    def test_ollama_backend_selection_is_patchable(self):
-        with patch.object(OllamaController, "__init__", return_value=None):
-            controller = LLMController(backend="ollama", model="llama2")
+    def test_extract_json_array(self):
+        assert BaseLLMWrapper._extract_json('[1, 2, 3]') == [1, 2, 3]
 
-        self.assertIsInstance(controller.llm, OllamaController)
-
-    def test_invalid_backend_raises(self):
-        with self.assertRaises(ValueError):
-            LLMController(backend="invalid")
+    def test_extract_json_invalid(self):
+        assert BaseLLMWrapper._extract_json("no json here") is None
