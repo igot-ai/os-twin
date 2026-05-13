@@ -551,30 +551,6 @@ async def browser_screenshot(
 
 
 @mcp.tool()
-async def browser_pdf(
-    path: Annotated[str, Field(description="Filename for PDF (will be sanitized)")] = "page.pdf",
-) -> str:
-    """Save current page as PDF.
-
-    Returns JSON with 'success' and 'path' or 'error'.
-    """
-    if _page is None:
-        return json.dumps({"success": False, "error": "No page open"})
-
-    download_dir = _resolve_download_dir()
-    try:
-        safe_path = _safe_download_path(download_dir, path)
-    except ValueError as e:
-        return json.dumps({"success": False, "error": str(e)})
-
-    try:
-        await _page.pdf(path=safe_path)
-        return json.dumps({"success": True, "path": safe_path})
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)})
-
-
-@mcp.tool()
 async def browser_click_and_download(
     selector: Annotated[str, Field(description="CSS selector or @eN ref for download trigger")],
     expected_filename: Annotated[str, Field(description="Expected download filename (will be sanitized)")] = "",
