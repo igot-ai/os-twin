@@ -1,21 +1,37 @@
 {
   "name": "qa-automation-engineer",
-  "description": "Design and implement comprehensive Pester test suites for the ostwin CLI, ensuring zero regressions and validating subcommand, cloning, error analysis, and redesign workflows.",
+  "description": "Cross-platform browser feature automation tester - verifies runtime targets, automates browser testing via Obscura/Playwright MCP, captures screenshot evidence, and produces QA reports with PASS/FAIL/BLOCKED verdicts.",
   "capabilities": [
-    "powershell-scripting",
-    "pester-testing",
-    "cli-automation",
-    "json-validation",
-    "mocking-and-stubbing"
+    "browser-automation",
+    "screenshot-capture",
+    "feature-testing",
+    "console-monitoring",
+    "network-inspection",
+    "cross-platform-testing"
   ],
   "prompt_file": "ROLE.md",
-  "quality_gates": [],
+  "quality_gates": [
+    "runtime-verified",
+    "screenshot-evidence-captured",
+    "qa-report-written"
+  ],
   "skills": [
     "global",
     "roles"
   ],
   "cli": "agent",
   "model": "google-vertex/gemini-3-flash-preview",
-  "timeout": 600,
-  "instance_type": "worker"
+  "timeout": 2400,
+  "instance_type": "evaluator",
+  "skill_refs": [
+    "build-verify",
+    "runnable-verify",
+    "review-task",
+    "critique",
+    "audit"
+  ],
+  "mcp_refs": [
+    "obscura-browser",
+    "playwright"
+  ]
 }
