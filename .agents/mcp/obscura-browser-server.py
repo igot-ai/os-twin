@@ -530,6 +530,8 @@ async def browser_screenshot(
 ) -> str:
     """Capture screenshot of current page.
 
+    Uses CDP Page.captureScreenshot directly for Obscura compatibility.
+    Falls back to Playwright helper for non-Obscura backends.
     Returns JSON with 'success', 'path', and a short base64 'data_preview' or 'error'.
     """
     if _page is None:
@@ -542,12 +544,24 @@ async def browser_screenshot(
         return json.dumps({"success": False, "error": str(e)})
 
     try:
-        await _page.screenshot(path=safe_path, full_page=full_page)
-        with open(safe_path, "rb") as f:
-            data_preview = base64.b64encode(f.read()).decode("utf-8")[:100] + "..."
+        cdp = await _page.context.new_cdp_session(_page)
+        fmt = "png" if safe_path.endswith(".png") else "jpeg"
+        result = await cdp.send("Page.captureScreenshot", {"format": fmt, "quality": 80} if fmt == "jpeg" else {"format": fmt})
+        await cdp.detach()
+        import base64 as _b64
+        img_bytes = _b64.b64decode(result["data"])
+        with open(safe_path, "wb") as f:
+            f.write(img_bytes)
+        data_preview = result["data"][:100] + "..."
         return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)})
+        try:
+            await _page.screenshot(path=safe_path, full_page=full_page)
+            with open(safe_path, "rb") as f:
+                data_preview = base64.b64encode(f.read()).decode("utf-8")[:100] + "..."
+            return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
+        except Exception as e2:
+            return json.dumps({"success": False, "error": f"CDP screenshot failed: {e}; Playwright fallback failed: {e2}"})
 
 
 @mcp.tool()
