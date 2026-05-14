@@ -24,6 +24,7 @@
   "timeout": 2400,
   "instance_type": "evaluator",
   "skill_refs": [
+    "agent-browser",
     "build-verify",
     "runnable-verify",
     "review-task",
