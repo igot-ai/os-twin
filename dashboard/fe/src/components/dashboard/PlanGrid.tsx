@@ -25,7 +25,7 @@ export default function PlanGrid() {
   }, [search]);
 
   // Server-side zvec vector search via ?q= parameter
-  const { plans, isLoading, isError } = usePlans(debouncedSearch);
+  const { plans, isLoading, isError, deletePlan } = usePlans(debouncedSearch);
 
   const filteredPlans = useMemo(() => {
     if (!plans) return [];
@@ -130,6 +130,7 @@ export default function PlanGrid() {
                 key={plan.plan_id} 
                 plan={plan} 
                 isFocused={index === selectedIndex}
+                onDelete={deletePlan}
               />
             ))}
           </div>

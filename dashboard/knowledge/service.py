@@ -975,6 +975,88 @@ class KnowledgeService:
             _log_call(namespace, "import_folder", "error", latency_ms, {"actor": actor, "error": str(exc)})
             raise
 
+    def import_text(
+        self,
+        namespace: str,
+        text: str,
+        source_label: str = "inline",
+        options: Optional[dict[str, Any]] = None,
+        actor: str = "anonymous",
+    ) -> dict:
+        """Synchronously ingest plain text into ``namespace``.
+
+        Unlike :meth:`import_folder` (which submits a background job), this
+        returns the result dict directly. However, the actual ingestion
+        runs in a **dedicated thread** because ``PropertyGraphIndex.insert_nodes()``
+        internally calls ``asyncio.run()``, which fails when called from
+        within a running event loop (e.g. FastMCP / uvicorn).
+
+        - Auto-creates the namespace when it doesn't exist.
+        - Uses concurrent-import protection (same as ``import_folder``).
+        - Returns a result dict with ``chunks_added``, ``entities_added``,
+          ``relations_added``, ``elapsed_seconds``.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from dashboard.knowledge.ingestion import IngestOptions
+
+        start_time = time.perf_counter()
+
+        try:
+            if self._nm.get(namespace) is None:
+                embedder = self._get_embedder()
+                self._nm.create(
+                    namespace,
+                    embedding_model=embedder.model_name,
+                    embedding_dimension=embedder.dimension(),
+                )
+
+            ns_meta = self._nm.get(namespace)
+            if ns_meta is not None:
+                embedder = self._get_embedder()
+                actual_dim = embedder.dimension()
+                if ns_meta.embedding_dimension != actual_dim:
+                    raise RuntimeError(
+                        f"Namespace {namespace!r} was created with "
+                        f"embedding model {ns_meta.embedding_model!r} "
+                        f"(dim={ns_meta.embedding_dimension}), but the "
+                        f"current embedder is {embedder.model_name!r} "
+                        f"(dim={actual_dim}). Delete the namespace and "
+                        f"re-create it, or switch back to the original "
+                        f"embedding model."
+                    )
+
+            opts = IngestOptions(**(options or {}))
+            ingestor = self._get_ingestor()
+
+            register_import(namespace, "__pending_text__")
+
+            def _run_ingest():
+                return ingestor.ingest_text(
+                    namespace,
+                    text,
+                    source_label=source_label,
+                    options=opts,
+                )
+
+            try:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    result = pool.submit(_run_ingest).result()
+            finally:
+                unregister_import(namespace)
+
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            _log_call(namespace, "import_text", "success", latency_ms, {"actor": actor})
+            return result
+
+        except ImportInProgressError:
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            _log_call(namespace, "import_text", "import_in_progress", latency_ms, {"actor": actor})
+            raise
+        except Exception as exc:
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            _log_call(namespace, "import_text", "error", latency_ms, {"actor": actor, "error": str(exc)})
+            raise
+
     def get_job(self, job_id: str) -> Any:
         """Return the :class:`JobStatus` for ``job_id`` (or None if unknown)."""
         return self._get_job_manager().get(job_id)

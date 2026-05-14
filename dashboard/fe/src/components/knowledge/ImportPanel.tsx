@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { apiGet } from '@/lib/api-client';
-import { JobStatusResponse } from '@/hooks/use-knowledge-import';
+import { JobStatusResponse, useKnowledgeTextImport, ImportTextResponse } from '@/hooks/use-knowledge-import';
 import { useSettings } from '@/hooks/use-settings';
 import { useConfiguredModels } from '@/hooks/use-configured-models';
 import { ModelSelect } from '@/components/settings/ModelSelect';
@@ -371,6 +371,13 @@ export default function ImportPanel({
   const [visionOcr, setVisionOcr] = useState(true);
   const [visionOcrModel, setVisionOcrModel] = useState('gemini-2.0-flash');
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [importMode, setImportMode] = useState<'folder' | 'text'>('folder');
+  const [textValue, setTextValue] = useState('');
+  const [sourceLabel, setSourceLabel] = useState('inline');
+  const [textResult, setTextResult] = useState<ImportTextResponse | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
+
+  const { startImportText, isLoading: isTextLoading } = useKnowledgeTextImport();
 
   const { settings } = useSettings();
   const configuredLlmModel = settings?.knowledge?.knowledge_llm_model ?? '';
@@ -409,6 +416,29 @@ export default function ImportPanel({
     setShowBrowser(false);
   }, []);
 
+  const handleTextImport = useCallback(async () => {
+    if (!textValue.trim() || !selectedNamespace) return;
+    setTextResult(null);
+    setTextError(null);
+    try {
+      const options: Record<string, unknown> = {
+        chunk_size: chunkSize,
+        chunk_overlap: overlap,
+      };
+      if (llmModel.trim()) {
+        options.llm_model = llmModel.trim();
+      }
+      const result = await startImportText(selectedNamespace, {
+        text: textValue.trim(),
+        source_label: sourceLabel.trim() || 'inline',
+        options,
+      });
+      setTextResult(result);
+    } catch (err) {
+      setTextError(err instanceof Error ? err.message : String(err));
+    }
+  }, [textValue, sourceLabel, selectedNamespace, chunkSize, overlap, llmModel, startImportText]);
+
   if (!selectedNamespace) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -440,6 +470,34 @@ export default function ImportPanel({
           borderColor: 'var(--color-border)'
         }}
       >
+        {/* Mode tabs */}
+        <div className="flex gap-1 mb-3 p-0.5 rounded-lg" style={{ background: 'var(--color-background)' }}>
+          <button
+            onClick={() => setImportMode('folder')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              importMode === 'folder' 
+                ? 'bg-primary text-white shadow-sm' 
+                : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px]">folder_open</span>
+            Import Folder
+          </button>
+          <button
+            onClick={() => setImportMode('text')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              importMode === 'text' 
+                ? 'bg-primary text-white shadow-sm' 
+                : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px]">edit_note</span>
+            Paste Text
+          </button>
+        </div>
+
+        {importMode === 'folder' ? (
+        <>
         <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-main)' }}>
           Import Folder
         </h3>
@@ -663,7 +721,7 @@ export default function ImportPanel({
         </div>
 
         {/* Active job warning */}
-        {activeJob && (
+        {activeJob && importMode === 'folder' && (
           <div
             className="mt-3 p-2 rounded-lg text-xs flex items-center gap-2"
             style={{
@@ -674,6 +732,172 @@ export default function ImportPanel({
             <span className="material-symbols-outlined text-[16px]">info</span>
             An import job is already running. Wait for it to complete before starting a new one.
           </div>
+        )}
+        </>
+        ) : (
+        /* ── Text Import Mode ────────────────────────────────────────── */
+        <div className="space-y-3">
+          <div>
+            <label 
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              Source Label
+            </label>
+            <input
+              type="text"
+              value={sourceLabel}
+              onChange={(e) => setSourceLabel(e.target.value)}
+              placeholder="inline"
+              className="w-full px-3 py-2 rounded-lg border text-sm"
+              style={{ 
+                background: 'var(--color-background)', 
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text-main)'
+              }}
+            />
+            <p className="text-[10px] mt-1" style={{ color: 'var(--color-text-faint)' }}>
+              A label to identify this text source (shown in chunk metadata)
+            </p>
+          </div>
+
+          <div>
+            <label 
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              Text Content *
+            </label>
+            <textarea
+              value={textValue}
+              onChange={(e) => setTextValue(e.target.value)}
+              placeholder="Paste or type text to ingest directly into the knowledge graph..."
+              rows={8}
+              className="w-full px-3 py-2 rounded-lg border text-sm resize-y"
+              style={{ 
+                background: 'var(--color-background)', 
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text-main)',
+                minHeight: '120px'
+              }}
+            />
+            <div className="flex justify-between mt-1">
+              <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+                {textValue.length.toLocaleString()} / 100,000 characters
+              </p>
+              {textValue.length > 100_000 && (
+                <p className="text-[10px]" style={{ color: 'var(--color-danger)' }}>
+                  Text exceeds maximum length
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Text LLM Model */}
+          <button
+            onClick={() => setShowModelSettings(!showModelSettings)}
+            className="flex items-center gap-1 text-xs font-medium transition-colors"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              {showModelSettings ? 'expand_less' : 'expand_more'}
+            </span>
+            Advanced Settings
+          </button>
+
+          {showModelSettings && (
+            <div 
+              className="p-4 rounded-lg space-y-4 border"
+              style={{ background: 'var(--color-background)', borderColor: 'var(--color-border)' }}
+            >
+              <div>
+                <label 
+                  className="block text-xs font-medium mb-1"
+                  style={{ color: 'var(--color-text-muted)' }}
+                >
+                  <span className="flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">hub</span>
+                    Entity Extraction Model
+                  </span>
+                </label>
+                {chatModels.length > 0 ? (
+                  <ModelSelect
+                    value={llmModel}
+                    onChange={setLlmModel}
+                    models={chatModels}
+                    providers={providers}
+                    placeholder={configuredLlmModel || 'Use server default'}
+                    showTier={true}
+                    showContext={true}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={llmModel}
+                    onChange={(e) => setLlmModel(e.target.value)}
+                    placeholder={configuredLlmModel || 'e.g. gpt-4o, claude-sonnet-4-20250514'}
+                    className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
+                    style={{ 
+                      background: 'var(--color-surface)', 
+                      borderColor: 'var(--color-border)',
+                      color: 'var(--color-text-main)'
+                    }}
+                  />
+                )}
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+                  Leave blank to use the default model from settings.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Submit button */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleTextImport}
+              disabled={isTextLoading || !textValue.trim() || textValue.length > 100_000}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[16px]">
+                {isTextLoading ? 'progress_activity' : 'add_circle'}
+              </span>
+              {isTextLoading ? 'Ingesting...' : 'Ingest Text'}
+            </button>
+          </div>
+
+          {/* Inline result */}
+          {textResult && (
+            <div 
+              className="p-3 rounded-lg text-xs flex items-start gap-2"
+              style={{ background: 'var(--color-success-muted)', color: 'var(--color-success)' }}
+            >
+              <span className="material-symbols-outlined text-[16px] mt-0.5">check_circle</span>
+              <div>
+                <p className="font-semibold">Text ingested successfully</p>
+                <p className="mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                  {textResult.chunks_added} chunk{textResult.chunks_added !== 1 ? 's' : ''}, {' '}
+                  {textResult.entities_added} entit{textResult.entities_added !== 1 ? 'ies' : 'y'}, {' '}
+                  {textResult.relations_added} relation{textResult.relations_added !== 1 ? 's' : ''} {' '}
+                  in {textResult.elapsed_seconds.toFixed(2)}s
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Inline error */}
+          {textError && (
+            <div 
+              className="p-3 rounded-lg text-xs flex items-start gap-2"
+              style={{ background: 'var(--color-danger-muted)', color: 'var(--color-danger)' }}
+            >
+              <span className="material-symbols-outlined text-[16px] mt-0.5">error</span>
+              <div>
+                <p className="font-semibold">Ingestion failed</p>
+                <p className="mt-1">{textError}</p>
+              </div>
+            </div>
+          )}
+        </div>
         )}
       </div>
 

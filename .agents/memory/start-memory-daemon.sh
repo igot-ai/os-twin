@@ -19,6 +19,12 @@ PORT=""
 PROJECT_DIR=""
 ACTION="start"
 
+# Portable symlink resolution: readlink -f works on Linux and recent macOS,
+# but falls back to python on older macOS where -f is unsupported.
+_realpath() {
+  readlink -f "$1" 2>/dev/null || python3 -c "import os; print(os.path.realpath('$1'))"
+}
+
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,7 +75,7 @@ if [[ -z "$PROJECT_DIR" ]]; then
 fi
 PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
 
-PERSIST_DIR="$PROJECT_DIR/.memory"
+PERSIST_DIR="$(_realpath "$PROJECT_DIR/.memory")"
 PID_FILE="$PERSIST_DIR/.daemon.pid"
 
 # Auto-derive port if not specified

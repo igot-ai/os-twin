@@ -1,11 +1,16 @@
 'use client';
 
-
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 export default function PlanSidebar() {
-  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving, launchPlan, isLaunching } = usePlanContext();
+  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving, launchPlan, isLaunching, deletePlan } = usePlanContext();
+  const router = useRouter();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const tabs = [
     { id: 'editor', label: 'Planner', icon: 'edit_document' },
@@ -118,7 +123,32 @@ export default function PlanSidebar() {
           </span>
           {isSaving ? 'Saving...' : 'Save Plan'}
         </button>
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold text-red-600 hover:bg-red-500/10 transition-all"
+        >
+          <span className="material-symbols-outlined text-[18px]">delete</span>
+          Delete Plan
+        </button>
       </div>
+
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={async () => {
+          setIsDeleting(true);
+          try {
+            await deletePlan();
+            router.push('/plans');
+          } finally {
+            setIsDeleting(false);
+            setShowDeleteConfirm(false);
+          }
+        }}
+        title="Delete Plan"
+        message={`Are you sure you want to delete "${plan.title}"? This will permanently remove all plan files, war-rooms, and related data.`}
+        isLoading={isDeleting}
+      />
 
       {/* Footer Info */}
       <div className="p-4 bg-surface-alt border-t border-border">

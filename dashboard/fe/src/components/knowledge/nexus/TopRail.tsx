@@ -47,7 +47,7 @@ export default function TopRail({ searchInputRef }: TopRailProps) {
       {graph.isSeeded && (
         <>
           <div className="w-px h-5 shrink-0" style={{ background: 'var(--color-border)' }} />
-          <LensSelector active={graph.activeLens} onSet={actions.setLens} />
+          <LensSelector />
         </>
       )}
     </div>

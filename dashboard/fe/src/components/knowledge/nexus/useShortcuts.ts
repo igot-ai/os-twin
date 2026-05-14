@@ -6,7 +6,8 @@ interface ShortcutHandlers {
   onFocusSearch: () => void;
   onClearSelection: () => void;
   onReset: () => void;
-  onSetLens: (lens: 'structural' | 'semantic' | 'category') => void;
+  onToggleCommunity: () => void;
+  onToggleDegree: () => void;
   onToggleLeftDock: () => void;
   onToggleRightDock: () => void;
 }
@@ -15,7 +16,8 @@ export function useShortcuts({
   onFocusSearch,
   onClearSelection,
   onReset,
-  onSetLens,
+  onToggleCommunity,
+  onToggleDegree,
   onToggleLeftDock,
   onToggleRightDock,
 }: ShortcutHandlers) {
@@ -35,14 +37,11 @@ export function useShortcuts({
       case 'r':
         onReset();
         break;
-      case '1':
-        onSetLens('structural');
+      case 'c':
+        onToggleCommunity();
         break;
-      case '2':
-        onSetLens('semantic');
-        break;
-      case '3':
-        onSetLens('category');
+      case 'd':
+        onToggleDegree();
         break;
       case '[':
         onToggleLeftDock();
@@ -51,7 +50,7 @@ export function useShortcuts({
         onToggleRightDock();
         break;
     }
-  }, [onFocusSearch, onClearSelection, onReset, onSetLens, onToggleLeftDock, onToggleRightDock]);
+  }, [onFocusSearch, onClearSelection, onReset, onToggleCommunity, onToggleDegree, onToggleLeftDock, onToggleRightDock]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);

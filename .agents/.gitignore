@@ -4,3 +4,4 @@
 .war-rooms/
 .agents/*
 !.agents/memory/
+.memory

@@ -59,6 +59,7 @@ interface PlanContextType {
   // Edit Epic Drawer — signal edit mode from context menu / card
   isEditingEpic: boolean;
   setIsEditingEpic: (editing: boolean) => void;
+  deletePlan: () => Promise<void>;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -86,7 +87,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   // URL format: /plans/{id} → pathSegments = ['plans', '{id}']
   const planId = (pathSegments?.[0] === 'plans' && pathSegments?.[1]) ? pathSegments[1] : propId;
 
-  const { plan, syncStatus, isLoading: planLoading, isError: planError, reloadFromDisk } = usePlan(planId);
+  const { plan, syncStatus, isLoading: planLoading, isError: planError, reloadFromDisk, deletePlan } = usePlan(planId);
   const { epics: apiEpics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
   const { dag } = useDAG(planId);
   const { progress, isLoading: isProgressLoading, refresh: refreshProgress } = useWarRoomProgress(planId);
@@ -400,6 +401,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     // Edit Epic Drawer
     isEditingEpic,
     setIsEditingEpic,
+    deletePlan,
   };
 
   if (planLoading && !plan) {
