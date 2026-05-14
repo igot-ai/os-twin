@@ -308,7 +308,7 @@ class BridgeIndex:
         
         try:
             # Use MemoryNote.from_file for robust parsing
-            from agentic_memory.memory_note import MemoryNote
+            from dashboard.agentic_memory.memory_note import MemoryNote
             note = MemoryNote.from_file(filepath)
             
             # Extract knowledge links using the dedicated method

@@ -9,7 +9,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_memory.memory_llm import MemoryLLM
+from dashboard.agentic_memory.memory_llm import MemoryLLM
 from dashboard.llm_wrapper import BaseLLMWrapper
 
 
@@ -26,7 +26,7 @@ class TestOllamaConnectionErrorThroughMemoryLLM:
 
 class TestOllamaEmbeddingConnectionError:
     def test_ollama_embedding_connection_error(self):
-        from agentic_memory.retrievers import OllamaEmbeddingFunction
+        from dashboard.agentic_memory.retrievers import OllamaEmbeddingFunction
 
         embedder = OllamaEmbeddingFunction(model_name="harrier")
 
@@ -38,7 +38,7 @@ class TestOllamaEmbeddingConnectionError:
                 embedder(["test document"])
 
     def test_ollama_embedding_model_not_found(self):
-        from agentic_memory.retrievers import OllamaEmbeddingFunction
+        from dashboard.agentic_memory.retrievers import OllamaEmbeddingFunction
 
         class MockResponseError(Exception):
             def __init__(self, message, status_code):

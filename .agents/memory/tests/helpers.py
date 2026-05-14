@@ -5,7 +5,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 
 _STOP_WORDS = {

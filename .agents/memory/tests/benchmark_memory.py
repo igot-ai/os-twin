@@ -85,7 +85,7 @@ def main():
     # Add parent dir to path so we can import agentic_memory
     mem_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, mem_root)
-    from agentic_memory.memory_system import AgenticMemorySystem
+    from dashboard.agentic_memory.memory_system import AgenticMemorySystem
     print_stage("2. After importing agentic_memory", t, baseline_kb)
 
     # --- Stage 3: Initialize ---

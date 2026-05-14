@@ -212,7 +212,7 @@ class TestEmbeddingDimensionFixed:
         assert DEFAULT_EMBEDDING_DIMENSION == 1024
 
     def test_memory_retrievers_uses_shared_dimension(self):
-        from agentic_memory.retrievers import EMBEDDING_DIMENSION
+        from dashboard.agentic_memory.retrievers import EMBEDDING_DIMENSION
         from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION
         assert EMBEDDING_DIMENSION == DEFAULT_EMBEDDING_DIMENSION
 
