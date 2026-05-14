@@ -280,10 +280,17 @@ class RuntimeSettings(BaseModel):
 class MemorySettings(BaseModel):
     """Memory system settings.
 
-    LLM and embedding model selection is handled by the AI gateway
-    (``dashboard/ai/`` + Provider Config).  These fields control the
-    memory system's own behaviour, search tuning, and pool management.
+    These fields control the memory system's LLM/embedding backend selection,
+    search tuning, pool management, and sync behaviour.
+
+    The ``llm_backend`` / ``embedding_backend`` fields use the same vocabulary
+    as the AI gateway (``"ollama"``, ``"openai-compatible"``, ``"gemini"``,
+    ``"openai"``, ``"anthropic"``, etc.).  When set to ``"openai-compatible"``,
+    the companion ``*_compatible_url`` / ``*_compatible_key`` fields provide
+    the endpoint URL and optional API key for the custom server.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     # -- Vector store --
     vector_backend: str = "zvec"  # zvec | chroma
@@ -308,9 +315,20 @@ class MemorySettings(BaseModel):
     pool_eviction_policy: str = "lru"  # lru | oldest | none
     pool_sync_interval_s: int = 60  # per-slot sync interval
 
+    # -- LLM (memory-specific processing model) --
+    llm_backend: str = ""  # ollama | openai-compatible | gemini | openai | anthropic | …
+    llm_model: str = ""  # e.g. llama3.2, google-vertex/gemini-3-flash-preview (empty = use gateway default)
+    llm_compatible_url: str = ""  # API endpoint URL (only used when llm_backend="openai-compatible")
+    llm_compatible_key: str = ""  # API key (only used when llm_backend="openai-compatible")
+
     # -- Embedding (memory-specific, overrides knowledge embedding if set) --
-    embedding_provider: str = ""  # gemini | vertex | ollama | sentence-transformers
+    embedding_backend: str = ""  # ollama | openai-compatible | gemini | … (empty = use knowledge config)
     embedding_model: str = ""  # e.g. gemini-embedding-001 (empty = use knowledge config)
+    embedding_compatible_url: str = ""  # API endpoint URL (only used when embedding_backend="openai-compatible")
+    embedding_compatible_key: str = ""  # API key (only used when embedding_backend="openai-compatible")
+
+    # -- Legacy aliases (kept for backward compat with existing config.json files) --
+    embedding_provider: str = ""  # deprecated alias for embedding_backend
 
 
 class ChannelPlatformSettings(BaseModel):
@@ -350,14 +368,24 @@ class KnowledgeSettings(BaseModel):
     ``knowledge_embedding_dimension`` is read-only — fixed at startup from
     ``OSTWIN_EMBEDDING_DIM`` env var.  Changing it dynamically would cause
     dimension conflicts between memory and knowledge vector collections.
+
+    When ``knowledge_llm_backend`` or ``knowledge_embedding_backend`` is set to
+    ``"openai-compatible"``, the companion ``*_compatible_url`` / ``*_compatible_key``
+    fields provide the endpoint URL and optional API key for the custom server.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     # -- LLM --
     knowledge_llm_backend: str = ""  # empty = use config.LLM_PROVIDER
     knowledge_llm_model: str = ""  # empty = use config.LLM_MODEL
+    knowledge_llm_compatible_url: str = ""  # API endpoint URL (only when backend="openai-compatible")
+    knowledge_llm_compatible_key: str = ""  # API key (only when backend="openai-compatible")
     # -- Embedding --
     knowledge_embedding_backend: str = ""  # empty = use config.EMBEDDING_PROVIDER
     knowledge_embedding_model: str = ""  # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_compatible_url: str = ""  # API endpoint URL (only when backend="openai-compatible")
+    knowledge_embedding_compatible_key: str = ""  # API key (only when backend="openai-compatible")
     knowledge_embedding_dimension: int = 1024  # read-only: reflects OSTWIN_EMBEDDING_DIM
 
     def model_post_init(self, __context) -> None:

@@ -31,9 +31,14 @@ class LLMConfig:
     Defaults match ``config.default.json`` so there is a single source of truth.
     Valid backends: ``"ollama"``, ``"gemini"``, ``"openai"``, ``"openai-compatible"``,
     ``"anthropic"``, or any provider supported by ``dashboard.llm_client``.
+
+    When ``backend`` is ``"openai-compatible"``, ``compatible_url`` provides the
+    API endpoint URL and ``compatible_key`` provides an optional API key.
     """
     backend: str = "openai-compatible"
     model: str = "google-vertex/gemini-3-flash-preview"
+    compatible_url: str = ""
+    compatible_key: str = ""
 
 
 @dataclass
@@ -42,10 +47,15 @@ class EmbeddingConfig:
 
     Defaults match ``config.default.json`` so there is a single source of truth.
     Valid backends: ``"ollama"``, ``"gemini"``, ``"openai-compatible"``.
+
+    When ``backend`` is ``"openai-compatible"``, ``compatible_url`` provides the
+    API endpoint URL and ``compatible_key`` provides an optional API key.
     """
 
     backend: str = "openai-compatible"
     model: str = "gemini-embedding-2"
+    compatible_url: str = ""
+    compatible_key: str = ""
 
 
 @dataclass
@@ -135,19 +145,27 @@ def _extract_memory_settings(raw: dict) -> dict:
 
     # Map the flat dashboard keys → nested config.default.json shape.
     result: dict = {}
-    if flat.get("llm_backend") or flat.get("llm_model"):
+    if flat.get("llm_backend") or flat.get("llm_model") or flat.get("llm_compatible_url") or flat.get("llm_compatible_key"):
         result["llm"] = {}
         if flat.get("llm_backend"):
             result["llm"]["backend"] = flat["llm_backend"]
         if flat.get("llm_model"):
             result["llm"]["model"] = flat["llm_model"]
+        if flat.get("llm_compatible_url"):
+            result["llm"]["compatible_url"] = flat["llm_compatible_url"]
+        if flat.get("llm_compatible_key"):
+            result["llm"]["compatible_key"] = flat["llm_compatible_key"]
 
-    if flat.get("embedding_backend") or flat.get("embedding_model"):
+    if flat.get("embedding_backend") or flat.get("embedding_model") or flat.get("embedding_compatible_url") or flat.get("embedding_compatible_key"):
         result["embedding"] = {}
         if flat.get("embedding_backend"):
             result["embedding"]["backend"] = flat["embedding_backend"]
         if flat.get("embedding_model"):
             result["embedding"]["model"] = flat["embedding_model"]
+        if flat.get("embedding_compatible_url"):
+            result["embedding"]["compatible_url"] = flat["embedding_compatible_url"]
+        if flat.get("embedding_compatible_key"):
+            result["embedding"]["compatible_key"] = flat["embedding_compatible_key"]
 
     if flat.get("vector_backend"):
         result["vector"] = {"backend": flat["vector_backend"]}
@@ -212,7 +230,7 @@ def _load_system_settings() -> dict:
         project_config_path = project_root / ".agents" / "config.json"
         project_raw = _load_json_config(project_config_path)
         project_settings = _extract_memory_settings(project_raw)
-        for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+        for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync", "pool"):
             if section_key in project_settings:
                 result.setdefault(section_key, {}).update(project_settings[section_key])
 
@@ -220,7 +238,7 @@ def _load_system_settings() -> dict:
     user_config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
     user_raw = _load_json_config(user_config_path)
     user_settings = _extract_memory_settings(user_raw)
-    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync", "pool"):
         if section_key in user_settings:
             result.setdefault(section_key, {}).update(user_settings[section_key])
 
@@ -242,7 +260,7 @@ def load_config() -> MemoryConfig:
 
     # Layer 2 & 3: merge project and user settings on top of defaults
     sys_settings = _load_system_settings()
-    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync", "pool"):
         if section_key in sys_settings:
             d.setdefault(section_key, {}).update(sys_settings[section_key])
 
@@ -255,12 +273,16 @@ def load_config() -> MemoryConfig:
 
     config = MemoryConfig(
         llm=LLMConfig(
-            backend=llm_d.get("backend", "gemini"),
-            model=llm_d.get("model", "gemini-3-flash-preview"),
+            backend=llm_d.get("backend", "openai-compatible"),
+            model=llm_d.get("model", "google-vertex/gemini-3.1-flash-lite"),
+            compatible_url=llm_d.get("compatible_url", ""),
+            compatible_key=llm_d.get("compatible_key", ""),
         ),
         embedding=EmbeddingConfig(
-            backend=embedding_d.get("backend", "gemini"),
-            model=embedding_d.get("model", "gemini-embedding-001"),
+            backend=embedding_d.get("backend", "openai-compatible"),
+            model=embedding_d.get("model", "google-vertex/gemini-embedding-001"),
+            compatible_url=embedding_d.get("compatible_url", ""),
+            compatible_key=embedding_d.get("compatible_key", ""),
         ),
         vector=VectorConfig(
             backend=vector_d.get("backend", "zvec"),

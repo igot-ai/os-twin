@@ -44,6 +44,10 @@ class MemoryLLM(BaseLLMWrapper):
     ``gpt-*`` → OpenAI, ``gemini-*`` → Google).  An explicit ``provider``
     parameter overrides auto-detection.
 
+    When the provider is ``"openai-compatible"``, the ``compatible_url`` and
+    ``compatible_key`` from ``MemorySettings`` are used to connect to the
+    custom endpoint.
+
     Usage::
 
         llm = MemoryLLM(model="gemini-3-flash-preview", provider="google")
@@ -58,13 +62,34 @@ class MemoryLLM(BaseLLMWrapper):
     ) -> None:
         self._explicit_model = model
         self._explicit_provider = provider
+        # Pre-resolve compatible_url / compatible_key before super().__init__
+        _base_url, _resolved_key = self._resolve_compatible_settings()
         super().__init__(
             model=model if model is not _UNSET and model is not None else "",
             provider=provider if provider is not _UNSET and provider is not None else None,
-            api_key=api_key,
+            api_key=api_key or _resolved_key,
+            base_url=_base_url,
             timeout=LLM_TIMEOUT,
         )
         self._resolve_model_settings()
+
+    @staticmethod
+    def _resolve_compatible_settings() -> tuple[str | None, str | None]:
+        """Resolve openai-compatible URL and key from MemorySettings."""
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+            resolver = get_settings_resolver()
+            master = resolver.get_master_settings()
+            if hasattr(master, "memory") and master.memory:
+                mem = master.memory
+                backend = getattr(mem, "llm_backend", "") or getattr(mem, "embedding_backend", "")
+                if backend == "openai-compatible":
+                    url = getattr(mem, "llm_compatible_url", "") or getattr(mem, "embedding_compatible_url", "")
+                    key = getattr(mem, "llm_compatible_key", "") or getattr(mem, "embedding_compatible_key", "")
+                    return (url or None, key or None)
+        except Exception:
+            pass
+        return (None, None)
 
     def _resolve_model_settings(self) -> None:
         """Resolve model and provider from MasterSettings or env vars.
@@ -99,8 +124,10 @@ class MemoryLLM(BaseLLMWrapper):
             master = resolver.get_master_settings()
             if hasattr(master, 'memory') and master.memory:
                 mem_cfg = master.memory
-                if hasattr(mem_cfg, 'llm_backend') and mem_cfg.llm_backend:
-                    return mem_cfg.llm_backend
+                # Prefer llm_backend (new field name); fall back to embedding_provider (legacy alias)
+                backend = getattr(mem_cfg, 'llm_backend', '') or getattr(mem_cfg, 'embedding_provider', '')
+                if backend:
+                    return backend
         except Exception:
             pass
         val = os.environ.get("MEMORY_LLM_BACKEND", "")

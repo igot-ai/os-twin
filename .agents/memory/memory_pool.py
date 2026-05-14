@@ -162,6 +162,8 @@ class MemoryPool:
             similarity_weight=cfg.search.similarity_weight,
             decay_half_life_days=cfg.search.decay_half_life_days,
             conflict_resolution=cfg.sync.conflict_resolution,
+            llm_model=cfg.llm.model,
+            llm_backend=cfg.llm.backend,
         )
 
     def _start_sync_thread(self, slot: MemorySlot) -> None:
