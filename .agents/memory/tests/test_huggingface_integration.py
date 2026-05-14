@@ -47,7 +47,7 @@ def test_controller_standalone():
     _print_header("Phase 1: HuggingFaceController Standalone")
 
     try:
-        from agentic_memory.llm_controller import HuggingFaceController
+        from dashboard.agentic_memory.llm_controller import HuggingFaceController
     except ImportError:
         pytest.skip("HuggingFaceController removed — llm_controller.py deleted")
         return
@@ -138,7 +138,7 @@ def test_full_memory_stack():
     """Test the complete AgenticMemorySystem with HuggingFace backend."""
     _print_header("Phase 3: Full Memory Stack Integration")
 
-    from agentic_memory.memory_system import AgenticMemorySystem
+    from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
     # Use a temp directory so the test is self-contained
     persist_dir = tempfile.mkdtemp(prefix="amem_hf_test_")

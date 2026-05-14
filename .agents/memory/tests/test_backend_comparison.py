@@ -357,7 +357,7 @@ def evaluate_links(mem_system, id_list: list) -> Tuple[int, int]:
 def run_backend(backend_name: str, llm_backend: str, llm_model: str,
                 **extra_kwargs) -> BackendReport:
     """Run the full evaluation pipeline for a single backend."""
-    from agentic_memory.memory_system import AgenticMemorySystem
+    from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
     report = BackendReport(name=backend_name)
     persist_dir = tempfile.mkdtemp(prefix=f"amem_cmp_{llm_backend}_")

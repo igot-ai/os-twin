@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from dashboard.llm_wrapper import BaseLLMWrapper
-from agentic_memory.memory_llm import MemoryLLM
+from dashboard.agentic_memory.memory_llm import MemoryLLM
 
 
 class TestBaseLLMWrapperEmptyResponse:

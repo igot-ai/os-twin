@@ -1,6 +1,6 @@
 import unittest
 
-from agentic_memory.memory_system import MemoryNote
+from dashboard.agentic_memory.memory_system import MemoryNote
 
 
 class TestMemoryNote(unittest.TestCase):

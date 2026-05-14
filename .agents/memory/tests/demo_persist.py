@@ -2,7 +2,7 @@
 
 import os
 import shutil
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 PERSIST_DIR = ".memory"
 

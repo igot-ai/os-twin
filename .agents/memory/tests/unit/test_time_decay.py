@@ -17,7 +17,7 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from agentic_memory.memory_note import MemoryNote
+from dashboard.agentic_memory.memory_note import MemoryNote
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def _make_system(**overrides):
     Patches the embedding function so __init__ never hits the real API.
     Uses the InMemoryRetriever from test helpers to avoid zvec.
     """
-    from agentic_memory.memory_system import AgenticMemorySystem
+    from dashboard.agentic_memory.memory_system import AgenticMemorySystem
     from tests.helpers import InMemoryRetriever
 
     tmpdir = tempfile.mkdtemp(prefix="decay-test-")

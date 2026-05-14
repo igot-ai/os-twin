@@ -34,7 +34,7 @@ _retrievers_mod.word_tokenize = MagicMock()
 _retrievers_mod.cosine_similarity = MagicMock()
 _retrievers_mod.np = MagicMock()
 
-from agentic_memory.retrievers import (
+from dashboard.agentic_memory.retrievers import (
     EMBEDDING_DIMENSION,
     GeminiEmbeddingFunction,
     OllamaEmbeddingFunction,
