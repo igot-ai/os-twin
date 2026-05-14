@@ -21,15 +21,15 @@ mutating: true
 ## Contract
 
 - Deterministic browser automation using refs like `@e1`, `@e2` from snapshots (not coordinates)
-- All screenshots, PDFs, and downloads saved inside project under `artifacts/browser-downloads/`
+- All screenshots and downloads saved inside project under `artifacts/browser-downloads/`
 - Exact artifact paths reported to user
 - Graceful fallback to Playwright MCP or obscura-browser MCP if CLI unavailable
 - No stealth or anti-bot bypass logic enabled by default
 
 ## When to Use
 
-- Downloading files (PDFs, documents) from websites
-- Taking screenshots or saving pages as PDF
+- Downloading files from websites
+- Taking screenshots
 - Filling forms and submitting data
 - Navigating multi-step web workflows
 - Scraping structured data from pages
@@ -58,7 +58,6 @@ agent-browser --version
 | `agent-browser fill @eN "text"` | Fill input by ref |
 | `agent-browser wait --load networkidle` | Wait for page load |
 | `agent-browser screenshot <path>` | Save screenshot |
-| `agent-browser pdf <path>` | Save page as PDF |
 | `agent-browser close` | Close browser |
 
 ## Workflow
@@ -107,9 +106,6 @@ agent-browser snapshot -i
 ```bash
 # Screenshot
 agent-browser screenshot artifacts/browser-downloads/page.png
-
-# Save page as PDF
-agent-browser pdf artifacts/browser-downloads/page.pdf
 ```
 
 ### 4. Handle Downloads
@@ -132,9 +128,9 @@ agent-browser click @e3
 agent-browser wait --load networkidle
 sleep 2
 
-# Find project-local PDFs newer than marker (Linux/macOS)
+# Find project-local files newer than marker (Linux/macOS)
 DOWNLOADED=""
-for f in "$DOWNLOAD_DIR"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         # Get file mtime as seconds since epoch
         if [ "$(uname)" = "Darwin" ]; then
@@ -155,7 +151,7 @@ if [ -n "$DOWNLOADED" ] && [ -s "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
-    echo "ERROR: No new PDF downloaded after marker"
+    echo "ERROR: No new file downloaded after marker"
 fi
 ```
 
@@ -203,7 +199,7 @@ agent-browser click @e4
 sleep 3
 
 DOWNLOADED=""
-for f in "$DOWNLOAD_DIR"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         if [ "$(uname)" = "Darwin" ]; then
             MTIME=$(stat -f %m "$f")
@@ -223,7 +219,7 @@ if [ -n "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
-    echo "ERROR: No new PDF downloaded"
+    echo "ERROR: No new file downloaded"
 fi
 
 # Cleanup
@@ -242,8 +238,8 @@ Use these tools:
 - `browser_click` - Click element
 - `browser_fill` - Fill input
 - `browser_screenshot` - Capture screenshot
-- `browser_pdf` - Save as PDF
-- `browser_click_and_download` - Click and handle download
+ - `browser_click_and_download` - Click element and wait for browser download (for JS-triggered downloads)
+- `browser_press` - Press keyboard key
 - `browser_close` - Close browser
 
 ### Playwright MCP
@@ -265,8 +261,8 @@ $marker = Get-Date
 
 # ... click download link ...
 
-# Find project-local PDFs newer than marker with non-zero size
-$downloaded = Get-ChildItem (Join-Path $downloadDir "*.pdf") -File -ErrorAction SilentlyContinue |
+# Find project-local files newer than marker with non-zero size
+$downloaded = Get-ChildItem $downloadDir -File -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -gt $marker -and $_.Length -gt 0 } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
@@ -276,7 +272,7 @@ if ($downloaded) {
     Write-Host "Downloaded: $relative"
 }
 else {
-    Write-Host "ERROR: No new PDF downloaded after marker"
+    Write-Host "ERROR: No new file downloaded after marker"
 }
 ```
 
@@ -293,9 +289,9 @@ MARKER=$(date +%s)
 
 # ... click download link ...
 
-# Find PDFs newer than marker with non-zero size
+# Find files newer than marker with non-zero size
 DOWNLOADED=""
-for f in "$DOWNLOAD_DIR"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         if [ "$(uname)" = "Darwin" ]; then
             MTIME=$(stat -f %m "$f")
@@ -315,7 +311,7 @@ if [ -n "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
-    echo "ERROR: No new PDF downloaded after marker"
+    echo "ERROR: No new file downloaded after marker"
 fi
 ```
 

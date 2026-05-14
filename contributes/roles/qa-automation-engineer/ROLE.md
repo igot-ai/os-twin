@@ -90,7 +90,7 @@ trust_level: core
 ## MCP Tool Usage
 
 ### Obscura Browser MCP
-Use the available `obscura-browser` tools for CDP-compatible browser automation, page snapshots, interaction, screenshots, PDF capture, downloads, and browser health checks.
+Use the available `obscura-browser` tools for CDP-compatible browser automation, page snapshots, interaction, screenshots, file downloads, and browser health checks.
 
 ### Playwright MCP
 Use the available `playwright` tools for browser navigation, interaction, console inspection, network inspection, screenshots, and viewport checks.
