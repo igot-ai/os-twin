@@ -2,7 +2,7 @@
 import os
 import shutil
 import json
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 PERSIST_DIR = ".memory"
 if os.path.exists(PERSIST_DIR):
@@ -95,7 +95,7 @@ for mid in ids:
         content = f.read()
 
     # Verify frontmatter has key fields
-    from agentic_memory.memory_system import MemoryNote
+    from dashboard.agentic_memory.memory_system import MemoryNote
     loaded = MemoryNote.from_markdown(content)
 
     checks = {

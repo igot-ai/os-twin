@@ -133,13 +133,34 @@ class KnowledgeLLM(BaseLLMWrapper):
         model: str | None = None,
         provider: str | None = None,
     ) -> None:
+        # Pre-resolve compatible_url / compatible_key from KnowledgeSettings
+        _base_url, _resolved_key = self._resolve_compatible_settings()
         super().__init__(
             model=None,
             provider=None,
-            api_key=api_key,
+            api_key=api_key or _resolved_key,
             timeout=LLM_TIMEOUT,
+            base_url=_base_url,
         )
         self._resolve_model_settings(model, provider)
+
+    @staticmethod
+    def _resolve_compatible_settings() -> tuple[str | None, str | None]:
+        """Resolve openai-compatible URL and key from KnowledgeSettings."""
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+            resolver = get_settings_resolver()
+            master = resolver.get_master_settings()
+            if hasattr(master, "knowledge") and master.knowledge:
+                know = master.knowledge
+                backend = getattr(know, "knowledge_llm_backend", "") or getattr(know, "knowledge_embedding_backend", "")
+                if backend == "openai-compatible":
+                    url = getattr(know, "knowledge_llm_compatible_url", "") or getattr(know, "knowledge_embedding_compatible_url", "")
+                    key = getattr(know, "knowledge_llm_compatible_key", "") or getattr(know, "knowledge_embedding_compatible_key", "")
+                    return (url or None, key or None)
+        except Exception:
+            pass
+        return (None, None)
 
     def _resolve_model_settings(self, model: str | None, provider: str | None) -> None:
         from dashboard.lib.settings.resolver import get_settings_resolver

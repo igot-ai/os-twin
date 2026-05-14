@@ -26,7 +26,7 @@ def _get_persist_dir():
 
 def _get_memory():
     persist_dir = _get_persist_dir()
-    # Add the memory module directory to path
+    # Add the memory module directory to path so the shim can find dashboard.agentic_memory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)

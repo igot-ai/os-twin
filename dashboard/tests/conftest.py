@@ -12,16 +12,8 @@ project_root = Path(__file__).parent.parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Add agentic_memory paths for Memory ↔ Knowledge Bridge tests
-# The bridge imports from agentic_memory.memory_note which requires these paths
-# IMPORTANT: Use source copy first (has get_knowledge_links method), only fall back to installed copy
-agentic_memory_source = project_root / ".agents" / "memory"
-agentic_memory_installed = Path.home() / ".ostwin" / ".agents" / "memory"
-
-# Prefer source copy over installed copy
-preferred_path = agentic_memory_source if agentic_memory_source.exists() else agentic_memory_installed
-if str(preferred_path) not in sys.path:
-    sys.path.insert(0, str(preferred_path))
+# agentic_memory is now co-located under dashboard/agentic_memory/
+# so it's automatically importable as dashboard.agentic_memory — no sys.path hack needed.
 
 
 def pytest_configure(config):

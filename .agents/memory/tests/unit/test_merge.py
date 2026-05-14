@@ -10,8 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agentic_memory.memory_note import MemoryNote
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_note import MemoryNote
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 
 class FakeRetriever:

@@ -1,4 +1,4 @@
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 memory_system = AgenticMemorySystem(
     model_name='all-MiniLM-L6-v2',

@@ -47,7 +47,7 @@ def main():
     # Import and init
     print("Importing agentic_memory...", flush=True)
     t0 = time.time()
-    from agentic_memory.memory_system import AgenticMemorySystem
+    from dashboard.agentic_memory.memory_system import AgenticMemorySystem
     print(f"  Import took {time.time() - t0:.1f}s", flush=True)
 
     print("Initializing system...", flush=True)
