@@ -141,6 +141,10 @@ export function usePlanRefine() {
     setError(null);
   }, []);
 
+  const seedHistory = useCallback((messages: ChatMessage[]) => {
+    setChatHistory(messages);
+  }, []);
+
   return {
     chatHistory,
     isRefining,
@@ -149,5 +153,6 @@ export function usePlanRefine() {
     refine,
     cancelRefine,
     clearHistory,
+    seedHistory,
   };
 }

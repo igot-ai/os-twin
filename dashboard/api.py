@@ -303,13 +303,68 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # --- Middleware ---
+# SECURITY: Restrict CORS in production to same-origin only.
+# In dev mode, allow localhost origins for the Next.js dev server.
+# Never use allow_origins=["*"] in production — it allows any website
+# to make authenticated cross-origin requests to the API.
+_cors_origins = (
+    []  # Dev: empty list means use origin_regex instead
+    if is_dev
+    else []  # Production: no explicit origins; rely on same-origin via proxy
+)
+_cors_origin_regex = (
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if is_dev
+    else None  # Production: no cross-origin access
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[] if is_dev else ["*"],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$" if is_dev else None,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=is_dev,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+)
+
+# P1-10: Rate limiter disabled by default.
+# To enable, set RATE_LIMIT_MAX to a positive integer (e.g., 100 requests per window).
+_RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "").lower() in ("1", "true", "yes")
+_RATE_LIMIT_WINDOW = 60
+_RATE_LIMIT_MAX = 100
+
+if _RATE_LIMIT_ENABLED:
+    from collections import defaultdict
+    _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request, call_next):
+        """Rate limiting middleware — blocks IPs exceeding request threshold."""
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+        ]
+        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Please try again later."},
+            )
+        _rate_limit_store[client_ip].append(now)
+        response = await call_next(request)
+        return response
+_cors_origin_regex = (
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if is_dev
+    else None  # Production: no cross-origin access
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=is_dev,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 # --- Routes ---

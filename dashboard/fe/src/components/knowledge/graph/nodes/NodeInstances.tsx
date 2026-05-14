@@ -15,7 +15,9 @@ interface NodeInstancesProps {
   pathSet: Set<string>;
   onNodeClick: (nodeId: string) => void;
   highlightedLabels: Set<string>;
+  neighborhoodIds: Set<string>;
   nodeBrightness: Map<string, number>;
+  degreeSizing: boolean;
   simStep: () => void;
   simGetPositions: () => { nodes: SimNode[]; links: SimLink[] };
   simGetIsRunning: () => boolean;
@@ -120,8 +122,11 @@ export default function NodeInstances({
   pathSet,
   onNodeClick,
   highlightedLabels,
+  neighborhoodIds,
   nodeBrightness,
+  degreeSizing,
   simStep,
+  simGetPositions,
   simGetIsRunning,
 }: NodeInstancesProps) {
   const shapeRefs = useRef<(THREE.InstancedMesh | null)[]>([]);
@@ -131,6 +136,7 @@ export default function NodeInstances({
 
   const count = nodes.length;
   const hasHighlight = highlightedLabels.size > 0;
+  const hasNeighborhood = neighborhoodIds.size > 0;
 
   const shapeGroups = useMemo(() => {
     const groups = new Map<number, SimNode[]>();
@@ -192,6 +198,7 @@ export default function NodeInstances({
         const isIgnited = ignitionSet.has(node.id);
         const isOnPath = pathSet.has(node.id);
         const isHighlighted = !hasHighlight || highlightedLabels.has(node.label);
+        const isInNeighborhood = !hasNeighborhood || neighborhoodIds.has(node.id);
 
         tempColor.set(node.color);
         colorAttr.setXYZ(gi, tempColor.r, tempColor.g, tempColor.b);
@@ -203,13 +210,18 @@ export default function NodeInstances({
         if (isIgnited) emissiveStrength *= 1.5;
         if (isSelected) emissiveStrength *= 2.0;
         if (isOnPath) emissiveStrength *= 1.8;
+        if (hasNeighborhood && isInNeighborhood && !isSelected) emissiveStrength *= 1.3;
         emissiveStrAttr.setX(gi, emissiveStrength);
 
         let opacity = 0.4 + (nodeBrightness.get(node.id) ?? 0.3) * 0.6;
         if (isSelected || isIgnited || isOnPath) opacity = 1.0;
+        if (hasNeighborhood && isInNeighborhood) opacity = 1.0;
+        if (hasHighlight && !isHighlighted) opacity = 0.0;
+        if (hasNeighborhood && !isInNeighborhood) opacity = 0.06;
         opacityAttr.setX(gi, opacity);
 
-        highlightAttr.setX(gi, isHighlighted ? 1.0 : 0.2);
+        const isVisible = isHighlighted && isInNeighborhood;
+        highlightAttr.setX(gi, isVisible ? 1.0 : 0.2);
       }
 
       colorAttr.needsUpdate = true;
@@ -218,7 +230,7 @@ export default function NodeInstances({
       opacityAttr.needsUpdate = true;
       highlightAttr.needsUpdate = true;
     }
-  }, [nodes, shapeGroups, selectedId, ignitionSet, pathSet, hasHighlight, highlightedLabels, count, nodeBrightness, tempColor]);
+  }, [nodes, shapeGroups, selectedId, ignitionSet, pathSet, hasHighlight, highlightedLabels, hasNeighborhood, neighborhoodIds, count, nodeBrightness, tempColor]);
 
   useFrame(() => {
     const isRunning = simGetIsRunning();
@@ -249,9 +261,7 @@ export default function NodeInstances({
         const roleScale = node.roleScale ?? 1.0;
         const isSelected = selectedId === node.id;
         const degree = node.degree ?? 0;
-        // Size proportional to degree (20 edges is 4x bigger than 5 edges). 
-        // Base unit is 10, then scaled by 25x.
-        const rawSize = degree > 0 ? degree * 10 : 5;
+        const rawSize = degreeSizing && degree > 0 ? degree * 10 : 5;
         const base = rawSize * 25;
         const scale = Math.max(EPS, base * roleScale * (isSelected ? 1.15 : 1.0));
 
@@ -277,12 +287,11 @@ export default function NodeInstances({
     const z = selectedNode.z ?? 0;
     const roleScale = selectedNode.roleScale ?? 1.0;
     const degree = selectedNode.degree ?? 0;
-    // Match the 25x proportional scale for the selection ring
-    const rawSize = degree > 0 ? degree * 10 : 5;
+    const rawSize = degreeSizing && degree > 0 ? degree * 10 : 5;
     const base = rawSize * 25;
     const scale = Math.max(EPS, base * roleScale * 1.15 * 1.3);
     return { position: new THREE.Vector3(x, y, z), scale };
-  }, [selectedNode]);
+  }, [selectedNode, degreeSizing]);
 
   const handleClick = useMemo(() => {
     return (e: THREE.Event & { instanceId?: number; stopped?: boolean; object?: THREE.Object3D }, shapeType: number) => {

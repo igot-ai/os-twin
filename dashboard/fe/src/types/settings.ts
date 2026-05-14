@@ -146,13 +146,16 @@ export interface MemorySettings {
   pool_max_instances?: number;
   pool_eviction_policy?: string;
   pool_sync_interval_s?: number;
-  // Legacy compat (read by backend, will be removed)
-  llm_backend?: string;
+  // LLM (memory-specific processing model)
+  llm_backend?: MemoryLLMBackend | '';
   llm_model?: string;
-  embedding_backend?: string;
+  llm_compatible_url?: string;
+  llm_compatible_key?: string;
+  // Embedding (memory-specific, overrides knowledge embedding if set)
+  embedding_backend?: MemoryEmbeddingBackend | '';
   embedding_model?: string;
-  // Legacy alias
-  vector_store?: string;
+  embedding_compatible_url?: string;
+  embedding_compatible_key?: string;
   [key: string]: unknown;
 }
 

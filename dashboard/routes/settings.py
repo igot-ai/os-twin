@@ -240,6 +240,8 @@ async def put_knowledge_settings(
         import dashboard.ai as _ai_mod
 
         _ai_mod._embedder = None
+        if hasattr(_ai_mod, "_embedder_cache"):
+            _ai_mod._embedder_cache.clear()
 
         try:
             from dashboard.knowledge.graph.index import kuzudb

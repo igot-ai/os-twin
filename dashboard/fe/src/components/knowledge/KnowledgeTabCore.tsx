@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useKnowledgeNamespaces } from '@/hooks/use-knowledge-namespaces';
 import { useKnowledgeImportMonitor } from '@/hooks/use-knowledge-import';
 import { useKnowledgeQuery } from '@/hooks/use-knowledge-query';
-import { useKnowledgeGraph } from '@/hooks/use-knowledge-graph';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
 import NamespaceSidebar from '@/components/knowledge/NamespaceSidebar';
 import NamespaceOverview from '@/components/knowledge/NamespaceOverview';
@@ -98,14 +97,6 @@ export default function KnowledgeTabCore({
     executeQuery,
     clearResult,
   } = useKnowledgeQuery(selectedNamespace);
-
-  const {
-    nodes,
-    edges,
-    stats: graphStats,
-    isLoading: graphLoading,
-    refresh: refreshGraph,
-  } = useKnowledgeGraph(activeDetailView === 'overview' ? selectedNamespace : null);
 
   // Handlers
   const handleSelectNamespace = useCallback((ns: string) => {
@@ -477,11 +468,6 @@ export default function KnowledgeTabCore({
               queryError={queryError}
               onExecuteQuery={handleExecuteQuery}
               onClearResult={clearResult}
-              graphNodes={nodes}
-              graphEdges={edges}
-              graphStats={graphStats}
-              graphLoading={graphLoading}
-              onRefreshGraph={refreshGraph}
               onNoteClick={handleNoteClick}
             />
           ) : null}

@@ -27,6 +27,9 @@ dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 
+# ── Python mock artifacts ──────────────────────────────────────────────
+MagicMock/
+
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 **/__pycache__/
@@ -127,3 +130,10 @@ test_results.txt
 docs/plan
 docs/plan/
 docs/plan/**
+
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+.agents/*
+!.agents/memory/
+.memory

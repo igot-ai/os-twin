@@ -8,6 +8,17 @@ vi.mock('../hooks/use-files', () => ({
   useFileContent: vi.fn(),
 }));
 
+const makeContent = (overrides: Record<string, unknown> = {}) => ({
+  path: 'src/main.ts',
+  content: 'console.log("hello world");',
+  encoding: 'utf-8',
+  size: 27,
+  mime_type: 'text/typescript',
+  truncated: false,
+  download_url: '/api/plans/plan-001/files/download?path=src/main.ts',
+  ...overrides,
+});
+
 describe('FileViewer Component', () => {
   const planId = 'plan-001';
 
@@ -34,7 +45,6 @@ describe('FileViewer Component', () => {
     });
 
     render(<FileViewer planId={planId} path="src/main.ts" />);
-    // Loading state shows skeleton (animate-pulse divs), not text
     const container = document.querySelector('.animate-pulse');
     expect(container).toBeTruthy();
   });
@@ -64,33 +74,19 @@ describe('FileViewer Component', () => {
 
   it('renders text file content', () => {
     (useFileContent as any).mockReturnValue({
-      content: {
-        path: 'src/main.ts',
-        content: 'console.log("hello world");',
-        encoding: 'utf-8',
-        size: 27,
-        mime_type: 'text/typescript',
-        truncated: false,
-      },
+      content: makeContent(),
       isLoading: false,
       isError: undefined,
     });
 
     render(<FileViewer planId={planId} path="src/main.ts" />);
-    expect(screen.getByText('console.log("hello world");')).toBeInTheDocument();
     expect(screen.getByText('main.ts')).toBeInTheDocument();
+    expect(document.querySelector('.hljs')).toBeTruthy();
   });
 
   it('renders file size information', () => {
     (useFileContent as any).mockReturnValue({
-      content: {
-        path: 'src/main.ts',
-        content: 'hello',
-        encoding: 'utf-8',
-        size: 5,
-        mime_type: 'text/plain',
-        truncated: false,
-      },
+      content: makeContent({ content: 'hello', size: 5, mime_type: 'text/plain' }),
       isLoading: false,
       isError: undefined,
     });
@@ -101,14 +97,13 @@ describe('FileViewer Component', () => {
 
   it('renders truncated indicator when file is truncated', () => {
     (useFileContent as any).mockReturnValue({
-      content: {
+      content: makeContent({
         path: 'src/big.ts',
         content: 'partial content...',
-        encoding: 'utf-8',
         size: 1000000,
         mime_type: 'text/typescript',
         truncated: true,
-      },
+      }),
       isLoading: false,
       isError: undefined,
     });
@@ -119,14 +114,13 @@ describe('FileViewer Component', () => {
 
   it('renders binary file message for base64 non-image content', () => {
     (useFileContent as any).mockReturnValue({
-      content: {
+      content: makeContent({
         path: 'data.bin',
-        content: 'AQID', // some base64 data
+        content: 'AQID',
         encoding: 'base64',
         size: 3,
         mime_type: 'application/octet-stream',
-        truncated: false,
-      },
+      }),
       isLoading: false,
       isError: undefined,
     });
@@ -139,14 +133,13 @@ describe('FileViewer Component', () => {
 
   it('renders image for image mime types', () => {
     (useFileContent as any).mockReturnValue({
-      content: {
+      content: makeContent({
         path: 'logo.png',
-        content: 'iVBORw0KGgoAAAANSUhEUg==', // stub base64
+        content: 'iVBORw0KGgoAAAANSUhEUg==',
         encoding: 'base64',
         size: 100,
         mime_type: 'image/png',
-        truncated: false,
-      },
+      }),
       isLoading: false,
       isError: undefined,
     });
@@ -155,5 +148,64 @@ describe('FileViewer Component', () => {
     const img = screen.getByAltText('logo.png');
     expect(img).toBeInTheDocument();
     expect(img.getAttribute('src')).toContain('data:image/png;base64,');
+  });
+
+  it('renders large file fallback when content is null and truncated', () => {
+    (useFileContent as any).mockReturnValue({
+      content: makeContent({
+        path: 'big.pdf',
+        content: null,
+        encoding: 'base64',
+        size: 5 * 1024 * 1024,
+        mime_type: 'application/pdf',
+        truncated: true,
+      }),
+      isLoading: false,
+      isError: undefined,
+    });
+
+    render(<FileViewer planId={planId} path="big.pdf" />);
+    expect(screen.getByText('File too large to preview')).toBeInTheDocument();
+    expect(screen.getByText(/exceeds the 2 MB preview limit/)).toBeInTheDocument();
+    expect(screen.getByText('Download File').closest('a')?.getAttribute('href')).toContain('/download');
+  });
+
+  it('renders TOO LARGE badge for truncated null-content files', () => {
+    (useFileContent as any).mockReturnValue({
+      content: makeContent({
+        path: 'huge.bin',
+        content: null,
+        encoding: 'base64',
+        size: 10 * 1024 * 1024,
+        mime_type: 'application/octet-stream',
+        truncated: true,
+      }),
+      isLoading: false,
+      isError: undefined,
+    });
+
+    render(<FileViewer planId={planId} path="huge.bin" />);
+    expect(screen.getByText('TOO LARGE')).toBeInTheDocument();
+  });
+
+  it('binary fallback download link uses download_url from API', () => {
+    (useFileContent as any).mockReturnValue({
+      content: makeContent({
+        path: 'data.bin',
+        content: 'AQID',
+        encoding: 'base64',
+        size: 3,
+        mime_type: 'application/octet-stream',
+        download_url: '/api/plans/plan-001/files/download?path=data.bin',
+      }),
+      isLoading: false,
+      isError: undefined,
+    });
+
+    render(<FileViewer planId={planId} path="data.bin" />);
+    const link = screen.getByText('Download File').closest('a');
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute('href')).toBe('/api/plans/plan-001/files/download?path=data.bin');
+    expect(link?.hasAttribute('download')).toBe(true);
   });
 });

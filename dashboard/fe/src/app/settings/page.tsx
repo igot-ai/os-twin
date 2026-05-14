@@ -455,8 +455,8 @@ function SettingsPageContent() {
         return (
           <MemoryPanel
             memory={settings.memory || {}}
-            allModels={allModels}
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
+            allModels={allModels}
           />
         );
 

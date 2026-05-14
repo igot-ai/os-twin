@@ -11,6 +11,8 @@ interface NodeLabelsProps {
   selectedId: string | null;
   maxLabels?: number;
   nodeBrightness: Map<string, number>;
+  highlightedLabels?: Set<string>;
+  neighborhoodIds?: Set<string>;
 }
 
 const MAX_LABELS = 5000;
@@ -30,11 +32,16 @@ export default function NodeLabels({
   selectedId,
   maxLabels = 1000,
   nodeBrightness,
+  highlightedLabels,
+  neighborhoodIds,
 }: NodeLabelsProps) {
   const groupRef = useRef<THREE.Group>(null);
   const labelRefs = useRef<Map<string, THREE.Mesh>>(new Map());
 
   const visibleNodes = useMemo(() => {
+    const hasHighlight = highlightedLabels && highlightedLabels.size > 0;
+    const hasNeighborhood = neighborhoodIds && neighborhoodIds.size > 0;
+
     const sorted = [...nodes].sort((a, b) => {
       if (a.id === selectedId) return -1;
       if (b.id === selectedId) return 1;
@@ -45,8 +52,14 @@ export default function NodeLabels({
       return b.score - a.score;
     });
 
-    return sorted.slice(0, Math.min(maxLabels, MAX_LABELS));
-  }, [nodes, ignitionSet, selectedId, maxLabels]);
+    return sorted
+      .filter(n => {
+        if (hasHighlight && !highlightedLabels.has(n.label)) return false;
+        if (hasNeighborhood && !neighborhoodIds.has(n.id)) return false;
+        return true;
+      })
+      .slice(0, Math.min(maxLabels, MAX_LABELS));
+  }, [nodes, ignitionSet, selectedId, maxLabels, highlightedLabels, neighborhoodIds]);
 
   const labelEntries = useMemo(() => {
     const entries: LabelEntry[] = [];

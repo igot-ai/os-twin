@@ -60,15 +60,60 @@ _memory_lock = threading.Lock()
 
 
 def _get_all_plan_dirs() -> list[Path]:
-    """Return all plan directories under MEMORY_BASE_DIR."""
+    """Return all plan directories under MEMORY_BASE_DIR.
+    
+    Discovers directories using both naming conventions:
+    - memory-<plan_id>  (current convention, used by init.sh/init.ps1)
+    - <plan_id>         (legacy convention, from older init.ps1 versions)
+    
+    Directories starting with underscore (e.g., _global, _default) are excluded.
+    """
     if not MEMORY_BASE_DIR.is_dir():
         return []
-    return [d for d in MEMORY_BASE_DIR.iterdir() if d.is_dir() and d.name.startswith("memory-")]
+    excluded = {"_global", "_default"}
+    return [
+        d for d in MEMORY_BASE_DIR.iterdir()
+        if d.is_dir() and d.name not in excluded and not d.name.startswith(".")
+    ]
+
+
+def _dir_to_plan_id(dir_name: str) -> str:
+    """Extract plan_id from a MEMORY_BASE_DIR subdirectory name.
+    
+    Handles both naming conventions:
+    - memory-<plan_id> → <plan_id>  (current convention)
+    - <plan_id>        → <plan_id>  (legacy convention)
+    - _global          → _global     (special namespace)
+    """
+    if dir_name == "_global":
+        return "_global"
+    if dir_name.startswith("memory-"):
+        return dir_name[len("memory-"):]
+    return dir_name
 
 
 def _get_global_dir() -> Path:
     """Return the global memory directory."""
     return MEMORY_BASE_DIR / "_global"
+
+
+def _plan_id_to_dir(plan_id: str) -> Path:
+    """Resolve a plan_id to its MEMORY_BASE_DIR subdirectory.
+    
+    Checks both naming conventions:
+    - memory-<plan_id>  (current, preferred)
+    - <plan_id>         (legacy fallback)
+    """
+    # Try current convention first
+    current = MEMORY_BASE_DIR / f"memory-{plan_id}"
+    if current.is_dir():
+        return current
+    # Legacy fallback
+    legacy = MEMORY_BASE_DIR / plan_id
+    if legacy.is_dir():
+        return legacy
+    # Return current convention path even if it doesn't exist yet
+    return current
 
 
 def _get_or_create_memory_system(persist_dir: Path) -> Any:
@@ -152,7 +197,7 @@ def global_memory_search(query: str, k: int = 10, plans: Optional[list[str]] = N
     
     # Determine which directories to search
     if plans:
-        dirs_to_search = [MEMORY_BASE_DIR / f"memory-{p}" for p in plans]
+        dirs_to_search = [_plan_id_to_dir(p) for p in plans]
         dirs_to_search = [d for d in dirs_to_search if d.is_dir()]
     else:
         dirs_to_search = _get_all_plan_dirs()
@@ -167,7 +212,7 @@ def global_memory_search(query: str, k: int = 10, plans: Optional[list[str]] = N
             system = _get_or_create_memory_system(plan_dir)
             results = system.search(query, k=k)
             
-            plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
+            plan_id = _dir_to_plan_id(plan_dir.name)
             
             for r in results:
                 note = system.read(r["id"])
@@ -208,7 +253,7 @@ def global_memory_tree() -> str:
         if not plan_dir.is_dir():
             continue
         
-        plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
+        plan_id = _dir_to_plan_id(plan_dir.name)
         lines.append(f"\n[{plan_id}]")
         
         try:
@@ -248,7 +293,7 @@ def global_memory_stats() -> str:
         if not plan_dir.is_dir():
             continue
         
-        plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
+        plan_id = _dir_to_plan_id(plan_dir.name)
         
         try:
             system = _get_or_create_memory_system(plan_dir)
@@ -292,7 +337,7 @@ def global_memory_list_plans() -> str:
         if not plan_dir.is_dir():
             continue
         
-        plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
+        plan_id = _dir_to_plan_id(plan_dir.name)
         
         try:
             system = _get_or_create_memory_system(plan_dir)
@@ -338,7 +383,7 @@ def global_memory_grep(pattern: str, flags: Optional[str] = None) -> str:
         if not plan_dir.is_dir():
             continue
         
-        plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
+        plan_id = _dir_to_plan_id(plan_dir.name)
         notes_dir = plan_dir / "notes"
         
         if not notes_dir.is_dir():
@@ -387,7 +432,7 @@ def global_memory_read(memory_id: str, plan_id: Optional[str] = None) -> str:
         if plan_id == "_global":
             dirs_to_search = [_get_global_dir()]
         else:
-            dirs_to_search = [MEMORY_BASE_DIR / f"memory-{plan_id}"]
+            dirs_to_search = [_plan_id_to_dir(plan_id)]
     else:
         dirs_to_search = [_get_global_dir()] + _get_all_plan_dirs()
     
