@@ -125,13 +125,7 @@ function TimeoutInput({ value, onChange, provenance }: {
             />
             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-text-faint font-medium">s</span>
           </div>
-          <button
-            onClick={() => { setInputMode('duration'); setDurationText(durationLabel); }}
-            className="p-1.5 rounded-md border border-border hover:border-primary/40 hover:bg-primary/5 text-text-faint hover:text-primary transition-all"
-            title="Switch to duration input (e.g. 1h 30m)"
-          >
-            <span className="material-symbols-outlined text-[16px]">schedule</span>
-          </button>
+
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -257,7 +251,7 @@ export default function RolesConfigTab() {
           results[role.name] = data;
           configData[role.name] = {
             default_model: data.effective.default_model as string | undefined,
-            temperature: data.effective.temperature as number | undefined,
+
             timeout_seconds: data.effective.timeout_seconds as number | undefined,
             max_retries: data.effective.max_retries as number | undefined,
             budget_tokens_max: data.effective.budget_tokens_max as number | undefined,
@@ -297,7 +291,7 @@ export default function RolesConfigTab() {
 
     const payload: Record<string, unknown> = {};
     if (cfg.default_model !== undefined) payload.default_model = cfg.default_model;
-    if (cfg.temperature !== undefined) payload.temperature = cfg.temperature;
+
     if (cfg.timeout_seconds !== undefined) payload.timeout_seconds = cfg.timeout_seconds;
     if (cfg.max_retries !== undefined) payload.max_retries = cfg.max_retries;
     if (cfg.budget_tokens_max !== undefined) payload.budget_tokens_max = cfg.budget_tokens_max;
@@ -449,39 +443,11 @@ export default function RolesConfigTab() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1">
-                        Temperature
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min="0"
-                          max="2"
-                          step="0.1"
-                          value={cfg.temperature ?? 1}
-                          onChange={(e) => updateRoleField(role.name, 'temperature', parseFloat(e.target.value))}
-                          className="flex-1 h-2 bg-background rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                        <span className="text-xs text-text-muted w-8 text-right">{cfg.temperature?.toFixed(1) ?? '1.0'}</span>
-                      </div>
-                      {provenance.temperature && (
-                        <div className="mt-1">
-                          <ProvenanceChip source={provenance.temperature} />
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <TimeoutInput
-                        value={cfg.timeout_seconds}
-                        onChange={(val) => updateRoleField(role.name, 'timeout_seconds', val)}
-                        provenance={provenance.timeout_seconds}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
+                    <TimeoutInput
+                      value={cfg.timeout_seconds}
+                      onChange={(val) => updateRoleField(role.name, 'timeout_seconds', val)}
+                      provenance={provenance.timeout_seconds}
+                    />
                     <div>
                       <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1">
                         Max Retries
