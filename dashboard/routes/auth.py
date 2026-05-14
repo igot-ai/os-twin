@@ -40,16 +40,22 @@ async def login_for_access_token(request: Request):
         )
 
     # Set cookie and return token
+    # SECURITY: Don't return the actual API key in the response body.
+    # The cookie is set below and will be sent automatically.
     response = JSONResponse(content={
-        "access_token": _API_KEY,
+        "access_token": "authenticated",
         "token_type": "bearer",
         "username": "api-key-user",
     })
+    # P3-20: Use SameSite=Strict to prevent CSRF via cross-site requests.
+    # HttpOnly prevents JavaScript access. Secure flag set when not localhost.
+    is_localhost = request.url.hostname in ("localhost", "127.0.0.1")
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=_API_KEY,
         httponly=True,
-        samesite="lax",
+        secure=not is_localhost,
+        samesite="strict",
         max_age=60 * 60 * 24 * 30,  # 30 days
         path="/",
     )
