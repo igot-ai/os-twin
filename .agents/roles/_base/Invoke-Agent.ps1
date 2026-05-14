@@ -352,13 +352,13 @@ if (Test-Path $resolveSkillsScript) {
                 $skillSrcDir = Split-Path $skill.Path -Parent
                 $skillName = Split-Path $skillSrcDir -Leaf
                 $destPath = Join-Path $isolatedSkillsDir $skillName
-                
+
                 # Ensure the destination skill directory exists and is clean
                 if (Test-Path $destPath) {
                     Remove-Item -Path $destPath -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 New-Item -ItemType Directory -Path $destPath -Force | Out-Null
-                
+
                 # Copy contents specifically to avoid nested directory issues
                 Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -412,7 +412,7 @@ if ($SessionId) { $extraCliArgs += "--session"; $extraCliArgs += $SessionId }
 $isLifecycleRetry = $false
 $retriesFile = Join-Path $absRoomDir "retries"
 if (Test-Path $retriesFile) {
-    try { 
+    try {
         $roomRetries = [int](Get-Content $retriesFile -Raw).Trim()
         if ($roomRetries -gt 0) { $isLifecycleRetry = $true }
     } catch {}
@@ -480,7 +480,7 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
             $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
             $opencodeConfigLine = "export OPENCODE_CONFIG='$safeOpencodeConfig'"
         }
-        
+
         # Ensure critical env vars for MCP server resolution are exported
         # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} placeholders
         # Use platform-specific venv Python path
@@ -490,11 +490,11 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
 export AGENT_DIR='$safeOstwinHome'
 export OSTWIN_PYTHON='$venvPythonUnix'
 "@
-        
+
         # Log diagnostic info before exec
         Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
         Write-Host "[Invoke-Agent] About to enter if (runningOnWindows=$runningOnWindows) branch..."
-        
+
         if ($runningOnWindows) {
             Write-Host "[Invoke-Agent] Taking Windows branch..."
             # Windows: Use PowerShell wrapper instead of bash
@@ -504,7 +504,7 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             $winSkillsDir = $isolatedSkillsDir.Replace('/', '\')
             $winOstwinHome = $OstwinHome.Replace('/', '\')
             $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
-            
+
             # Tokenize AgentCmd and args for PowerShell execution
             # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
             $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
@@ -537,7 +537,7 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             } else {
                 $allArgs = $cmdArgs + $extraCliArgs
             }
-            
+
             # Serialize args array into the wrapper script as a PowerShell array literal
             # Each arg must be properly escaped for PowerShell string handling
             $escapedArgs = $allArgs | ForEach-Object {
@@ -574,7 +574,7 @@ if (Test-Path `$envSh) { . `$envSh }
 & '$exe' @cmdArgs 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
 "@
             $psScriptContent | Out-File -FilePath $psWrapperScript -Encoding utf8 -Force
-            
+
             # Launch PowerShell wrapper
             $psi = [System.Diagnostics.ProcessStartInfo]::new()
             # Resolve absolute path for shell executable to avoid PATH issues
@@ -596,7 +596,7 @@ if (Test-Path `$envSh) { . `$envSh }
             $psi.CreateNoWindow = $true
             $proc = [System.Diagnostics.Process]::Start($psi)
             $proc.StandardInput.Close()
-            
+
             $wrapperScript = $psWrapperScript
             Write-Host "[Invoke-Agent] Windows branch: wrapperScript=$wrapperScript"
         }

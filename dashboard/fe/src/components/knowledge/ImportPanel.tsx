@@ -104,12 +104,12 @@ function FolderBrowserInline({
   const dirCount = browseResult?.dirs?.length ?? 0;
 
   return (
-    <div 
+    <div
       className="rounded-lg border overflow-hidden"
       style={{ borderColor: 'var(--color-border)', background: 'var(--color-background)' }}
     >
       {/* Breadcrumb */}
-      <div 
+      <div
         className="flex items-center gap-1 px-3 py-2 border-b text-xs font-mono overflow-x-auto whitespace-nowrap"
         style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-faint)' }}
       >
@@ -141,7 +141,7 @@ function FolderBrowserInline({
           );
         })}
         {isLoading && (
-          <span 
+          <span
             className="ml-auto w-3 h-3 border border-t-transparent rounded-full animate-spin shrink-0"
             style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }}
           />
@@ -243,8 +243,8 @@ function formatTimestamp(isoString: string): string {
 }
 
 function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean }) {
-  const progress = job.progress_total > 0 
-    ? Math.round((job.progress_current / job.progress_total) * 100) 
+  const progress = job.progress_total > 0
+    ? Math.round((job.progress_current / job.progress_total) * 100)
     : 0;
 
   const stateColors: Record<string, string> = {
@@ -266,21 +266,21 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
   };
 
   return (
-    <div 
+    <div
       className={`rounded-xl border p-4 ${isLatest ? 'ring-2 ring-primary/20' : ''}`}
-      style={{ 
-        background: 'var(--color-surface-hover)', 
-        borderColor: 'var(--color-border)' 
+      style={{
+        background: 'var(--color-surface-hover)',
+        borderColor: 'var(--color-border)'
       }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span 
+          <span
             className="w-2 h-2 rounded-full animate-pulse"
             style={{ background: stateColors[job.state] }}
           />
-          <span 
+          <span
             className="text-xs font-semibold uppercase tracking-wide"
             style={{ color: stateColors[job.state] }}
           >
@@ -308,11 +308,11 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
               {job.progress_current} / {job.progress_total} ({progress}%)
             </span>
           </div>
-          <div 
+          <div
             className="h-1.5 rounded-full overflow-hidden"
             style={{ background: 'var(--color-border)' }}
           >
-            <div 
+            <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${progress}%`, background: 'var(--color-primary)' }}
             />
@@ -336,7 +336,7 @@ function JobCard({ job, isLatest }: { job: JobStatusResponse; isLatest: boolean 
 
       {/* Errors */}
       {job.errors.length > 0 && (
-        <div 
+        <div
           className="mt-3 p-2 rounded-lg text-xs"
           style={{ background: 'var(--color-danger-muted)', color: 'var(--color-danger)' }}
         >
@@ -389,7 +389,7 @@ export default function ImportPanel({
 
   const handleImport = useCallback(async () => {
     if (!folderPath.trim()) return;
-    
+
     setIsSubmitting(true);
     try {
       const options: Record<string, unknown> = {
@@ -443,7 +443,7 @@ export default function ImportPanel({
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-3">
-          <span 
+          <span
             className="material-symbols-outlined text-[48px]"
             style={{ color: 'var(--color-text-muted)' }}
           >
@@ -463,11 +463,11 @@ export default function ImportPanel({
   return (
     <div className="h-full overflow-y-auto p-4" style={{ scrollbarWidth: 'thin' }}>
       {/* Import form */}
-      <div 
+      <div
         className="rounded-xl border p-4 mb-4"
-        style={{ 
-          background: 'var(--color-surface)', 
-          borderColor: 'var(--color-border)' 
+        style={{
+          background: 'var(--color-surface)',
+          borderColor: 'var(--color-border)'
         }}
       >
         {/* Mode tabs */}
@@ -505,7 +505,7 @@ export default function ImportPanel({
         <div className="space-y-3">
           {/* Folder path input */}
           <div>
-            <label 
+            <label
               className="block text-xs font-medium mb-1.5"
               style={{ color: 'var(--color-text-muted)' }}
             >
@@ -518,8 +518,8 @@ export default function ImportPanel({
                 onChange={(e) => setFolderPath(e.target.value)}
                 placeholder="/absolute/path/to/folder"
                 className="flex-1 px-3 py-2 rounded-lg border text-sm"
-                style={{ 
-                  background: 'var(--color-background)', 
+                style={{
+                  background: 'var(--color-background)',
                   borderColor: 'var(--color-border)',
                   color: 'var(--color-text-main)'
                 }}
@@ -527,8 +527,8 @@ export default function ImportPanel({
               <button
                 onClick={() => setShowBrowser(!showBrowser)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                  showBrowser 
-                    ? 'bg-primary/10 border-primary/30 text-primary' 
+                  showBrowser
+                    ? 'bg-primary/10 border-primary/30 text-primary'
                     : 'border-border text-text-muted hover:bg-surface-hover hover:text-text-main'
                 }`}
                 aria-label="Browse folders"
@@ -587,7 +587,7 @@ export default function ImportPanel({
 
           {/* Model Settings panel */}
           {showModelSettings && (
-            <div 
+            <div
               className="p-4 rounded-lg space-y-5 border"
               style={{ background: 'var(--color-background)', borderColor: 'var(--color-border)' }}
             >
@@ -595,7 +595,7 @@ export default function ImportPanel({
                 <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Processing Models</h4>
                 {/* Entity Extraction Model */}
                 <div>
-                  <label 
+                  <label
                     className="block text-xs font-medium mb-1"
                     style={{ color: 'var(--color-text-muted)' }}
                   >
@@ -621,15 +621,15 @@ export default function ImportPanel({
                       onChange={(e) => setLlmModel(e.target.value)}
                       placeholder={configuredLlmModel || 'e.g. gpt-4o, claude-sonnet-4-20250514'}
                       className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
-                      style={{ 
-                        background: 'var(--color-surface)', 
+                      style={{
+                        background: 'var(--color-surface)',
                         borderColor: 'var(--color-border)',
                         color: 'var(--color-text-main)'
                       }}
                     />
                   )}
                   <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
-                    {configuredLlmModel 
+                    {configuredLlmModel
                       ? `Default from settings: ${configuredLlmModel}. Leave blank to use default.`
                       : 'Leave blank to use the default model from settings.'}
                   </p>
@@ -651,7 +651,7 @@ export default function ImportPanel({
                       />
                     </button>
                     <div>
-                      <label 
+                      <label
                         className="block text-xs font-medium"
                         style={{ color: 'var(--color-text-muted)' }}
                       >
@@ -669,14 +669,14 @@ export default function ImportPanel({
                   {/* Vision OCR Model */}
                   {visionOcr && (
                     <div className="ml-12 pl-3 border-l-2" style={{ borderColor: 'var(--color-border)' }}>
-                      <label 
+                      <label
                         className="block text-xs font-medium mb-1"
                         style={{ color: 'var(--color-text-muted)' }}
                       >
                         <span className="flex items-center gap-1">
                           <span className="material-symbols-outlined text-[14px]">visibility</span>
                           OCR Model
-                          <span 
+                          <span
                             className="px-1.5 py-0.5 rounded text-[9px] font-semibold"
                             style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
                           >
@@ -701,8 +701,8 @@ export default function ImportPanel({
                           onChange={(e) => setVisionOcrModel(e.target.value)}
                           placeholder="gemini-2.0-flash"
                           className="w-full px-3 py-1.5 rounded-lg border text-xs font-mono"
-                          style={{ 
-                            background: 'var(--color-surface)', 
+                          style={{
+                            background: 'var(--color-surface)',
                             borderColor: 'var(--color-border)',
                             color: 'var(--color-text-main)'
                           }}
@@ -722,11 +722,11 @@ export default function ImportPanel({
 
         {/* Active job warning */}
         {activeJob && importMode === 'folder' && (
-          <div 
+          <div
             className="mt-3 p-2 rounded-lg text-xs flex items-center gap-2"
-            style={{ 
-              background: 'var(--color-warning-muted)', 
-              color: 'var(--color-warning)' 
+            style={{
+              background: 'var(--color-warning-muted)',
+              color: 'var(--color-warning)'
             }}
           >
             <span className="material-symbols-outlined text-[16px]">info</span>
@@ -919,7 +919,7 @@ export default function ImportPanel({
 
       {jobs.length === 0 ? (
         <div className="text-center py-8">
-          <span 
+          <span
             className="material-symbols-outlined text-[32px] mb-2"
             style={{ color: 'var(--color-text-muted)' }}
           >

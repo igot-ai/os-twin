@@ -726,7 +726,7 @@ def _build_configured_models(
                     # Fetch extra details (context window) for local models
                     extra = show_ollama_model(m_id)
                     ctx_len = extra.get("context_length") or 32768
-                    
+
                     provider_entry["models"][m_id] = {
                         "id": m_id,
                         "name": m_id,

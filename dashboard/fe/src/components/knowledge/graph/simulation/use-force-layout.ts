@@ -129,7 +129,7 @@ function initWorker(
   nodesDataRef: React.MutableRefObject<SimNode[]>
 ) {
   const is2D = (options.dimension ?? '2d') === '2d';
-  
+
   // Create serializable versions of nodes and links
   const nodes = input.nodes.map(n => ({
     id: n.id,

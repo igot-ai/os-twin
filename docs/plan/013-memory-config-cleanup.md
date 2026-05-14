@@ -132,7 +132,7 @@ Remove the `ttl_days` field (was mislabeled). Replace with `decay_half_life_days
 
 Make `pool_config.py` read from `config.json["memory"]` (via `load_config()`) instead of only from env vars and `config.default.json["pool"]`. Priority: Settings UI → env vars → config.default.json defaults.
 
-### Phase 5: Update `agentic_memory/config.py` 
+### Phase 5: Update `agentic_memory/config.py`
 
 Update `_load_system_settings()` to map the new field names:
 - Remove dead field mappings (`llm_backend`, `embedding_backend`, etc.)

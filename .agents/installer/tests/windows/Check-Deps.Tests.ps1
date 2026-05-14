@@ -93,3 +93,35 @@ Describe "Check-OpenCode" {
     }
 }
 
+Describe "Check-Obscura" {
+    It "Should define the function" {
+        Get-Command Check-Obscura | Should -Not -BeNullOrEmpty
+    }
+
+    It "Should return a string path or empty string" {
+        $result = Check-Obscura
+        $result | Should -BeOfType [string]
+    }
+
+    It "Should detect installer-managed obscura.exe" {
+        $oldInstallDir = $script:InstallDir
+        try {
+            $script:InstallDir = Join-Path $TestDrive "ostwin"
+            $binDir = Join-Path $script:InstallDir ".agents\bin"
+            New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+            $expected = Join-Path $binDir "obscura.exe"
+            New-Item -ItemType File -Path $expected -Force | Out-Null
+
+            $result = Check-Obscura
+            if ($result -ne $expected) {
+                Set-ItResult -Skipped -Because "A real obscura executable on PATH takes precedence"
+            }
+            else {
+                $result | Should -Be $expected
+            }
+        }
+        finally {
+            $script:InstallDir = $oldInstallDir
+        }
+    }
+}

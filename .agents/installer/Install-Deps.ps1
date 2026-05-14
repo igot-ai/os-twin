@@ -2,10 +2,10 @@
 # Install-Deps.ps1 — Dependency installers (Windows-specific)
 #
 # Provides: Install-UV, Install-Python, Install-Pwsh, Install-Node,
-#           Install-OpenCode, Install-Pester
+#           Install-OpenCode, Install-Obscura, Install-Pester
 #
 # Requires: Lib.ps1, Versions.ps1, Detect-OS.ps1 ($script:PkgMgr, $script:ARCH),
-#           Check-Deps.ps1 (Check-UV, Check-OpenCode)
+#           Check-Deps.ps1 (Check-UV, Check-OpenCode, Check-Obscura)
 # ──────────────────────────────────────────────────────────────────────────────
 
 if ($script:_InstallDepsPs1Loaded) { return }
@@ -287,6 +287,125 @@ function Install-OpenCode {
         Write-Fail "opencode installed but not in PATH"
         Write-Info "Restart your terminal or run: . `$PROFILE"
         throw "opencode not available in PATH — installation cannot continue"
+    }
+}
+
+# ─── Obscura browser binary ─────────────────────────────────────────────────
+
+function Select-ObscuraAsset {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [object[]]$Assets,
+        [string]$OS = $script:OS,
+        [string]$Arch = $script:ARCH
+    )
+
+    $osToken = switch ($OS) {
+        "windows" { "windows" }
+        "linux"   { "linux" }
+        "macos"   { "macos" }
+        default   { "" }
+    }
+    $archToken = switch ($Arch) {
+        "x64"     { "x86_64" }
+        "amd64"   { "x86_64" }
+        "x86_64"  { "x86_64" }
+        "arm64"   { "aarch64" }
+        "aarch64" { "aarch64" }
+        default   { "" }
+    }
+
+    if (-not $osToken -or -not $archToken) {
+        return $null
+    }
+
+    foreach ($asset in $Assets) {
+        $name = [string]$asset.name
+        $lower = $name.ToLowerInvariant()
+        if ($lower -like "*obscura*" -and
+            $lower -like "*$archToken*" -and
+            $lower -like "*$osToken*" -and
+            ($lower.EndsWith(".zip") -or $lower.EndsWith(".tar.gz"))) {
+            return $asset
+        }
+    }
+
+    return $null
+}
+
+function Install-Obscura {
+    [CmdletBinding()]
+    param()
+
+    $existing = Check-Obscura
+    if ($existing) {
+        Write-Ok "obscura already installed ($existing)"
+        return
+    }
+
+    $binDir = Join-Path $script:InstallDir ".agents\bin"
+    $target = Join-Path $binDir "obscura.exe"
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "ostwin-obscura-$([System.Guid]::NewGuid().ToString('N'))"
+
+    try {
+        Write-Step "Installing Obscura browser..."
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+        $release = Invoke-RestMethod "https://api.github.com/repos/h4ckf0r0day/obscura/releases/latest" -ErrorAction Stop
+        $asset = Select-ObscuraAsset -Assets @($release.assets)
+        if (-not $asset) {
+            Write-Warn "No Obscura release asset for $($script:OS)/$($script:ARCH); obscura-browser MCP will require manual Obscura install"
+            return
+        }
+
+        $archive = Join-Path $tmpDir ([string]$asset.name)
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing -ErrorAction Stop
+
+        if ($archive.ToLowerInvariant().EndsWith(".zip")) {
+            Expand-Archive -Path $archive -DestinationPath $tmpDir -Force
+        }
+        elseif ($archive.ToLowerInvariant().EndsWith(".tar.gz")) {
+            & tar -xzf $archive -C $tmpDir
+            if ($LASTEXITCODE -ne 0) {
+                throw "tar failed extracting $archive"
+            }
+        }
+        else {
+            throw "Unsupported Obscura archive: $archive"
+        }
+
+        $releaseBinaries = Get-ChildItem -Path $tmpDir -Recurse -File |
+            Where-Object {
+                $_.Name -ieq "obscura.exe" -or
+                $_.Name -ieq "obscura" -or
+                $_.Name -ieq "obscura-worker.exe" -or
+                $_.Name -ieq "obscura-worker"
+            }
+        $binary = $releaseBinaries |
+            Where-Object { $_.Name -ieq "obscura.exe" -or $_.Name -ieq "obscura" } |
+            Select-Object -First 1
+        if (-not $binary) {
+            throw "Obscura binary not found in release archive"
+        }
+
+        foreach ($releaseBinary in $releaseBinaries) {
+            $destName = if ($releaseBinary.Name -ieq "obscura") { "obscura.exe" } else { $releaseBinary.Name }
+            Copy-Item -Path $releaseBinary.FullName -Destination (Join-Path $binDir $destName) -Force
+        }
+        if ($env:PATH -notlike "*$binDir*") {
+            $env:PATH = "$binDir;$env:PATH"
+        }
+
+        Write-Ok "obscura installed ($target)"
+    }
+    catch {
+        Write-Warn "Obscura install failed: $_"
+        Write-Warn "obscura-browser MCP will require manual Obscura install"
+    }
+    finally {
+        Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

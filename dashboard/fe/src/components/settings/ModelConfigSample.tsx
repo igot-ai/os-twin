@@ -22,7 +22,7 @@ export function ModelConfigSample({
   const [copied, setCopied] = useState(false);
 
   const envPrefix = type === 'memory' ? 'MEMORY' : 'KNOWLEDGE';
-  
+
   const sampleCode = `# ${type === 'memory' ? 'Memory' : 'Knowledge'} Model Configuration
 # Add these to your ~/.ostwin/.env file
 

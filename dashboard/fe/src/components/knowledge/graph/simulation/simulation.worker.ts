@@ -20,7 +20,7 @@ self.onmessage = (e: MessageEvent) => {
         const radius = 600 * Math.cbrt(Math.random());
         const theta = Math.random() * 2 * Math.PI;
         const phi = Math.acos(2 * Math.random() - 1);
-        
+
         n.x = radius * Math.sin(phi) * Math.cos(theta);
         n.y = radius * Math.sin(phi) * Math.sin(theta);
         n.z = is2D ? 0 : radius * Math.cos(phi);
@@ -38,12 +38,12 @@ self.onmessage = (e: MessageEvent) => {
         .force('link', forceLink(links).id((d: any) => d.id).distance((d: any) => {
           const srcDeg = d.source.degree || 0;
           const tgtDeg = d.target.degree || 0;
-          
+
           // Calculate the exact physical radius of both nodes based on the NodeInstances scaling math
           // Math: rawSize = degree * 10 (or 5 min), base = rawSize * 25, radius = base * 0.5
           const srcRadius = (srcDeg > 0 ? srcDeg * 10 : 5) * 25 * 0.5;
           const tgtRadius = (tgtDeg > 0 ? tgtDeg * 10 : 5) * 25 * 0.5;
-          
+
           // The link distance must be at least the sum of their radii so they don't overlap,
           // plus a healthy padding of 300 to let the satellites orbit clearly outside the hub
           return srcRadius + tgtRadius + 300;

@@ -1,7 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Check-Deps.ps1 — Dependency presence checks (pure — no installs)
 #
-# Provides: Check-Python, Check-Pwsh, Check-Node, Check-UV, Check-OpenCode
+# Provides: Check-Python, Check-Pwsh, Check-Node, Check-UV, Check-OpenCode,
+#           Check-Obscura
 #
 # Requires: Lib.ps1 (Compare-VersionGte), Versions.ps1 (MinPythonVersion, MinPwshVersion)
 #
@@ -111,4 +112,25 @@ function Check-OpenCode {
     param()
 
     $null -ne (Get-Command opencode -ErrorAction SilentlyContinue)
+}
+
+# ─── Obscura browser binary ─────────────────────────────────────────────────
+
+function Check-Obscura {
+    [CmdletBinding()]
+    param()
+
+    $cmd = Get-Command obscura -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) {
+        return [string]$cmd.Source
+    }
+
+    if ($script:InstallDir) {
+        $local = Join-Path $script:InstallDir ".agents\bin\obscura.exe"
+        if (Test-Path $local) {
+            return [string]$local
+        }
+    }
+
+    return ""
 }

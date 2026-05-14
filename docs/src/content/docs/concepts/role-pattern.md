@@ -63,7 +63,7 @@ production-quality code, and deliver structured done reports.
 
 ## Flexible Role Composition
 
-The concept of a "Role" in OSTwin is entirely flexible. A role is not defined by hard-coded capabilities but rather by the combination of its **Identity (Prompt)**, **Skills**, and **MCP Servers**. 
+The concept of a "Role" in OSTwin is entirely flexible. A role is not defined by hard-coded capabilities but rather by the combination of its **Identity (Prompt)**, **Skills**, and **MCP Servers**.
 
 You can completely redefine what an "engineer" or "qa" role can accomplish simply by adjusting their `role.json` configuration:
 

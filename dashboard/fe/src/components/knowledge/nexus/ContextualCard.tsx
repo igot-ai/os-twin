@@ -61,7 +61,7 @@ export default function ContextualCard({
       const sourceId = typeof e.source === 'string' ? e.source : (e.source as any).id;
       const targetId = typeof e.target === 'string' ? e.target : (e.target as any).id;
       const label = e.label || 'Unknown';
-      
+
       if (!map.has(label)) map.set(label, { in: [], out: [] });
 
       if (sourceId === node.id) {
@@ -102,7 +102,7 @@ export default function ContextualCard({
 
   const color = getNodeColor(node.label);
   const propertyKeys = node.properties ? Object.keys(node.properties) : [];
-  
+
   // Extract text content from either 'text' property or parsed '_node_content'
   const textContent = useMemo(() => {
     if (!node.properties) return null;
@@ -346,8 +346,8 @@ export default function ContextualCard({
                               <div className="mb-1.5">
                                 <div className={`text-[9px] uppercase font-bold text-[var(--color-text-faint)] mb-1 pl-1`}>Outgoing ({group.out.length})</div>
                                 {group.out.map((targetNode: ExplorerNode) => (
-                                  <div 
-                                    key={targetNode.id} 
+                                  <div
+                                    key={targetNode.id}
                                     onClick={() => ctx.actions.selectNode(targetNode)}
                                     className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${FONT.caption}`}
                                   >
@@ -361,8 +361,8 @@ export default function ContextualCard({
                               <div>
                                 <div className={`text-[9px] uppercase font-bold text-[var(--color-text-faint)] mb-1 pl-1`}>Incoming ({group.in.length})</div>
                                 {group.in.map((sourceNode: ExplorerNode) => (
-                                  <div 
-                                    key={sourceNode.id} 
+                                  <div
+                                    key={sourceNode.id}
                                     onClick={() => ctx.actions.selectNode(sourceNode)}
                                     className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${FONT.caption}`}
                                   >

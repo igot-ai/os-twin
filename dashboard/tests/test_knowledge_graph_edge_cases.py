@@ -172,7 +172,7 @@ class TestGraphRAGExtractorEdgeCases:
 
         with mock.patch("time.sleep", mock_sleep):
             extractor._extract_single_sync(node)
-        
+
         assert sleep_times == [0.1, 0.2]
 
     def test_aextract_single_node_missing_text(self):

@@ -98,11 +98,13 @@ Describe "Module function exports" {
     It "Should export Check-Node" { Get-Command Check-Node | Should -Not -BeNullOrEmpty }
     It "Should export Check-UV" { Get-Command Check-UV | Should -Not -BeNullOrEmpty }
     It "Should export Check-OpenCode" { Get-Command Check-OpenCode | Should -Not -BeNullOrEmpty }
+    It "Should export Check-Obscura" { Get-Command Check-Obscura | Should -Not -BeNullOrEmpty }
     It "Should export Install-UV" { Get-Command Install-UV | Should -Not -BeNullOrEmpty }
     It "Should export Install-Python" { Get-Command Install-Python | Should -Not -BeNullOrEmpty }
     It "Should export Install-Pwsh" { Get-Command Install-Pwsh | Should -Not -BeNullOrEmpty }
     It "Should export Install-Node" { Get-Command Install-Node | Should -Not -BeNullOrEmpty }
     It "Should export Install-OpenCode" { Get-Command Install-OpenCode | Should -Not -BeNullOrEmpty }
+    It "Should export Install-Obscura" { Get-Command Install-Obscura | Should -Not -BeNullOrEmpty }
     It "Should export Install-PesterModule" { Get-Command Install-PesterModule | Should -Not -BeNullOrEmpty }
     It "Should export Install-Files" { Get-Command Install-Files | Should -Not -BeNullOrEmpty }
     It "Should export Compute-BuildHash" { Get-Command Compute-BuildHash | Should -Not -BeNullOrEmpty }
@@ -304,4 +306,3 @@ Describe "Setup-Venv.ps1 regression tests" {
         $script:SetupVenvContent | Should -Match 'UV_PROJECT_ENVIRONMENT' -Because "uv sync must target the shared venv, not create a new one in dashboard/"
     }
 }
-

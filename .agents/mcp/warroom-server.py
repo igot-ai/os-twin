@@ -85,7 +85,7 @@ def update_status(
     """
     room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
-    
+
     # Validate status against lifecycle.json if present
     lc = _get_lifecycle(room_dir)
     if lc is not None:
@@ -97,7 +97,7 @@ def update_status(
                 s_type = s_info.get("type", "unknown")
                 error_msg += f"- {s_name} (assigned role: {role}, type: {s_type})\n"
             raise ValueError(error_msg)
-        
+
     status_file = os.path.join(room_dir, "status")
 
     # Read old status for audit
