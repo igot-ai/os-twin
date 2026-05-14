@@ -1,126 +1,32 @@
 {
   "version": "0.1.0",
   "project_name": "ostwin",
-  "manager": {
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "poll_interval_seconds": 5,
-    "max_concurrent_rooms": 50,
-    "max_engineer_retries": 10,
-    "auto_approve_tools": true,
-    "state_timeout_seconds": 2400,
-    "auto_expand_plan": false,
-    "preflight_skill_check": "warn",
-    "smart_assignment": false,
-    "dynamic_pipelines": true,
-    "capability_matching": true,
-    "external_roles_dirs": [],
-    "timeout_seconds": 2400,
-    "skill_refs": [
-      "risk-decision",
-      "war-room-communication"
-    ]
-  },
-  "architect": {
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "cli": "agent",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": true
-  },
-  "engineer": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": false,
-    "instances": {
-      "fe": {
-        "display_name": "Frontend Engineer",
-        "default_model": "google-vertex/gemini-3-flash-preview",
-        "timeout_seconds": 2400,
-        "working_dir": "dashboard",
-        "skills": [
-          "javascript",
-          "typescript",
-          "css",
-          "html"
-        ]
-      },
-      "be": {
-        "display_name": "Backend Engineer",
-        "default_model": "google-vertex/gemini-3-flash-preview",
-        "timeout_seconds": 1200,
-        "working_dir": "api",
-        "skills": [
-          "python",
-          "sql",
-          "docker",
-          "powershell"
-        ]
-      }
-    }
-  },
-  "technical-writer": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": true
-  },
-  "tech-artist": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": true
-  },
-  "editor": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 600,
-    "max_prompt_bytes": 102400,
-    "no_mcp": true
-  },
-  "reporter": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "shell_allow_list": "all",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400
-  },
-  "qa": {
-    "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "approval_mode": "auto-approve",
-    "timeout_seconds": 600,
-    "no_mcp": true
-  },
   "memory": {
     "enabled": true,
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
     "auto_publish_on_done": true,
-    "llm_backend": "huggingface",
-    "llm_model": "LiquidAI/LFM2-1.2B-Extract",
-    "embedding_backend": "sentence-transformer",
-    "embedding_model": "microsoft/harrier-oss-v1-0.6b",
+    "llm_backend": "ollama",
+    "llm_model": "gemma3:4b",
+    "embedding_backend": "ollama",
+    "embedding_model": "",
     "vector_backend": "zvec",
     "context_aware": true,
     "auto_sync": true,
     "auto_sync_interval": 60,
-    "ttl_days": 30
+    "ttl_days": 30,
+    "context_aware_tree": false,
+    "max_links": 3,
+    "similarity_weight": 0.8,
+    "decay_half_life_days": 30,
+    "sync_interval_s": 60,
+    "conflict_resolution": "last_modified",
+    "pool_idle_timeout_s": 300,
+    "pool_max_instances": 10,
+    "pool_eviction_policy": "lru",
+    "pool_sync_interval_s": 60,
+    "embedding_provider": "ollama"
   },
   "channel": {
     "format": "jsonl",
@@ -134,53 +40,15 @@
     ],
     "auto_draft": true
   },
-  "test-engineer": {
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "timeout_seconds": 600,
-    "skill_refs": [
-      "web-research"
-    ]
-  },
-  "unique-role": {
-    "default_model": "google-vertex/gemini-3-flash-preview",
-    "timeout_seconds": 300
-  },
-  "active-role": {
-    "default_model": "byteplus-code/glm-5.1",
-    "timeout_seconds": 300,
-    "max_retries": 3,
-    "instance_type": "worker"
-  },
-  "autonomy": {
-    "idle_explore_enabled": true,
-    "interval": 3600
-  },
   "runtime": {
     "max_concurrent_rooms": 9999
   },
-  "ceo": {
-    "default_model": "google-vertex/zai-org/glm-5-maas",
-    "timeout_seconds": 7000,
-    "max_retries": 3,
-    "instance_type": "evaluator",
-    "skill_refs": [
-      "bmad-sprint-planning"
-    ],
-    "mcp_refs": [
-      "memory"
-    ]
-  },
   "knowledge": {
-    "llm_model": "google-vertex/gemini-3-flash-preview",
-    "embedding_model": "intfloat/multilingual-e5-base",
-    "embedding_dimension": 768,
-    "llm_provider": "",
-    "embedding_backend": "",
-    "knowledge_llm_model": "glm-5.1",
-    "knowledge_embedding_model": "leoipulsar/harrier-0.6b",
-    "knowledge_embedding_dimension": 768,
-    "knowledge_llm_backend": "openai-compatible",
-    "knowledge_embedding_backend": "ollama"
+    "knowledge_llm_model": "",
+    "knowledge_embedding_model": "gemini-embedding-001",
+    "knowledge_embedding_dimension": 1024,
+    "knowledge_llm_backend": "",
+    "knowledge_embedding_backend": "gemini"
   },
   "providers": {
     "openai": null,

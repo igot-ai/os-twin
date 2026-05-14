@@ -23,6 +23,10 @@
   --color-border: #e5e7eb;
   --color-border-light: #f3f4f6;
 
+  --surface-overlay-bg: rgba(255, 255, 255, 0.92);
+  --surface-overlay-border: var(--color-border);
+  --surface-overlay-blur: blur(12px);
+
   --color-success: #10b981;
   --color-success-light: #d1fae5;
   --color-success-text: #065f46;
@@ -203,3 +207,45 @@
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
+
+/* ═══════════════════════════════════════════════════
+   highlight.js — Syntax Highlighting Theme
+   Uses app design tokens so colors always match.
+   ═══════════════════════════════════════════════════ */
+.hljs {
+  color: var(--color-text-main);
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote { color: var(--color-text-faint); font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-addition { color: #7c3aed; }
+.hljs-number,
+.hljs-string,
+.hljs-meta .hljs-meta-string,
+.hljs-literal,
+.hljs-doctag,
+.hljs-regexp { color: #059669; }
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class { color: #2563eb; }
+.hljs-attribute,
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-class .hljs-title,
+.hljs-type { color: #d97706; }
+.hljs-symbol,
+.hljs-bullet,
+.hljs-subst,
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-meta .hljs-string { color: var(--color-text-muted); }
+.hljs-built_in,
+.hljs-deletion { color: #dc2626; }
+.hljs-link { color: #2563eb; text-decoration: underline; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: bold; }

@@ -21,10 +21,14 @@ gold-mining/
 .agents/mcp/config.json
 .agents/mcp/mcp-manifest.json
 .agents/conversations/plans/index.json
+.agents/config.json
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
+
+# ── Python mock artifacts ──────────────────────────────────────────────
+MagicMock/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -106,6 +110,7 @@ docs/opencode-vertex-ai-partner-models.md
 
 A-mem-sys*/
 A-mem-sys*/**
+docs/pr
 
 AGENTS.md
 image.png
@@ -121,3 +126,17 @@ test_extless.ps1
 *.tar.zst
 lint_output.txt
 test_results.txt
+
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+test-results/
+
+docs/plan
+docs/plan/
+docs/plan/**
+
+# Ostwin generated
+.agents/*
+!.agents/memory/
+.memory

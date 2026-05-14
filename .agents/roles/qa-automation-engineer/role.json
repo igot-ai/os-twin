@@ -1,0 +1,38 @@
+{
+  "name": "qa-automation-engineer",
+  "description": "Cross-platform browser feature automation tester - verifies runtime targets, automates browser testing via Obscura/Playwright MCP, captures screenshot evidence, and produces QA reports with PASS/FAIL/BLOCKED verdicts.",
+  "capabilities": [
+    "browser-automation",
+    "screenshot-capture",
+    "feature-testing",
+    "console-monitoring",
+    "network-inspection",
+    "cross-platform-testing"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "runtime-verified",
+    "screenshot-evidence-captured",
+    "qa-report-written"
+  ],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 2400,
+  "instance_type": "evaluator",
+  "skill_refs": [
+    "agent-browser",
+    "build-verify",
+    "runnable-verify",
+    "review-task",
+    "critique",
+    "audit"
+  ],
+  "mcp_refs": [
+    "obscura-browser",
+    "playwright"
+  ]
+}

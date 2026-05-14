@@ -69,3 +69,40 @@ Describe "Install-OpenCode" {
     }
 }
 
+Describe "Install-Obscura" {
+    It "Should define the function" {
+        Get-Command Install-Obscura | Should -Not -BeNullOrEmpty
+    }
+
+    It "Should have CmdletBinding" {
+        $cmd = Get-Command Install-Obscura
+        $cmd.CmdletBinding | Should -Be $true
+    }
+
+    It "Should select matching Windows x64 release asset" {
+        $assets = @(
+            [pscustomobject]@{ name = "obscura-x86_64-linux.tar.gz" },
+            [pscustomobject]@{ name = "obscura-x86_64-windows.zip" }
+        )
+
+        $asset = Select-ObscuraAsset -Assets $assets -OS "windows" -Arch "x64"
+        $asset.name | Should -Be "obscura-x86_64-windows.zip"
+    }
+
+    It "Should return null when no release asset matches" {
+        $assets = @([pscustomobject]@{ name = "obscura-x86_64-linux.tar.gz" })
+
+        $asset = Select-ObscuraAsset -Assets $assets -OS "windows" -Arch "arm64"
+        $asset | Should -BeNullOrEmpty
+    }
+
+    It "Should not set OBSCURA_ARGS by default" {
+        $content = Get-Content (Join-Path $script:InstallerModDir "Install-Deps.ps1") -Raw
+        $content | Should -Not -Match '\$env:OBSCURA_ARGS'
+    }
+
+    It "Should preserve obscura-worker when copying release binaries" {
+        $content = Get-Content (Join-Path $script:InstallerModDir "Install-Deps.ps1") -Raw
+        $content | Should -Match 'obscura-worker'
+    }
+}

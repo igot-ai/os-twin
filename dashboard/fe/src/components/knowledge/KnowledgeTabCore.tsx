@@ -5,16 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useKnowledgeNamespaces } from '@/hooks/use-knowledge-namespaces';
 import { useKnowledgeImportMonitor } from '@/hooks/use-knowledge-import';
 import { useKnowledgeQuery } from '@/hooks/use-knowledge-query';
-import { useKnowledgeGraph } from '@/hooks/use-knowledge-graph';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
 import NamespaceSidebar from '@/components/knowledge/NamespaceSidebar';
 import NamespaceOverview from '@/components/knowledge/NamespaceOverview';
 import NamespaceList from '@/components/knowledge/NamespaceList';
 import ImportPanel from '@/components/knowledge/ImportPanel';
-import QueryPanel from '@/components/knowledge/QueryPanel';
+import NexusExplorer from '@/components/knowledge/NexusExplorer';
 import MetricsStrip from '@/components/knowledge/MetricsStrip';
 
-type DetailView = 'overview' | 'import' | 'query';
+type DetailView = 'overview' | 'import' | 'nexus';
 
 /**
  * Props interface for the KnowledgeTabCore component.
@@ -39,7 +38,7 @@ export interface KnowledgeTabCoreProps {
   /** If set, filter namespaces to only show this specific namespace */
   filterNamespace?: string;
   /** Default tab to open in the detail view (used by deep-link routes) */
-  defaultTab?: 'import' | 'query';
+  defaultTab?: 'import' | 'nexus';
 }
 
 /**
@@ -63,7 +62,7 @@ export default function KnowledgeTabCore({
 }: KnowledgeTabCoreProps) {
   // Determine initial detail view based on context
   const [activeDetailView, setActiveDetailView] = useState<DetailView>(
-    defaultTab ?? (isPlanContext && filterNamespace ? 'query' : 'overview')
+    defaultTab ?? (isPlanContext && filterNamespace ? 'nexus' : 'overview')
   );
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(
     defaultNamespace ?? filterNamespace ?? null
@@ -98,14 +97,6 @@ export default function KnowledgeTabCore({
     executeQuery,
     clearResult,
   } = useKnowledgeQuery(selectedNamespace);
-
-  const {
-    nodes,
-    edges,
-    stats: graphStats,
-    isLoading: graphLoading,
-    refresh: refreshGraph,
-  } = useKnowledgeGraph(selectedNamespace);
 
   // Handlers
   const handleSelectNamespace = useCallback((ns: string) => {
@@ -230,7 +221,7 @@ export default function KnowledgeTabCore({
   const detailTabs: { id: DetailView; label: string; icon: string }[] = [
     { id: 'overview', label: 'Overview', icon: 'dashboard' },
     { id: 'import', label: 'Import', icon: 'upload' },
-    { id: 'query', label: 'Query', icon: 'search' },
+    { id: 'nexus', label: 'Nexus', icon: 'hub' },
   ];
 
   // In plan context with filter, hide overview tab
@@ -303,7 +294,7 @@ export default function KnowledgeTabCore({
               <h2 className="text-base font-semibold" style={{ color: 'var(--color-text-main)' }}>
                 Plan Knowledge
               </h2>
-              {selectedNamespace && (
+              {selectedNamespace && activeDetailView !== 'nexus' && (
                 <span className="px-2 py-0.5 rounded-lg text-[11px] font-medium"
                   style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}>
                   {selectedNamespace}
@@ -358,19 +349,11 @@ export default function KnowledgeTabCore({
                 onRefresh={refreshJobs}
               />
             )}
-            {activeDetailView === 'query' && (
-              <QueryPanel
+            {activeDetailView === 'nexus' && (
+              <NexusExplorer
+                namespaces={displayNamespaces ?? []}
                 selectedNamespace={selectedNamespace}
-                queryResult={queryResult}
-                isLoading={queryLoading}
-                error={queryError}
-                graphNodes={nodes}
-                graphEdges={edges}
-                graphStats={graphStats}
-                graphLoading={graphLoading}
-                onExecuteQuery={handleExecuteQuery}
-                onClearResult={clearResult}
-                onRefreshGraph={refreshGraph}
+                onSelectNamespace={handleSelectNamespace}
                 onNoteClick={handleNoteClick}
               />
             )}
@@ -465,12 +448,19 @@ export default function KnowledgeTabCore({
                 />
               </div>
             </div>
+          ) : activeDetailView === 'nexus' ? (
+            <NexusExplorer
+              namespaces={displayNamespaces ?? []}
+              selectedNamespace={selectedNamespace}
+              onSelectNamespace={handleSelectNamespace}
+              onNoteClick={handleNoteClick}
+            />
           ) : selectedNsMeta ? (
             <NamespaceOverview
               namespace={selectedNsMeta}
               graphCounts={graphCounts}
               onNavigateImport={() => setActiveDetailView('import')}
-              onNavigateQuery={() => {}}
+              onNavigateQuery={() => setActiveDetailView('nexus')}
               onDelete={() => setShowDeleteConfirm(selectedNamespace)}
               onRefresh={refreshNamespaces}
               queryResult={queryResult}
@@ -478,11 +468,6 @@ export default function KnowledgeTabCore({
               queryError={queryError}
               onExecuteQuery={handleExecuteQuery}
               onClearResult={clearResult}
-              graphNodes={nodes}
-              graphEdges={edges}
-              graphStats={graphStats}
-              graphLoading={graphLoading}
-              onRefreshGraph={refreshGraph}
               onNoteClick={handleNoteClick}
             />
           ) : null}

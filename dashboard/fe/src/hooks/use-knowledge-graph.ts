@@ -6,7 +6,6 @@
  */
 
 import useSWR from 'swr';
-import { apiGet } from '@/lib/api-client';
 
 export interface GraphNodeResponse {
   id: string;

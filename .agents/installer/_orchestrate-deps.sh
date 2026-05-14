@@ -115,6 +115,16 @@ else
   install_opencode
 fi
 
+# --- Obscura browser (backs built-in obscura-browser MCP) ---
+OBSCURA_PATH=$(check_obscura 2>/dev/null || true)
+if [[ -n "$OBSCURA_PATH" ]]; then
+  ok "obscura ($OBSCURA_PATH)"
+elif $SKIP_OPTIONAL; then
+  warn "obscura not found (skipped — --skip-optional)"
+else
+  install_obscura
+fi
+
 # --- Ollama ---
 if check_ollama; then
   OLLAMA_VER=$(ollama --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")

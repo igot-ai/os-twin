@@ -1,0 +1,180 @@
+---
+title: Bot Configuration
+description: Multi-platform bot setup — architecture, Discord and Telegram configuration, agent bridge, commands, sessions, and notifications.
+sidebar:
+  order: 7
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The OSTwin bot provides a **conversational interface** for managing plans and interacting with agents through Discord, Telegram, or Slack.
+
+## Architecture
+
+```
+Discord / Telegram / Slack
+       │
+       ▼
+  Bot (TypeScript)
+       ├── Connector layer     ← Platform adapters
+       ├── Command router      ← Slash commands
+       ├── Agent bridge        ← Proxies to dashboard API
+       ├── Session manager     ← Per-user/channel state
+       └── Notifications       ← War-room event push
+```
+
+## Environment setup
+
+Set platform tokens in `~/.ostwin/.env`:
+
+```bash
+# Dashboard connection
+DASHBOARD_URL="http://localhost:9000"
+OSTWIN_API_KEY="your-api-key"
+
+# Discord
+DISCORD_TOKEN="your-discord-bot-token"
+DISCORD_CLIENT_ID="your-discord-app-id"
+GUILD_ID="your-server-id"
+
+# Telegram
+TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
+
+# Slack
+SLACK_BOT_TOKEN="xoxb-your-slack-bot-token"
+SLACK_APP_TOKEN="xapp-your-slack-app-token"
+SLACK_SIGNING_SECRET="your-signing-secret"
+```
+
+:::note
+Only configure the platforms you use. Leave unused tokens empty.
+:::
+
+## Discord setup
+
+<Steps>
+
+1. **Create a Discord application** at the [Developer Portal](https://discord.com/developers/applications). Under **Bot**, click **Add Bot** and copy the token.
+
+2. **Set permissions:** Send Messages, Read Message History, Use Slash Commands, Embed Links, Attach Files.
+
+3. **Invite the bot** using an OAuth2 URL with `bot` and `applications.commands` scopes.
+
+4. **Configure tokens** in `~/.ostwin/.env`:
+
+   ```bash
+   DISCORD_TOKEN="your-bot-token"
+   DISCORD_CLIENT_ID="your-application-id"
+   GUILD_ID="your-server-id"
+   ```
+
+5. **Deploy slash commands and start:**
+
+   ```bash
+   cd bot && npm install
+   npx ts-node src/deploy-commands.ts
+   npm start
+   ```
+
+</Steps>
+
+## Telegram setup
+
+<Steps>
+
+1. **Create a bot** via `@BotFather` in Telegram. Send `/newbot` and copy the token.
+
+2. **Configure the token:**
+
+   ```bash
+   TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
+   ```
+
+3. **Start the bot.** The Telegram connector activates automatically when the token is present.
+
+   ```bash
+   cd bot && npm start
+   ```
+
+</Steps>
+
+## Commands
+
+<Tabs>
+  <TabItem label="Plan">
+    | Command | Description |
+    |---------|-------------|
+    | `/plan create` | Interactive plan creation |
+    | `/plan run <path>` | Execute a plan |
+    | `/plan status` | Current execution status |
+    | `/plan list` | List available plans |
+  </TabItem>
+  <TabItem label="Rooms">
+    | Command | Description |
+    |---------|-------------|
+    | `/rooms` | List active war-rooms |
+    | `/room <id>` | Room details |
+    | `/room <id> channel` | Recent messages |
+    | `/room <id> progress` | Completion percentage |
+  </TabItem>
+  <TabItem label="System">
+    | Command | Description |
+    |---------|-------------|
+    | `/ping` | Health check |
+    | `/memory search <query>` | Search memory ledger |
+    | `/status` | Overall system status |
+  </TabItem>
+</Tabs>
+
+## Agent bridge
+
+The agent bridge proxies conversations between chat users and OSTwin agents:
+
+1. Routes user messages to the appropriate war-room channel
+2. Waits for the agent's response
+3. Formats and returns the response to the chat platform
+
+:::tip
+The bridge supports rich formatting. Agent responses with code blocks, tables, and lists render natively in Discord embeds and Telegram markdown.
+:::
+
+## Sessions
+
+<Tabs>
+  <TabItem label="User sessions">
+    Per-user context: current plan, active war-room, conversation history (last 20 messages), notification preferences. Expires after 24 hours of inactivity.
+  </TabItem>
+  <TabItem label="Channel sessions">
+    Team collaboration: shared plan focus, broadcast notifications for room state changes, threaded discussions per war-room.
+  </TabItem>
+</Tabs>
+
+## Notifications
+
+The bot pushes war-room events to subscribed channels:
+
+| Event | Notification |
+|-------|-------------|
+| Room enters `review` | "Room-001 is ready for review" |
+| Room `passed` | "Room-001 passed QA" |
+| Room `failed-final` | "Room-001 failed after max retries" |
+| Plan completed | "Plan completed — 4/4 epics passed" |
+
+Subscribe with `/subscribe room-001` or `/subscribe plan my-plan`.
+
+## Connector architecture
+
+```
+bot/src/connectors/
+├── base.ts        # Abstract interface
+├── discord.ts     # Discord adapter
+├── telegram.ts    # Telegram adapter
+├── slack.ts       # Slack adapter
+└── registry.ts    # Auto-activates based on tokens
+```
+
+The registry activates connectors based on which tokens are set. Discord and Telegram can run simultaneously from a single process.
+
+:::caution
+The bot requires the dashboard API. Start the [dashboard](/guides/dashboard-setup/) first, or the bot retries with exponential backoff.
+:::

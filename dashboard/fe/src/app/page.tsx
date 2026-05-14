@@ -16,7 +16,7 @@ import type { ImageAttachment } from '@/types';
 
 export default function DashboardHomePage() {
   const router = useRouter();
-  const { plans, isLoading: plansLoading } = usePlans();
+  const { plans, isLoading: plansLoading, deletePlan } = usePlans();
 
   const [prompt, setPrompt] = useState('');
   const [isCreatingThread, setIsCreatingThread] = useState(false);
@@ -169,7 +169,7 @@ export default function DashboardHomePage() {
                   ))
                 ) : plans && plans.length > 0 ? (
                   plans.slice(0, 2).map(plan => (
-                    <PlanCard key={plan.plan_id} plan={plan} />
+                    <PlanCard key={plan.plan_id} plan={plan} onDelete={deletePlan} />
                   ))
                 ) : (
                   <div className="col-span-full py-8 text-center bg-[var(--color-surface)] rounded-[var(--radius-xl)] border border-dashed border-[var(--color-border)]">

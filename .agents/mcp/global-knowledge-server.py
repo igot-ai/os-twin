@@ -57,10 +57,10 @@ _knowledge_lock = threading.Lock()
 def _get_knowledge_service() -> Any:
     """Lazily load and return the KnowledgeService singleton."""
     global _knowledge_service
-    
+
     if _knowledge_service is not None:
         return _knowledge_service
-    
+
     with _knowledge_lock:
         if _knowledge_service is None:
             try:
@@ -68,21 +68,21 @@ def _get_knowledge_service() -> Any:
                 dashboard_path = Path(__file__).resolve().parent.parent.parent / "dashboard"
                 if dashboard_path.is_dir() and str(dashboard_path) not in sys.path:
                     sys.path.insert(0, str(dashboard_path.parent))
-                
+
                 from dashboard.knowledge.namespace import NamespaceManager
                 from dashboard.knowledge.service import KnowledgeService
-                
+
                 if KNOWLEDGE_BASE_DIR.is_dir():
                     nm = NamespaceManager(base_dir=KNOWLEDGE_BASE_DIR)
                     _knowledge_service = KnowledgeService(namespace_manager=nm)
                 else:
                     _knowledge_service = KnowledgeService()
-                
+
                 logger.info("Knowledge service initialized")
             except Exception as e:
                 logger.exception("Failed to initialize knowledge service")
                 raise RuntimeError(f"Failed to initialize knowledge service: {e}")
-        
+
         return _knowledge_service
 
 
@@ -154,7 +154,7 @@ def global_knowledge_query(
 
     Args:
         query: Natural language question or search phrase.
-        mode: Query mode - "raw" (fast), "graph" (with neighbors), 
+        mode: Query mode - "raw" (fast), "graph" (with neighbors),
               "summarized" (LLM-aggregated with citations).
         top_k: Max results per namespace (default 10).
         namespaces: Optional list of specific namespaces to search.
@@ -164,53 +164,53 @@ def global_knowledge_query(
         JSON with chunks, entities, and optional answer/citations.
     """
     logger.info("global_knowledge_query: query=%r mode=%s top_k=%d", query, mode, top_k)
-    
+
     try:
         ks = _get_knowledge_service()
-        
+
         # Get namespaces to search
         if namespaces:
             ns_to_search = namespaces
         else:
             all_ns = ks.list_namespaces()
             ns_to_search = [ns.name for ns in all_ns]
-        
+
         # Aggregate results
         all_chunks = []
         all_entities = []
         aggregated_answer = None
         warnings = []
-        
+
         for ns_name in ns_to_search:
             try:
                 result = ks.query(ns_name, query, mode=mode, top_k=top_k, actor="manager")
-                
+
                 # Add namespace context to chunks
                 for chunk in result.chunks:
                     chunk_dict = chunk.model_dump(mode="json") if hasattr(chunk, 'model_dump') else dict(chunk)
                     chunk_dict["namespace"] = ns_name
                     all_chunks.append(chunk_dict)
-                
+
                 # Collect entities
                 for entity in (result.entities or []):
                     entity_dict = entity.model_dump(mode="json") if hasattr(entity, 'model_dump') else dict(entity)
                     entity_dict["namespace"] = ns_name
                     all_entities.append(entity_dict)
-                
+
                 # Use first summarized answer if available
                 if result.answer and not aggregated_answer:
                     aggregated_answer = result.answer
-                
+
                 if result.warnings:
                     warnings.extend(result.warnings)
-                    
+
             except Exception as e:
                 logger.warning("Failed to query namespace %s: %s", ns_name, e)
                 warnings.append(f"namespace_{ns_name}_error: {str(e)}")
-        
+
         # Sort chunks by score
         all_chunks.sort(key=lambda c: c.get("score", 0), reverse=True)
-        
+
         return json.dumps({
             "query": query,
             "mode": mode,
@@ -220,7 +220,7 @@ def global_knowledge_query(
             "answer": aggregated_answer,
             "warnings": warnings if warnings else None,
         }, ensure_ascii=False)
-        
+
     except Exception as e:
         logger.exception("global_knowledge_query failed")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -255,7 +255,7 @@ def global_knowledge_get_stats() -> str:
     try:
         ks = _get_knowledge_service()
         namespaces = ks.list_namespaces()
-        
+
         stats = {
             "knowledge_base_dir": str(KNOWLEDGE_BASE_DIR),
             "namespaces": [],
@@ -267,11 +267,11 @@ def global_knowledge_get_stats() -> str:
                 "namespace_count": len(namespaces),
             }
         }
-        
+
         for ns in namespaces:
             ns_dict = ns.model_dump(mode="json")
             ns_stats = ns_dict.get("stats", {})
-            
+
             stats["namespaces"].append({
                 "name": ns.name,
                 "files_indexed": ns_stats.get("files_indexed", 0),
@@ -281,14 +281,14 @@ def global_knowledge_get_stats() -> str:
                 "language": ns_dict.get("language"),
                 "description": ns_dict.get("description"),
             })
-            
+
             stats["aggregate"]["total_files"] += ns_stats.get("files_indexed", 0)
             stats["aggregate"]["total_chunks"] += ns_stats.get("chunks", 0)
             stats["aggregate"]["total_entities"] += ns_stats.get("entities", 0)
             stats["aggregate"]["total_vectors"] += ns_stats.get("vectors", 0)
-        
+
         return json.dumps(stats, ensure_ascii=False)
-        
+
     except Exception as e:
         logger.exception("global_knowledge_get_stats failed")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -307,13 +307,13 @@ def global_knowledge_get_namespace(namespace: str) -> str:
     try:
         ks = _get_knowledge_service()
         namespaces = ks.list_namespaces()
-        
+
         for ns in namespaces:
             if ns.name == namespace:
                 return json.dumps(ns.model_dump(mode="json"), ensure_ascii=False)
-        
+
         return json.dumps({"error": f"Namespace '{namespace}' not found"}, ensure_ascii=False)
-        
+
     except Exception as e:
         logger.exception("global_knowledge_get_namespace failed")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -336,24 +336,24 @@ def global_knowledge_find_relevant(query: str, top_k: int = 3) -> str:
     try:
         ks = _get_knowledge_service()
         namespaces = ks.list_namespaces()
-        
+
         ns_scores = []
-        
+
         for ns in namespaces:
             try:
                 result = ks.query(ns.name, query, mode="raw", top_k=top_k, actor="manager")
-                
+
                 if result.chunks:
                     # Calculate average score
                     avg_score = sum(
-                        c.score if hasattr(c, 'score') else 0 
+                        c.score if hasattr(c, 'score') else 0
                         for c in result.chunks
                     ) / len(result.chunks)
                     max_score = max(
-                        c.score if hasattr(c, 'score') else 0 
+                        c.score if hasattr(c, 'score') else 0
                         for c in result.chunks
                     )
-                    
+
                     ns_scores.append({
                         "namespace": ns.name,
                         "avg_score": round(avg_score, 4),
@@ -362,15 +362,15 @@ def global_knowledge_find_relevant(query: str, top_k: int = 3) -> str:
                     })
             except Exception as e:
                 logger.debug("Failed to score namespace %s: %s", ns.name, e)
-        
+
         # Sort by max score, then avg score
         ns_scores.sort(key=lambda x: (x["max_score"], x["avg_score"]), reverse=True)
-        
+
         return json.dumps({
             "query": query,
             "ranked_namespaces": ns_scores,
         }, ensure_ascii=False)
-        
+
     except Exception as e:
         logger.exception("global_knowledge_find_relevant failed")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -378,7 +378,7 @@ def global_knowledge_find_relevant(query: str, top_k: int = 3) -> str:
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--transport",
@@ -389,12 +389,12 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=6471)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    
+
     if args.transport == "sse":
         mcp.settings.host = args.host
         mcp.settings.port = args.port

@@ -3,7 +3,7 @@
 # check-deps.sh — Dependency presence checks (pure — no installs)
 #
 # Provides: check_python, check_pwsh, check_node, check_uv, check_opencode,
-#           check_brew
+#           check_obscura, check_brew
 #
 # Requires: lib.sh (version_gte), versions.conf (MIN_PYTHON_VERSION, MIN_PWSH_VERSION)
 #
@@ -72,6 +72,20 @@ check_uv() {
 
 check_opencode() {
   command -v opencode &>/dev/null
+}
+
+# ─── Obscura browser binary ─────────────────────────────────────────────────
+
+check_obscura() {
+  if command -v obscura &>/dev/null; then
+    command -v obscura
+    return 0
+  fi
+  if [[ -n "${INSTALL_DIR:-}" && -x "$INSTALL_DIR/.agents/bin/obscura" ]]; then
+    echo "$INSTALL_DIR/.agents/bin/obscura"
+    return 0
+  fi
+  return 1
 }
 
 # ─── Homebrew ────────────────────────────────────────────────────────────────

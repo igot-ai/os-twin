@@ -1,5 +1,6 @@
 import os
 import sys
+import multiprocessing
 
 # ── Fix Windows console encoding for Unicode output ──
 # Guard against None or non-standard streams (test runners, service hosts)
@@ -14,6 +15,18 @@ if sys.platform == "win32":
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+# ── macOS fork safety — MUST run before ANY C extension loads ──
+# Without this, Python's default `fork` start method triggers
+# "MallocStackLogging: can't turn off malloc stack logging" on macOS
+# when multiprocessing spawns child processes after tokenizers/PyTorch
+# have initialised background threads (common during graph extraction).
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+try:
+    multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass  # Already set by another module
 
 import asyncio
 import time
@@ -79,8 +92,8 @@ from dashboard.tasks import startup_all
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth, system, mcp, threads, plans, rooms, skills, 
-    roles, memory, amem, channels, command, tunnel, 
+    ai, agent_costs, auth, system, mcp, threads, plans, rooms, skills,
+    roles, memory, amem, channels, command, tunnel,
     files, settings, engagement, knowledge, memory_mcp
 )
 
@@ -111,6 +124,9 @@ _console_handler.setFormatter(
 # triggered default logging configuration before this line.
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
+# Silence noisy httpx/httpcore request logging (connection pools, redirects, etc.)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 if _file_handler not in _root.handlers:
     _root.addHandler(_file_handler)
 if _console_handler not in _root.handlers:
@@ -307,13 +323,68 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # --- Middleware ---
+# SECURITY: Restrict CORS in production to same-origin only.
+# In dev mode, allow localhost origins for the Next.js dev server.
+# Never use allow_origins=["*"] in production — it allows any website
+# to make authenticated cross-origin requests to the API.
+_cors_origins = (
+    []  # Dev: empty list means use origin_regex instead
+    if is_dev
+    else []  # Production: no explicit origins; rely on same-origin via proxy
+)
+_cors_origin_regex = (
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if is_dev
+    else None  # Production: no cross-origin access
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[] if is_dev else ["*"],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$" if is_dev else None,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=is_dev,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+)
+
+# P1-10: Rate limiter disabled by default.
+# To enable, set RATE_LIMIT_MAX to a positive integer (e.g., 100 requests per window).
+_RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "").lower() in ("1", "true", "yes")
+_RATE_LIMIT_WINDOW = 60
+_RATE_LIMIT_MAX = 100
+
+if _RATE_LIMIT_ENABLED:
+    from collections import defaultdict
+    _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request, call_next):
+        """Rate limiting middleware — blocks IPs exceeding request threshold."""
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+        ]
+        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Please try again later."},
+            )
+        _rate_limit_store[client_ip].append(now)
+        response = await call_next(request)
+        return response
+_cors_origin_regex = (
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if is_dev
+    else None  # Production: no cross-origin access
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=is_dev,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 # --- Routes ---
@@ -335,6 +406,8 @@ app.include_router(tunnel.router)
 app.include_router(files.router)
 app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
+app.include_router(ai.router)         # Plan 006: /api/ai/* unified gateway
+app.include_router(agent_costs.router) # Plan 015: /api/ai/agent-costs
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP

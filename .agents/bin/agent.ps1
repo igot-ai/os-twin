@@ -6,7 +6,7 @@
 .DESCRIPTION
     Wraps opencode with environment resolution so roles can invoke via:
       ostwin agent [args...]
-      .agents\bin\agent.ps1 [args...]
+      .agents/bin\agent.ps1 [args...]
 
 .NOTES
     Environment variables (set automatically by Invoke-Agent.ps1):

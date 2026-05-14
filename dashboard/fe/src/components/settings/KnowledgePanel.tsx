@@ -23,13 +23,11 @@ interface BackendOption {
 }
 
 const LLM_BACKENDS: BackendOption[] = [
-  { value: '',          label: '— Use server default —', description: 'Uses env-var / hardcoded default', icon: 'settings' },
   { value: 'ollama',    label: 'Ollama (Local)',          description: 'Local Ollama server', icon: 'dns' },
   { value: 'openai-compatible', label: 'OpenAI-Compatible', description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
-  { value: '',                    label: '— Use server default —',     description: 'Uses env-var / hardcoded default', icon: 'settings' },
   { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
   { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
@@ -109,7 +107,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
   // Removes unused variables from the top
   const [llmModelInput, setLlmModelInput] = useState(draft.knowledge_llm_model);
   const [embedModelInput, setEmbedModelInput] = useState(draft.knowledge_embedding_model);
-  
+
   // OpenAI-compatible specific fields
   const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(draft.knowledge_llm_compatible_url ?? '');
   const [llmCompatibleKey, setLlmCompatibleKey] = useState(draft.knowledge_llm_compatible_key ?? '');
@@ -126,11 +124,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         const { apiGet } = await import('@/lib/api-client');
         const data = await apiGet<{ models: { raw_name: string; display_name: string; is_embed: boolean }[] }>('/settings/ollama/models');
         setOllamaModels(data.models || []);
-      } catch (err) {
+      } catch {
         setOllamaModels([]);
       }
     };
-    
+
     if (draft.knowledge_llm_backend === 'ollama' || draft.knowledge_embedding_backend === 'ollama') {
       fetchModels();
     }
@@ -147,7 +145,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           ...prev,
           [model]: { ...prev[model], ...data, pulling: prev[model]?.pulling || false },
         }));
-      } catch (err) {
+      } catch {
         setOllamaHealth((prev) => ({
           ...prev,
           [model]: { running: false, model_exists: false, pulling: false, progress: 'Could not connect to backend to check Ollama status.' },
@@ -180,11 +178,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const lines = decoder.decode(value).split('\n').filter(Boolean);
         for (const line of lines) {
           try {
@@ -201,12 +199,12 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 [model]: { ...prev[model], progress: msg },
               }));
             }
-          } catch (e) {
+          } catch {
             // parse error
           }
         }
       }
-      
+
       // Success! Re-check health
       const { apiGet } = await import('@/lib/api-client');
       const data = await apiGet<{ running: boolean; model_exists: boolean }>(`/settings/ollama/health?model=${model}`);
@@ -321,8 +319,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     [allModels],
   );
 
-  const flashSavedMessage = (msg: string, isError = false, ttl = 1800) => {
-    // Legacy function, no-op since we removed auto-save toasts
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const flashSavedMessage = (_msg: string, _isError = false, _ttl = 1800) => {
   };
 
   const save = async (patch: Partial<KnowledgeSettings>) => {
@@ -338,8 +336,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setLlmModelInput(model);
   };
 
-  const handleLlmModelSelect = (compositeId: string) => {
-    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+  const handleLlmModelSelect = (modelId: string) => {
     updateDraft({ knowledge_llm_model: modelId });
     setLlmModelInput(modelId);
   };
@@ -358,20 +355,18 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     updateDraft({
       knowledge_embedding_backend: backend as MemoryEmbeddingBackend | '',
       knowledge_embedding_model: model,
-      knowledge_embedding_dimension: 768,
     });
     setEmbedModelInput(model);
   };
 
-  const handleEmbedModelSelect = (compositeId: string) => {
-    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
-    updateDraft({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: 768 });
+  const handleEmbedModelSelect = (modelId: string) => {
+    updateDraft({ knowledge_embedding_model: modelId });
     setEmbedModelInput(modelId);
   };
 
   const commitEmbedModelInput = () => {
     if (embedModelInput !== draft.knowledge_embedding_model) {
-      updateDraft({ knowledge_embedding_model: embedModelInput, knowledge_embedding_dimension: 768 });
+      updateDraft({ knowledge_embedding_model: embedModelInput });
     }
   };
 
@@ -402,8 +397,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         <p className="text-sm text-on-surface-variant">
           Configure the LLM and embedding backends used by the knowledge service for entity
           extraction, query answering, and document indexing. All embeddings are normalised to{' '}
-          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">768</code>{' '}
-          dimensions.
+          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">{effective.knowledge_embedding_dimension || '???'}</code>{' '}
+          dimensions (set via <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">OSTWIN_EMBEDDING_DIMENSION</code>).
         </p>
 
         {renderOllamaBanner()}
@@ -447,6 +442,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                           <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                             Local
                           </span>
+                        )}
+                        {b.requiresKey === undefined && b.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
@@ -533,7 +531,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={chatModels.find(m => m.id.endsWith(`/${draft.knowledge_llm_model}`))?.id || draft.knowledge_llm_model || ''}
+                  value={draft.knowledge_llm_model || ''}
                   onChange={(m) => handleLlmModelSelect(m)}
                   models={chatModels}
                   showTier={true}
@@ -542,7 +540,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 />
               </div>
             )}
-            
+
             {/* OpenAI-compatible specific fields */}
             {draft.knowledge_llm_backend === 'openai-compatible' && (
               <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -614,6 +612,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                           <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                             Local
                           </span>
+                        )}
+                        {b.requiresKey === undefined && b.value === 'openai-compatible' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Custom</span>
                         )}
                       </div>
                       <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
@@ -699,7 +700,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={allModels.find(m => m.id.endsWith(`/${draft.knowledge_embedding_model}`))?.id || draft.knowledge_embedding_model || ''}
+                  value={draft.knowledge_embedding_model || ''}
                   onChange={(m) => handleEmbedModelSelect(m)}
                   models={allModels}
                   showTier={true}
@@ -738,10 +739,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 </div>
               </div>
             )}
-            
+
             <p className="text-[10px] text-slate-400 mt-3">
-              All vectors are normalised to <strong>768 dimensions</strong>. Changing backend requires a{' '}
-              <strong>fresh namespace</strong>.
+              All vectors are normalised to <strong>{effective.knowledge_embedding_dimension || '???'} dimensions</strong> (via{' '}
+              <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">OSTWIN_EMBEDDING_DIMENSION</code>).
+              Changing backend requires a <strong>fresh namespace</strong>.
             </p>
           </div>
         </div>
@@ -754,17 +756,24 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
             Embedding Dimension
           </h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">fixed: 768</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">OSTWIN_EMBEDDING_DIMENSION</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <p className="text-[10px] text-slate-500 mb-3">
-            All embedding backends produce vectors normalised to <strong>768 dimensions</strong> for
-            consistency. This is enforced globally and cannot be changed.
+            All embedding backends produce vectors normalised to{' '}
+            <strong>{effective.knowledge_embedding_dimension || '???'}</strong> dimensions for
+            consistency. This value is controlled by the{' '}
+            <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">
+              OSTWIN_EMBEDDING_DIMENSION
+            </code>{' '}
+            environment variable and is read-only in this panel.
           </p>
           <div className="flex items-baseline gap-2">
-            <code className="text-2xl font-extrabold font-mono text-slate-900">768</code>
-            <span className="text-[10px] text-slate-400">dimensions (fixed)</span>
+            <code className="text-2xl font-extrabold font-mono text-slate-900">
+              {effective.knowledge_embedding_dimension || '???'}
+            </code>
+            <span className="text-[10px] text-slate-400">dimensions (from env)</span>
           </div>
         </div>
       </section>
@@ -775,6 +784,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         llmModel={draft.knowledge_llm_model}
         embeddingBackend={draft.knowledge_embedding_backend}
         embeddingModel={draft.knowledge_embedding_model}
+        embeddingDimension={effective.knowledge_embedding_dimension}
         type="knowledge"
       />
 

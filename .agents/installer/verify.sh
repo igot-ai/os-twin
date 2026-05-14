@@ -65,6 +65,14 @@ verify_components() {
       echo -e "    opencode:         ${YELLOW}⚠️  not in PATH${NC}"
     fi
 
+    local obscura_path
+    obscura_path=$(check_obscura 2>/dev/null || true)
+    if [[ -n "$obscura_path" ]]; then
+      echo -e "    obscura:          ${GREEN}✅ $obscura_path${NC}"
+    else
+      echo -e "    obscura:          ${YELLOW}⚠️  not installed${NC}"
+    fi
+
     if [[ -d "$VENV_DIR" ]]; then
       echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
     else

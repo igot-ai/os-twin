@@ -19,7 +19,7 @@ export default function NamespaceDetailContent() {
 
   // Optional tab query param: /knowledge/my-ns?tab=import
   const tabParam = searchParams.get('tab');
-  const defaultTab = tabParam === 'import' || tabParam === 'query' ? tabParam : undefined;
+  const defaultTab = tabParam === 'import' ? 'import' as const : tabParam === 'nexus' ? 'nexus' as const : undefined;
 
   if (!namespaceName) {
     return (

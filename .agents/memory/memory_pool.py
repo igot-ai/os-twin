@@ -41,6 +41,7 @@ class MemorySlot:
     last_activity: float = field(default_factory=time.monotonic)
     sync_stop: threading.Event = field(default_factory=threading.Event)
     sync_thread: Optional[threading.Thread] = None
+    log_handler: Optional[logging.Handler] = None
 
 
 # ---------------------------------------------------------------------------
@@ -147,12 +148,13 @@ class MemoryPool:
         cfg = load_config()
         from agentic_memory.memory_system import AgenticMemorySystem
 
+        # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
+        # model/provider from MasterSettings. No explicit llm_backend/llm_model
+        # params needed here.
         return AgenticMemorySystem(
             model_name=cfg.embedding.model,
             embedding_backend=cfg.embedding.backend,
             vector_backend=cfg.vector.backend,
-            llm_backend=cfg.llm.backend,
-            llm_model=cfg.llm.model,
             persist_dir=persist_dir,
             context_aware_analysis=cfg.evolution.context_aware,
             context_aware_tree=cfg.evolution.context_aware_tree,
@@ -185,10 +187,23 @@ class MemoryPool:
         slot.sync_thread = t
         t.start()
 
+    @staticmethod
+    def _create_log_handler(persist_dir: str) -> logging.FileHandler:
+        """Create a per-slot file log handler at <persist_dir>/memory.log."""
+        os.makedirs(persist_dir, exist_ok=True)
+        log_path = os.path.join(persist_dir, "memory.log")
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        )
+        handler.setLevel(logging.DEBUG)
+        return handler
+
     def _create_slot(self, persist_dir: str) -> MemorySlot:
         """Create a new MemorySlot (must be called with ``_lock`` held)."""
         system = self._create_system(persist_dir)
         slot = MemorySlot(system=system, persist_dir=persist_dir)
+        slot.log_handler = self._create_log_handler(persist_dir)
         self._start_sync_thread(slot)
         logger.info(
             "Created memory slot: %s (%d notes)",
@@ -228,7 +243,9 @@ class MemoryPool:
         )
         with self._cleanup_threads_lock:
             # Prune completed threads to avoid unbounded growth
-            self._cleanup_threads = [ct for ct in self._cleanup_threads if ct.is_alive()]
+            self._cleanup_threads = [
+                ct for ct in self._cleanup_threads if ct.is_alive()
+            ]
             self._cleanup_threads.append(t)
         t.start()
         logger.info("Evicted slot (%s): %s", policy, victim.persist_dir)
@@ -314,23 +331,31 @@ class MemoryPool:
         slot.sync_stop.set()
         if self._config.sync_on_kill:
             import concurrent.futures
+
             try:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(slot.system.sync_to_disk)
                     future.result(timeout=30)  # 30s max for final sync
                     logger.info("Final sync completed: %s", slot.persist_dir)
             except concurrent.futures.TimeoutError:
-                logger.warning(
-                    "Final sync timed out after 30s: %s", slot.persist_dir
-                )
+                logger.warning("Final sync timed out after 30s: %s", slot.persist_dir)
             except Exception:
                 logger.exception("Final sync failed: %s", slot.persist_dir)
         # Release retriever resources (embedding model ref, handles)
-        if hasattr(slot.system, 'retriever') and hasattr(slot.system.retriever, 'close'):
+        if hasattr(slot.system, "retriever") and hasattr(
+            slot.system.retriever, "close"
+        ):
             try:
                 slot.system.retriever.close()
             except Exception:
                 logger.exception("Retriever close failed: %s", slot.persist_dir)
+        # Flush and close per-slot log handler
+        if slot.log_handler:
+            try:
+                slot.log_handler.flush()
+                slot.log_handler.close()
+            except Exception:
+                pass
         logger.info("Killed memory slot: %s", slot.persist_dir)
 
     def kill_all(self) -> None:

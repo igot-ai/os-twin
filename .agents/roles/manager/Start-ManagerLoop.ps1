@@ -44,9 +44,11 @@ $readMessages = Join-Path $channelDir "Read-Messages.ps1"
 
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
+$configModule = Join-Path $agentsDir "lib" "Config.psm1"
 $utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
 $helpersModule = Join-Path $scriptDir "ManagerLoop-Helpers.psm1"
 if (Test-Path $logModule) { Import-Module $logModule -Force }
+if (Test-Path $configModule) { Import-Module $configModule -Force }
 if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
 if (Test-Path $helpersModule) { Import-Module $helpersModule -Force }
 
@@ -59,10 +61,23 @@ if (-not $ConfigPath) {
 }
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-$maxConcurrent = $config.manager.max_concurrent_rooms
-$pollInterval = $config.manager.poll_interval_seconds
-$maxRetries = $config.manager.max_engineer_retries
-$stateTimeout = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
+$managerRuntime = if (Get-Command Get-OstwinManagerRuntimeSettings -ErrorAction SilentlyContinue) {
+    Get-OstwinManagerRuntimeSettings -Config $config
+} else {
+    [PSCustomObject]@{
+        max_concurrent_rooms  = $config.manager.max_concurrent_rooms
+        poll_interval_seconds = $config.manager.poll_interval_seconds
+        max_engineer_retries  = $config.manager.max_engineer_retries
+        state_timeout_seconds = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
+        auto_approve_tools    = $config.manager.auto_approve_tools
+        dynamic_pipelines     = $config.manager.dynamic_pipelines
+    }
+}
+
+$maxConcurrent = $managerRuntime.max_concurrent_rooms
+$pollInterval = $managerRuntime.poll_interval_seconds
+$maxRetries = $managerRuntime.max_engineer_retries
+$stateTimeout = $managerRuntime.state_timeout_seconds
 
 # --- Resolve war-rooms dir ---
 if (-not $WarRoomsDir) {
@@ -194,7 +209,7 @@ while (-not $script:shuttingDown) {
             continue
         }
         $assignedRole = "engineer"
- 
+
         # If the state has a role, prefer that. Else fall back to config assignment.
         if ($stateDef -and $stateDef.role) {
             $assignedRole = $stateDef.role
@@ -205,7 +220,7 @@ while (-not $script:shuttingDown) {
             }
         }
         $baseRole = $assignedRole -replace ':.*$', ''
- 
+
         # --- Override detection (EPIC-006) ---
         $overrideDir = Join-Path $roomDir (Join-Path "overrides" $baseRole)
         $effectiveRoleDir = if (Test-Path $overrideDir) {
@@ -267,8 +282,7 @@ while (-not $script:shuttingDown) {
                 $roomLifecycleCheck = Join-Path $roomDir "lifecycle.json"
                 $smartAssignment = $false
                 if ($config.manager.smart_assignment) { $smartAssignment = $config.manager.smart_assignment }
-                $dynamicPipelines = $true
-                if ($null -ne $config.manager.dynamic_pipelines) { $dynamicPipelines = $config.manager.dynamic_pipelines }
+                $dynamicPipelines = $managerRuntime.dynamic_pipelines
 
                 if ($dynamicPipelines -and -not (Test-Path $roomLifecycleCheck)) {
                     $analyzeScript = Join-Path $agentsDir "roles" "_base" "Analyze-TaskRequirements.ps1"
@@ -327,7 +341,43 @@ while (-not $script:shuttingDown) {
             # All non-pending states are handled via lifecycle.json signals
             default {
                 $v2StateDef = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) { $lifecycle.states.$status } else { $null }
-                $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $maxRetries }
+
+                $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+                $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
+
+                $roleMaxRetries = $maxRetries
+                $planRoleMaxRetries = $null
+
+                $rcFile = Join-Path $roomDir "config.json"
+                if (Test-Path $rcFile) {
+                    try {
+                        $rcData = Get-Content $rcFile -Raw | ConvertFrom-Json
+                        if ($rcData.plan_id) {
+                            $planRolesFile = Join-Path $OstwinHome ".agents" "plans" "$($rcData.plan_id).roles.json"
+                            if (Test-Path $planRolesFile) {
+                                $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+                                if ($planRolesConfig.$baseRole -and $planRolesConfig.$baseRole.max_retries) {
+                                    $planRoleMaxRetries = [int]$planRolesConfig.$baseRole.max_retries
+                                }
+                            }
+                        }
+                    } catch {}
+                }
+
+                if ($planRoleMaxRetries) {
+                    $roleMaxRetries = $planRoleMaxRetries
+                } elseif ($config.$baseRole -and $config.$baseRole.max_retries) {
+                    $roleMaxRetries = [int]$config.$baseRole.max_retries
+                } else {
+                    $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
+                    if (Test-Path $roleJsonPath) {
+                        try {
+                            $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+                            if ($roleJson.max_retries) { $roleMaxRetries = [int]$roleJson.max_retries }
+                        } catch {}
+                    }
+                }
+                $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $roleMaxRetries }
 
                 if (-not $v2StateDef) {
                     # Unknown state with no lifecycle definition
@@ -340,7 +390,7 @@ while (-not $script:shuttingDown) {
                     'terminal' {
                         if ($status -eq 'passed') {
                             # Guard: only fire Complete-PlanApproval once per plan
-                            $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
+                            $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')"
                             if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $planApprovedFlag)) {
                                 Complete-PlanApproval -TaskRef $taskRef
                                 "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline

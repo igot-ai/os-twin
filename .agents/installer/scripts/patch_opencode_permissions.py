@@ -10,6 +10,7 @@ agents to access .env files without interactive prompts.
 import json
 import sys
 import os
+from copy import deepcopy
 
 
 def patch_permissions(config_path: str) -> None:
@@ -19,12 +20,20 @@ def patch_permissions(config_path: str) -> None:
             config = json.load(f)
     else:
         config = {"$schema": "https://opencode.ai/config.json"}
+    original_config = deepcopy(config)
 
+    # Ensure permission.read exists and allows .env-style files.
+    env_read_allow = {
+        "*": "allow",
+        "*.env": "allow",
+        "*.env.*": "allow",
+        "*.env.example": "allow",
+    }
     perm = config.get("permission")
     if perm is None:
-        perm = {}
-        config["permission"] = perm
-    elif isinstance(perm, str):
+        config["permission"] = {}
+        perm = config["permission"]
+    if isinstance(perm, str):
         # e.g. "allow" — convert to dict, preserving intent
         config["permission"] = {"read": {"*": perm}}
         perm = config["permission"]
@@ -33,18 +42,26 @@ def patch_permissions(config_path: str) -> None:
         config["permission"] = perm
 
     # Ensure "read" sub-key is a dict with .env allowed
-    read_perm = perm.get("read")
-    if isinstance(read_perm, str):
-        perm["read"] = {"*": read_perm}
-        read_perm = perm["read"]
-    elif not isinstance(read_perm, dict):
-        read_perm = {}
-        perm["read"] = read_perm
+    read_perm = perm.get("read") if isinstance(perm, dict) else None
+    if isinstance(perm, dict):
+        if isinstance(read_perm, str):
+            perm["read"] = {
+                "*": read_perm,
+                "*.env": "allow",
+                "*.env.*": "allow",
+                "*.env.example": "allow",
+            }
+        elif isinstance(read_perm, dict):
+            read_perm.setdefault("*", "allow")
+            read_perm["*.env"] = "allow"
+            read_perm["*.env.*"] = "allow"
+            read_perm["*.env.example"] = "allow"
+        else:
+            perm["read"] = dict(env_read_allow)
 
-    read_perm.setdefault("*", "allow")
-    read_perm["*.env"] = "allow"
-    read_perm["*.env.*"] = "allow"
-    read_perm["*.env.example"] = "allow"
+    if config == original_config:
+        print(f"    OpenCode permissions already up to date at {config_path}")
+        return
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)

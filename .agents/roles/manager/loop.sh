@@ -13,25 +13,15 @@ AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$AGENTS_DIR/lib/read-config.sh"
 
 # --- Read configuration values with defaults ---
-# Accept both .runtime.poll_interval (canonical) and .runtime.poll_interval_seconds (legacy)
-_poll_canonical=$(read_config '.runtime.poll_interval' '')
-_poll_legacy=$(read_config '.runtime.poll_interval_seconds' '')
-POLL_INTERVAL="${_poll_canonical:-${_poll_legacy:-5}}"
-MAX_CONCURRENT_ROOMS=$(read_config '.runtime.max_concurrent_rooms' 50)
+# Canonical manager settings live under .manager.*, with .runtime.* used only
+# as a secondary source for the same canonical key names.
+_poll_manager=$(read_config '.manager.poll_interval_seconds' '')
+_poll_runtime_canonical=$(read_config '.runtime.poll_interval_seconds' '')
+POLL_INTERVAL="${_poll_manager:-${_poll_runtime_canonical:-5}}"
+_max_manager=$(read_config '.manager.max_concurrent_rooms' '')
+_max_runtime=$(read_config '.runtime.max_concurrent_rooms' '')
+MAX_CONCURRENT_ROOMS="${_max_manager:-${_max_runtime:-50}}"
 IDLE_EXPLORE_ENABLED=$(read_config '.autonomy.idle_explore_enabled' false)
-
-# Also read from manager namespace for backward compatibility
-MANAGER_POLL_INTERVAL=$(read_config '.manager.poll_interval_seconds' "$POLL_INTERVAL")
-MANAGER_MAX_CONCURRENT=$(read_config '.manager.max_concurrent_rooms' "$MAX_CONCURRENT_ROOMS")
-
-# Use manager values if runtime values are defaults
-if [[ "$POLL_INTERVAL" == "5" && "$MANAGER_POLL_INTERVAL" != "5" ]]; then
-    POLL_INTERVAL="$MANAGER_POLL_INTERVAL"
-fi
-
-if [[ "$MAX_CONCURRENT_ROOMS" == "50" && "$MANAGER_MAX_CONCURRENT" != "50" ]]; then
-    MAX_CONCURRENT_ROOMS="$MANAGER_MAX_CONCURRENT"
-fi
 
 # Export configuration for sub-processes
 export MANAGER_POLL_INTERVAL="$POLL_INTERVAL"

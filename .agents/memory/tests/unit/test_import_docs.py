@@ -56,8 +56,8 @@ def _make_system(persist_dir):
     os.makedirs(sys._notes_dir, exist_ok=True)
     os.makedirs(sys._vector_dir, exist_ok=True)
     sys.retriever = FakeRetriever()
-    sys.model_name = "test"
-    sys.embedding_backend = "test"
+    sys.model_name = "gemini-embedding-001"
+    sys.embedding_backend = "gemini"
     sys.vector_backend = "test"
     sys.context_aware_analysis = False
     sys.context_aware_tree = False
@@ -67,15 +67,15 @@ def _make_system(persist_dir):
     sys.conflict_resolution = "last_modified"
     sys.evo_cnt = 0
     sys.evo_threshold = 5
-    # Mock LLM controller so analyze_content returns deterministic results
-    mock_llm = MagicMock()
-    mock_llm.llm.get_completion.return_value = (
+    # Mock completion function so analyze_content returns deterministic results
+    sys._completion_fn = MagicMock(return_value=(
         '{"name": "test-note", "path": "test", '
         '"keywords": ["k1", "k2"], "context": "Test context", '
         '"tags": ["tag1", "tag2"]}'
-    )
-    sys.llm_controller = mock_llm
+    ))
+    sys._embed_fn = lambda texts: [[0.0] * 768 for _ in texts]
     sys._evolution_system_prompt = ""
+    sys._dirty = False
     return sys
 
 
@@ -246,7 +246,7 @@ class TestImportDocs(unittest.TestCase):
 
         # LLM should have been called at least twice (once per doc)
         self.assertGreaterEqual(
-            self.sys.llm_controller.llm.get_completion.call_count, 2
+            self.sys._completion_fn.call_count, 2
         )
 
     def test_notes_written_to_disk(self):

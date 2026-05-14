@@ -13,7 +13,7 @@ export interface RuntimePanelProps {
 }
 
 export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [] }: RuntimePanelProps) {
-  const [pollIntervalInput, setPollIntervalInput] = useState(runtime.poll_interval);
+  const [pollIntervalInput, setPollIntervalInput] = useState(runtime.poll_interval_seconds);
   const [maxRoomsInput, setMaxRoomsInput] = useState(runtime.max_concurrent_rooms);
 
   // Filter out embedding models from the master agent model picker
@@ -77,8 +77,8 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [
               max={300}
               value={pollIntervalInput}
               onChange={(e) => setPollIntervalInput(parseInt(e.target.value, 10))}
-              onMouseUp={() => onUpdate({ poll_interval: pollIntervalInput })}
-              onTouchEnd={() => onUpdate({ poll_interval: pollIntervalInput })}
+              onMouseUp={() => onUpdate({ poll_interval_seconds: pollIntervalInput })}
+              onTouchEnd={() => onUpdate({ poll_interval_seconds: pollIntervalInput })}
               className="w-full h-2 rounded-lg appearance-none cursor-pointer"
               style={{ background: '#f1f5f9' }}
             />
@@ -89,7 +89,7 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [
               </span>
               <span>300s</span>
             </div>
-            {provenance.poll_interval && <ProvenanceChip source={provenance.poll_interval} />}
+            {provenance.poll_interval_seconds && <ProvenanceChip source={provenance.poll_interval_seconds} />}
           </div>
 
           <div>

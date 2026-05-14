@@ -469,6 +469,32 @@ Roles: @engineer, ...
     const doc = parseEpicMarkdown(md);
     expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer');
   });
+
+  it('parses Roles from the fenced metadata blocks used by generated plans', () => {
+    const md = `# Plan: Landing page or marketing site
+
+\`\`\`markdown
+## EPIC-001: Project Setup & Scaffolding
+\`\`\`
+Roles: @architect, @engineer, @qa
+Objective: Initialize the project repository and base tooling.
+Lifecycle:
+pending → architect → engineer → qa
+working_dir: /tmp/landing-page-project
+\`\`\`
+
+Goals: Establish a robust technical foundation.
+
+### Definition of Done
+- [ ] Code repository is initialized.
+\`\`\`
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('architect, engineer, qa');
+    expect(doc.epics[0].frontmatter.get('Objective')).toBe('Initialize the project repository and base tooling.');
+    expect(doc.epics[0].frontmatter.get('working_dir')).toBe('/tmp/landing-page-project');
+    expect(serializeEpicMarkdown(doc)).toBe(md);
+  });
 });
 
 // ─── Structural Mutation Tests ─────────────────────────────────────

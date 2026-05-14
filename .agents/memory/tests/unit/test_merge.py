@@ -57,8 +57,8 @@ def _make_system(persist_dir, conflict_resolution="last_modified"):
     os.makedirs(sys._notes_dir, exist_ok=True)
     os.makedirs(sys._vector_dir, exist_ok=True)
     sys.retriever = FakeRetriever()
-    sys.model_name = "test"
-    sys.embedding_backend = "test"
+    sys.model_name = "gemini-embedding-001"
+    sys.embedding_backend = "gemini"
     sys.vector_backend = "test"
     sys.context_aware_analysis = False
     sys.context_aware_tree = False
@@ -68,8 +68,10 @@ def _make_system(persist_dir, conflict_resolution="last_modified"):
     sys.conflict_resolution = conflict_resolution
     sys.evo_cnt = 0
     sys.evo_threshold = 5
-    sys.llm_controller = None
+    sys._completion_fn = None
+    sys._embed_fn = lambda texts: [[0.0] * 768 for _ in texts]
     sys._evolution_system_prompt = ""
+    sys._dirty = True
     return sys
 
 

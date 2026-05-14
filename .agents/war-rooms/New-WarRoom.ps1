@@ -211,18 +211,27 @@ if ($planRolesConfig -and $planRolesConfig.$baseRole) {
     }
 }
 # Priority 1b: fallback to role.json skill_refs when plan roles.json is missing/empty
+# Search order favors repo core roles over installed/home copies.
 if ($roleSkillRefs.Count -eq 0) {
     $homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
-    $homeRoleJsonPath = Join-Path $homeDir ".ostwin" "roles" $baseRole "role.json"
-    if (Test-Path $homeRoleJsonPath) {
-        try {
-            $homeRoleData = Get-Content $homeRoleJsonPath -Raw | ConvertFrom-Json
-            if ($homeRoleData.skill_refs) {
-                $roleSkillRefs = @($homeRoleData.skill_refs)
+    $roleJsonCandidates = @(
+        (Join-Path $agentsDir "roles" $baseRole "role.json"),
+        (Join-Path $homeDir ".ostwin" ".agents" "roles" $baseRole "role.json"),
+        (Join-Path $homeDir ".ostwin" "roles" $baseRole "role.json"),
+        (Join-Path $WorkingDir "contributes" "roles" $baseRole "role.json")
+    )
+    foreach ($roleJsonPath in ($roleJsonCandidates | Select-Object -Unique)) {
+        if (Test-Path $roleJsonPath) {
+            try {
+                $roleData = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+                if ($roleData.skill_refs) {
+                    $roleSkillRefs = @($roleData.skill_refs)
+                    break
+                }
             }
-        }
-        catch {
-            Write-Verbose "Failed to read skill_refs from role.json for '$baseRole': $_"
+            catch {
+                Write-Verbose "Failed to read skill_refs from role.json for '$baseRole': $_"
+            }
         }
     }
 }
@@ -495,5 +504,4 @@ if ($assignmentType -eq 'epic') {
     Write-Output "  │  TASKS.md    → not created (type: $assignmentType)"
 }
 Write-Output "  └───────────────────────────────────────────────────────────────"
-
 

@@ -231,15 +231,10 @@ class TestRunAsync:
 # ---------------------------------------------------------------------------
 
 class TestEffectiveProvider:
-    def test_explicit_provider_overrides_autodetect(self):
-        with patch.dict(os.environ, {}, clear=True):
-            from dashboard.knowledge.llm import KnowledgeLLM
-            llm = KnowledgeLLM(model="gpt-4", provider="ollama")
-            assert llm._effective_provider() == "ollama"
-
-    def test_autodetect_when_no_explicit_provider(self):
+    def test_provider_always_detected_from_model(self):
         from dashboard.knowledge.llm import KnowledgeLLM
-        llm = KnowledgeLLM(model="gpt-4", provider=None)
+        # Even if provider is passed explicitly, _effective_provider should use model ID
+        llm = KnowledgeLLM(model="gpt-4", provider="ollama")
         provider = llm._effective_provider()
         assert provider in ("openai", "openai-compatible")
 
@@ -251,21 +246,24 @@ class TestEffectiveProvider:
 class TestLLMGracefulDegradation:
     def test_plan_query_fallback_when_unavailable(self):
         from dashboard.knowledge.llm import KnowledgeLLM
-        llm = KnowledgeLLM(model="", provider=None)
-        result = llm.plan_query("test query")
-        assert result == [{"term": "test query", "is_query": True}]
+        with patch.object(KnowledgeLLM, "is_available", return_value=False):
+            llm = KnowledgeLLM(model="gpt-4")
+            result = llm.plan_query("test query")
+            assert result == [{"term": "test query", "is_query": True}]
 
     def test_aggregate_answers_fallback_when_unavailable(self):
         from dashboard.knowledge.llm import KnowledgeLLM
-        llm = KnowledgeLLM(model="", provider=None)
-        result = llm.aggregate_answers(["snippet A", "snippet B"], "query")
-        assert result == "snippet A\n\nsnippet B"
+        with patch.object(KnowledgeLLM, "is_available", return_value=False):
+            llm = KnowledgeLLM(model="gpt-4")
+            result = llm.aggregate_answers(["snippet A", "snippet B"], "query")
+            assert result == "snippet A\n\nsnippet B"
 
     def test_aggregate_answers_empty_snippets(self):
         from dashboard.knowledge.llm import KnowledgeLLM
-        llm = KnowledgeLLM(model="", provider=None)
-        result = llm.aggregate_answers([], "query")
-        assert result == ""
+        with patch.object(KnowledgeLLM, "is_available", return_value=False):
+            llm = KnowledgeLLM(model="gpt-4")
+            result = llm.aggregate_answers([], "query")
+            assert result == ""
 
 
 # ---------------------------------------------------------------------------

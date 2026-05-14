@@ -209,7 +209,7 @@ class TestEmbedderCheck:
         # Mock the embedder to return a valid embedding
         with patch("dashboard.knowledge.embeddings.KnowledgeEmbedder") as MockEmbedder:
             mock_instance = MagicMock()
-            mock_instance.embed_one.return_value = [0.1] * 768  # Fake embedding
+            mock_instance.embed_one.return_value = [0.1] * 1024  # Fake embedding
             MockEmbedder.return_value = mock_instance
             
             result = await _check_embedder()

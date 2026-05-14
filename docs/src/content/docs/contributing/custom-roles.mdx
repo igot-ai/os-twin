@@ -1,0 +1,209 @@
+---
+title: Creating Custom Roles
+description: How to create, test, and submit custom roles for OSTwin.
+sidebar:
+  order: 2
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Custom roles extend OSTwin with new agent personas. This guide walks through creating a role from scratch, tagging capabilities, defining quality gates, and submitting it to the community.
+
+## Role Anatomy
+
+A role consists of two required files and one optional runner:
+
+```
+.agents/roles/my-role/
+├── role.json        # Machine-readable definition
+├── ROLE.md          # Agent system prompt
+└── Start-MyRole.ps1 # Optional custom runner
+```
+
+## Creating a Role
+
+<Steps>
+1. **Create the role directory**
+
+   ```bash
+   mkdir -p .agents/roles/my-role
+   ```
+
+2. **Write role.json**
+
+   ```json
+   {
+     "name": "my-role",
+     "description": "My custom role — does specialized work",
+     "capabilities": [
+       "code-generation",
+       "data-analysis"
+     ],
+     "prompt_file": "ROLE.md",
+     "quality_gates": [
+       "output-validated",
+       "tests-pass"
+     ],
+     "skill_refs": [],
+     "cli": "agent",
+     "model": "google-vertex-anthropic/claude-opus-4-6@default",
+     "timeout": 900
+   }
+   ```
+
+3. **Write ROLE.md**
+
+   The prompt file defines the agent's identity, responsibilities, and constraints. Structure it with clear sections:
+
+   ```markdown
+   # My Role
+
+   You are a specialized agent that...
+
+   ## Responsibilities
+   - Primary task description
+   - Secondary task description
+
+   ## Communication Protocol
+   - Post `done` messages when work is complete
+   - Include file lists and test instructions
+
+   ## Quality Standards
+   - Always validate output before reporting done
+   - Include evidence of testing
+   ```
+
+4. **Register in registry.json**
+
+   Add an entry to `.agents/roles/registry.json`:
+
+   ```json
+   {
+     "name": "my-role",
+     "description": "My custom role — does specialized work",
+     "runner": "roles/_base/Start-DynamicRole.ps1",
+     "definition": "roles/my-role/role.json",
+     "prompt": "roles/my-role/ROLE.md",
+     "default_assignment": false,
+     "supported_task_types": ["task", "epic"],
+     "capabilities": ["code-generation", "data-analysis"],
+     "quality_gates": ["output-validated", "tests-pass"]
+   }
+   ```
+
+5. **Test the role**
+
+   Reference your role in a plan and run it:
+
+   ```markdown
+   ### EPIC-001: Test My Role
+   Roles: my-role
+   depends_on: [PLAN-REVIEW]
+
+   A test task for the new role...
+   ```
+</Steps>
+
+## Capability Tagging
+
+Capabilities drive automatic role assignment. Follow these guidelines:
+
+| Category | Example Tags |
+|----------|-------------|
+| Code | `code-generation`, `file-editing`, `refactoring` |
+| Review | `code-review`, `security-review` |
+| Design | `architecture-design`, `ui-detection` |
+| Testing | `testing`, `automation-testing`, `performance-testing` |
+| Data | `data-analysis`, `data-visualization` |
+| Ops | `infrastructure`, `ci-cd-pipelines` |
+
+The registry defines aliases that normalize variations. For example, `sql` maps to `database`, and `react` maps to `frontend`.
+
+:::tip
+Use specific capabilities rather than broad ones. `"puzzle-solver-generation"` is more useful for matching than `"coding"`.
+:::
+
+## Quality Gates
+
+Quality gates define the minimum bar for a role's output:
+
+<Tabs>
+<TabItem label="Engineering">
+```json
+{
+  "quality_gates": [
+    "unit-tests",
+    "lint-clean",
+    "no-hardcoded-secrets"
+  ]
+}
+```
+</TabItem>
+<TabItem label="Review">
+```json
+{
+  "quality_gates": [
+    "verdict-required",
+    "evidence-based-review"
+  ]
+}
+```
+</TabItem>
+<TabItem label="Design">
+```json
+{
+  "quality_gates": [
+    "design-review",
+    "scalability-check",
+    "security-review"
+  ]
+}
+```
+</TabItem>
+</Tabs>
+
+Quality gates are informational — they guide the agent's behavior through the prompt but are not mechanically enforced.
+
+## Runner Scripts
+
+Roles without a custom runner use `_base/Start-DynamicRole.ps1`. Custom runners are PowerShell scripts that:
+
+1. Read the room config
+2. Build the agent prompt
+3. Spawn the CLI tool
+4. Capture and route output
+
+## Testing Your Role
+
+<Steps>
+1. **Unit test the role definition**
+
+   ```bash
+   pwsh -Command "Invoke-Pester .agents/tests/roles/ -Output Detailed"
+   ```
+
+2. **Integration test with a minimal plan**
+
+   Create a small plan with one epic targeting your role and run it with `ostwin run`.
+
+3. **Verify channel messages**
+
+   Check that your role produces properly formatted `done` messages.
+
+4. **Test with the QA role**
+
+   Ensure QA can review your role's output by including it in the lifecycle.
+</Steps>
+
+## Submitting to the Community
+
+<Steps>
+1. Place your role under `contributes/roles/my-role/`
+2. Add the registry entry with a `contributes/` prefix path
+3. Include a README.md in your role directory describing its purpose
+4. Open a PR against `develop` with the `role` label
+</Steps>
+
+:::caution
+Role names must be globally unique. Check `registry.json` for conflicts before submitting.
+:::

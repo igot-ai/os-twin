@@ -15,6 +15,7 @@ import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
+import { AgentCostsPanel } from '@/components/settings/AgentCostsPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
@@ -127,12 +128,12 @@ function SettingsPageContent() {
   const handleRemoveProvider = async (providerId: string) => {
     try {
       const isSet = vaultStatus[providerId];
-      
+
       if (isSet) {
         // First click: remove key
         await apiDelete(`/settings/vault/providers/${providerId}`);
         await apiPost('/models/reload');
-        
+
         // Refresh vault status
         const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
         const entries = raw.keys ?? raw;
@@ -148,7 +149,7 @@ function SettingsPageContent() {
         // Second click (or no key existed): dismiss from UI
         const provSettings = (providers as Record<string, ProviderSettings>)[providerId] || { enabled: false };
         updateProvider(providerId, provSettings, { dismissed: true });
-        
+
         await apiDelete(`/settings/vault/providers/${providerId}`).catch(() => {});
         await apiPost('/models/reload');
         reloadModels();
@@ -475,6 +476,9 @@ function SettingsPageContent() {
 
       case 'channels':
         return <ChannelsPanel />;
+
+      case 'ai-monitor':
+        return <AgentCostsPanel />;
 
       default:
         return null;

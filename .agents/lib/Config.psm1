@@ -63,6 +63,94 @@ function Get-OstwinConfig {
     return $config
 }
 
+function Get-OstwinManagerRuntimeSettings {
+    <#
+    .SYNOPSIS
+        Resolves manager loop runtime settings with safe defaults.
+    .DESCRIPTION
+        Canonical manager settings live under the manager section, with
+        runtime.* used only as a secondary source for the same canonical key
+        names. This helper supplies safe defaults so the manager loop never
+        crashes on missing values.
+    .PARAMETER Config
+        The full config object (from Get-OstwinConfig).
+    .OUTPUTS
+        PSCustomObject with normalized manager runtime settings.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$Config
+    )
+
+    $manager = if ($null -ne $Config.manager) { $Config.manager } else { $null }
+    $runtime = if ($null -ne $Config.runtime) { $Config.runtime } else { $null }
+
+    $pollInterval = if ($null -ne $manager -and $null -ne $manager.poll_interval_seconds) {
+        $manager.poll_interval_seconds
+    }
+    elseif ($null -ne $runtime -and $null -ne $runtime.poll_interval_seconds) {
+        $runtime.poll_interval_seconds
+    }
+    else {
+        5
+    }
+
+    $maxConcurrentRooms = if ($null -ne $manager -and $null -ne $manager.max_concurrent_rooms) {
+        $manager.max_concurrent_rooms
+    }
+    elseif ($null -ne $runtime -and $null -ne $runtime.max_concurrent_rooms) {
+        $runtime.max_concurrent_rooms
+    }
+    else {
+        10
+    }
+
+    $maxEngineerRetries = if ($null -ne $manager -and $null -ne $manager.max_engineer_retries) {
+        $manager.max_engineer_retries
+    }
+    else {
+        3
+    }
+
+    $stateTimeoutSeconds = if ($null -ne $manager -and $null -ne $manager.state_timeout_seconds) {
+        $manager.state_timeout_seconds
+    }
+    else {
+        900
+    }
+
+    $autoApproveTools = if ($null -ne $manager -and $null -ne $manager.auto_approve_tools) {
+        [bool]$manager.auto_approve_tools
+    }
+    elseif ($null -ne $runtime -and $null -ne $runtime.auto_approve_tools) {
+        [bool]$runtime.auto_approve_tools
+    }
+    else {
+        $false
+    }
+
+    $dynamicPipelines = if ($null -ne $manager -and $null -ne $manager.dynamic_pipelines) {
+        [bool]$manager.dynamic_pipelines
+    }
+    elseif ($null -ne $runtime -and $null -ne $runtime.dynamic_pipelines) {
+        [bool]$runtime.dynamic_pipelines
+    }
+    else {
+        $true
+    }
+
+    return [PSCustomObject]@{
+        poll_interval_seconds = [int]$pollInterval
+        max_concurrent_rooms  = [int]$maxConcurrentRooms
+        max_engineer_retries  = [int]$maxEngineerRetries
+        state_timeout_seconds = [int]$stateTimeoutSeconds
+        auto_approve_tools    = $autoApproveTools
+        dynamic_pipelines     = $dynamicPipelines
+    }
+}
+
 function Test-OstwinConfig {
     <#
     .SYNOPSIS
@@ -189,4 +277,4 @@ function New-RunConfig {
     return $OutputPath
 }
 
-Export-ModuleMember -Function Resolve-OstwinConfigPath, Get-OstwinConfig, Test-OstwinConfig, New-RunConfig
+Export-ModuleMember -Function Resolve-OstwinConfigPath, Get-OstwinConfig, Get-OstwinManagerRuntimeSettings, Test-OstwinConfig, New-RunConfig

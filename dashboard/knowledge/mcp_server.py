@@ -367,6 +367,72 @@ def knowledge_get_import_status(namespace: str, job_id: str) -> dict:
 
 
 @mcp.tool()
+def knowledge_import_text(
+    namespace: str,
+    text: str,
+    source_label: str = "inline",
+    force: bool = False,
+) -> dict:
+    """Ingest plain text directly into a knowledge namespace (synchronous).
+
+    Unlike ``knowledge_import_folder`` (which runs as a background job),
+    this tool ingests text **synchronously** and returns the result
+    immediately — no job polling needed. Perfect for pasting notes,
+    chat excerpts, meeting summaries, or any short-form text.
+
+    The text is chunked, embedded, and processed for entity extraction
+    exactly like file-based imports. Duplicate text (same content hash)
+    is skipped unless ``force=True``.
+
+    Args:
+        namespace: target namespace. Auto-created if it doesn't exist.
+        text: plain text to ingest (1–100,000 characters).
+        source_label: label identifying the text source, used in chunk
+            metadata (default ``"inline"``). Examples: ``"meeting-notes"``,
+            ``"chat-excerpt"``, ``"user-input"``.
+        force: when ``True``, re-ingest even if the same content hash
+            already exists in the namespace (default ``False``).
+
+    Returns ``{"namespace": str, "chunks_added": int, "entities_added": int,
+    "relations_added": int, "elapsed_seconds": float}`` on success, OR
+    ``{"error", "code"}`` on failure (codes: ``EMPTY_TEXT``,
+    ``TEXT_TOO_LONG``, ``INVALID_NAMESPACE_ID``, ``IMPORT_IN_PROGRESS``,
+    ``INTERNAL_ERROR``).
+
+    Example: ``knowledge_import_text("project_docs", "The authentication
+    system uses JWT tokens with 24-hour expiry...", source_label="auth-design")``
+    """
+    try:
+        if not text or not text.strip():
+            return _err("EMPTY_TEXT", "text must not be empty")
+        if len(text) > 100_000:
+            return _err(
+                "TEXT_TOO_LONG",
+                f"text length {len(text)} exceeds maximum of 100,000 characters",
+            )
+
+        ks = _get_service()
+        result = ks.import_text(
+            namespace,
+            text,
+            source_label=source_label,
+            options={"force": force},
+            actor=_get_mcp_actor() or "anonymous",
+        )
+        return result
+    except Exception as exc:
+        from dashboard.knowledge.namespace import InvalidNamespaceIdError  # noqa: WPS433
+        from dashboard.knowledge.audit import ImportInProgressError  # noqa: WPS433
+
+        if isinstance(exc, InvalidNamespaceIdError):
+            return _err("INVALID_NAMESPACE_ID", str(exc))
+        if isinstance(exc, ImportInProgressError):
+            return _err("IMPORT_IN_PROGRESS", str(exc))
+        logger.exception("knowledge_import_text failed")
+        return _err("INTERNAL_ERROR", str(exc))
+
+
+@mcp.tool()
 def knowledge_query(
     namespace: str,
     query: str,
@@ -525,6 +591,7 @@ __all__ = [
     "knowledge_create_namespace",
     "knowledge_delete_namespace",
     "knowledge_import_folder",
+    "knowledge_import_text",
     "knowledge_get_import_status",
     "knowledge_query",
     # EPIC-007

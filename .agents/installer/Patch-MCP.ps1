@@ -93,5 +93,5 @@ function Patch-McpConfig {
         }
     }
 
-    Write-Ok "MCP config patched"
+    Write-Ok "MCP config synced"
 }

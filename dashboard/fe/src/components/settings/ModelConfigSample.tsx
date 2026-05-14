@@ -7,6 +7,7 @@ interface ModelConfigSampleProps {
   llmModel?: string;
   embeddingBackend?: string;
   embeddingModel?: string;
+  embeddingDimension?: number;
   type: 'memory' | 'knowledge';
 }
 
@@ -15,12 +16,13 @@ export function ModelConfigSample({
   llmModel,
   embeddingBackend,
   embeddingModel,
+  embeddingDimension,
   type,
 }: ModelConfigSampleProps) {
   const [copied, setCopied] = useState(false);
 
   const envPrefix = type === 'memory' ? 'MEMORY' : 'KNOWLEDGE';
-  
+
   const sampleCode = `# ${type === 'memory' ? 'Memory' : 'Knowledge'} Model Configuration
 # Add these to your ~/.ostwin/.env file
 
@@ -31,6 +33,9 @@ ${envPrefix}_LLM_MODEL=${llmModel || 'llama3.2'}
 # Embedding Model
 ${envPrefix}_EMBEDDING_BACKEND=${embeddingBackend || 'ollama'}
 ${envPrefix}_EMBEDDING_MODEL=${embeddingModel || 'leoipulsar/harrier-0.6b'}
+
+# Embedding Dimension (applied globally, must match all namespaces)
+OSTWIN_EMBEDDING_DIMENSION=${embeddingDimension || 768}
 
 # For OpenAI-Compatible backend, also set:
 # ${envPrefix}_LLM_COMPATIBLE_URL=http://localhost:8000/v1

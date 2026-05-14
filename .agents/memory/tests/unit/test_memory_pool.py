@@ -320,6 +320,8 @@ class TestMLPreload(unittest.TestCase):
         )
         called.wait(timeout=2)
         self.assertTrue(called.is_set())
+        # _ml_ready is set by _run_ml_preload after the preloader returns
+        pool._ml_ready.wait(timeout=2)
         self.assertTrue(pool._ml_ready.is_set())
         pool.kill_all()
 

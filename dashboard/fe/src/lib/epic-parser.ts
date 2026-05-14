@@ -60,6 +60,11 @@ export interface TaskNode {
   delimiter: string;                      // e.g., " — " or ": "
 }
 
+function matchMetadataLine(line: string): RegExpMatchArray | null {
+  return line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) ||
+    line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
+}
+
 // ── Helpers ────────────────────────────────────────
 
 /** Convert a section heading to a stable lowercase key (e.g. "Acceptance Criteria" → "acceptance_criteria"). */
@@ -223,6 +228,7 @@ function parseEpicNode(lines: string[]): EpicNode {
 
   let currentSection: EpicSection | null = null;
   let sectionLines: string[] = [];
+  let sawExplicitSection = false;
 
   const flushSection = () => {
     if (currentSection) {
@@ -235,22 +241,28 @@ function parseEpicNode(lines: string[]): EpicNode {
 
   let inYaml = false;
   let inCodeBlock = false;
+  let inMetadataFence = false;
   let yamlBlockLines: string[] = [];
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
+    const trimmed = line.trim();
     const sectionMatch = line.match(/^#{3,4}\s+(.*)$/);
-    const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) || line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
+    const metadataMatch = matchMetadataLine(line);
 
-    if (line.trim().startsWith('```')) {
+    if (trimmed.startsWith('```')) {
       if (!inCodeBlock) {
         inCodeBlock = true;
-        if (line.trim().startsWith('```yaml')) {
+        const fenceLabel = trimmed.slice(3).trim().toLowerCase();
+        inMetadataFence = !sawExplicitSection && ['', 'md', 'markdown', 'text', 'txt'].includes(fenceLabel);
+        if (trimmed.startsWith('```yaml')) {
           inYaml = true;
           yamlBlockLines = [line];
+          inMetadataFence = false;
         }
       } else {
         inCodeBlock = false;
+        inMetadataFence = false;
         if (inYaml) {
           inYaml = false;
           yamlBlockLines.push(line);
@@ -267,6 +279,7 @@ function parseEpicNode(lines: string[]): EpicNode {
     }
 
     if (sectionMatch && !inCodeBlock) {
+      sawExplicitSection = true;
       flushSection();
       const headingText = sectionMatch[1];
       const sectionKey = headingToSectionKey(headingText);
@@ -298,7 +311,7 @@ function parseEpicNode(lines: string[]): EpicNode {
       }
       sectionLines.push(line);
 
-      if (metadataMatch && !inCodeBlock) {
+      if (metadataMatch && (!inCodeBlock || inMetadataFence)) {
         let key = metadataMatch[1].trim();
         if (key.endsWith(':')) key = key.slice(0, -1);
         let value = metadataMatch[2].trim();
@@ -496,8 +509,7 @@ function serializeEpicNode(epic: EpicNode): string {
 
   for (const section of epic.sections) {
     for (const line of [...section.preamble, ...section.postamble]) {
-      const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) ||
-                           line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
+      const metadataMatch = matchMetadataLine(line);
       if (metadataMatch) {
         let key = metadataMatch[1].trim();
         if (key.endsWith(':')) key = key.slice(0, -1);
@@ -814,7 +826,7 @@ function patchMetadata(lines: string[], epic: EpicNode): string[] {
   const result: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) || line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
+    const metadataMatch = matchMetadataLine(line);
     if (metadataMatch) {
       let key = metadataMatch[1].trim();
       if (key.endsWith(':')) key = key.slice(0, -1);
