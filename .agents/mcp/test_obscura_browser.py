@@ -430,6 +430,103 @@ class TestRefMap:
         assert elements[0]["name"] == "Docs"
 
 
+class TestScreenshotFullPage:
+    """Tests for browser_screenshot full_page routing logic."""
+
+    def _make_fake_page(self, monkeypatch, module):
+        """Set up a fake _page with mocked context and screenshot."""
+        fake_page = type("FakePage", (), {})()
+        fake_context = type("FakeContext", (), {})()
+
+        async def fake_screenshot(path=None, full_page=False):
+            with open(path, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\nfake_image_data_for_testing")
+
+        cdp_sessions = []
+
+        async def fake_new_cdp_session(page):
+            session = type("FakeCDP", (), {})()
+            session._send_called_with = None
+            session._detached = False
+
+            async def fake_send(method, params=None):
+                session._send_called_with = (method, params)
+                return {"data": base64.b64encode(b"cdp_screenshot_bytes").decode()}
+
+            session.send = fake_send
+
+            async def fake_detach():
+                session._detached = True
+
+            session.detach = fake_detach
+            cdp_sessions.append(session)
+            return session
+
+        fake_page.screenshot = fake_screenshot
+        fake_context.new_cdp_session = fake_new_cdp_session
+        fake_page.context = fake_context
+        monkeypatch.setattr(module, "_page", fake_page)
+        return fake_page, cdp_sessions
+
+    def test_full_page_true_uses_playwright_not_cdp(self, monkeypatch):
+        module = _load_obscura_server()
+        import asyncio
+        import base64
+
+        fake_page, cdp_sessions = self._make_fake_page(monkeypatch, module)
+
+        screenshot_calls = []
+        original_screenshot = fake_page.screenshot
+
+        async def tracking_screenshot(path=None, full_page=False):
+            screenshot_calls.append({"path": path, "full_page": full_page})
+            return await original_screenshot(path=path, full_page=full_page)
+
+        fake_page.screenshot = tracking_screenshot
+
+        result = asyncio.run(module.browser_screenshot(path="full.png", full_page=True))
+        data = json.loads(result)
+
+        assert data["success"] is True
+        assert len(screenshot_calls) == 1
+        assert screenshot_calls[0]["full_page"] is True
+        assert len(cdp_sessions) == 0
+
+    def test_full_page_false_uses_cdp_path(self, monkeypatch):
+        module = _load_obscura_server()
+        import asyncio
+        import base64
+
+        fake_page, cdp_sessions = self._make_fake_page(monkeypatch, module)
+
+        result = asyncio.run(module.browser_screenshot(path="viewport.png", full_page=False))
+        data = json.loads(result)
+
+        assert data["success"] is True
+        assert len(cdp_sessions) == 1
+        assert cdp_sessions[0]._send_called_with is not None
+        assert cdp_sessions[0]._send_called_with[0] == "Page.captureScreenshot"
+
+    def test_full_page_true_cdp_failure_returns_error(self, monkeypatch):
+        module = _load_obscura_server()
+        import asyncio
+
+        fake_page = type("FakePage", (), {})()
+
+        async def failing_screenshot(path=None, full_page=False):
+            raise RuntimeError("Playwright full-page screenshot failed")
+
+        fake_page.screenshot = failing_screenshot
+        fake_page.context = type("FakeContext", (), {})()
+        monkeypatch.setattr(module, "_page", fake_page)
+
+        result = asyncio.run(module.browser_screenshot(path="full.png", full_page=True))
+        data = json.loads(result)
+
+        assert data["success"] is False
+        assert "Full-page screenshot failed" in data["error"]
+
+
 class TestMCPTools:
     """Tests for MCP tool functions (no browser required)."""
 

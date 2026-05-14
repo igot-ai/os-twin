@@ -544,6 +544,11 @@ async def browser_screenshot(
         return json.dumps({"success": False, "error": str(e)})
 
     try:
+        if full_page:
+            await _page.screenshot(path=safe_path, full_page=True)
+            with open(safe_path, "rb") as f:
+                data_preview = base64.b64encode(f.read()).decode("utf-8")[:100] + "..."
+            return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
         cdp = await _page.context.new_cdp_session(_page)
         fmt = "png" if safe_path.endswith(".png") else "jpeg"
         result = await cdp.send("Page.captureScreenshot", {"format": fmt, "quality": 80} if fmt == "jpeg" else {"format": fmt})
@@ -555,8 +560,10 @@ async def browser_screenshot(
         data_preview = result["data"][:100] + "..."
         return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
     except Exception as e:
+        if full_page:
+            return json.dumps({"success": False, "error": f"Full-page screenshot failed: {e}"})
         try:
-            await _page.screenshot(path=safe_path, full_page=full_page)
+            await _page.screenshot(path=safe_path, full_page=False)
             with open(safe_path, "rb") as f:
                 data_preview = base64.b64encode(f.read()).decode("utf-8")[:100] + "..."
             return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
