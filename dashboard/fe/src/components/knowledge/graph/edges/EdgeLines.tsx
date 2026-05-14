@@ -154,16 +154,16 @@ export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, hig
 
       const sourceNode = nodeMap.get(srcId);
       const targetNode = nodeMap.get(tgtId);
-      
+
       const edgeKey = `${srcId}->${tgtId}`;
       const isPathEdge = pathEdgeSet.has(edgeKey);
       const connectsIgnited = ignitionSet.has(srcId) || ignitionSet.has(tgtId);
       const isEdgeHighlighted = highlightedEdges && highlightedEdges.size > 0 ? highlightedEdges.has(link.label || '') : false;
       const isFilteringEdges = highlightedEdges && highlightedEdges.size > 0;
-      
+
       const sourceLabel = sourceNode?.label || '';
       const targetLabel = targetNode?.label || '';
-      const isLabelHighlighted = highlightedLabels && highlightedLabels.size > 0 
+      const isLabelHighlighted = highlightedLabels && highlightedLabels.size > 0
         ? (highlightedLabels.has(sourceLabel) || highlightedLabels.has(targetLabel))
         : false;
       const isFilteringLabels = highlightedLabels && highlightedLabels.size > 0;

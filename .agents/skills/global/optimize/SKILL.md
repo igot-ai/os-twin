@@ -226,7 +226,7 @@ const observer = new IntersectionObserver((entries) => {
 ## Performance Monitoring
 
 **Tools to use**:
-- Chrome DevTools (Lighthouse, Performance panel)
+- Browser DevTools (Lighthouse, Performance panel)
 - WebPageTest
 - Core Web Vitals (Chrome UX Report)
 - Bundle analyzers (webpack-bundle-analyzer)
@@ -263,4 +263,3 @@ Test that optimizations worked:
 - **User perception**: Does it *feel* faster?
 
 Remember: Performance is a feature. Fast experiences feel more responsive, more polished, more professional. Optimize systematically, measure ruthlessly, and prioritize user-perceived performance.
-

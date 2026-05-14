@@ -234,7 +234,7 @@ export default function NodeInstances({
 
   useFrame(() => {
     const isRunning = simGetIsRunning();
-    
+
     if (isRunning) {
       needsFinalRenderRef.current = true;
       frameCountRef.current++;

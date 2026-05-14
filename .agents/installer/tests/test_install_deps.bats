@@ -38,6 +38,23 @@ setup() {
   declare -f install_opencode > /dev/null
 }
 
+@test "install_obscura function is defined" {
+  declare -f install_obscura > /dev/null
+}
+
+@test "install_obscura does not enable stealth by default" {
+  local body
+  body=$(declare -f install_obscura)
+  [[ "$body" != *"OBSCURA_ARGS"* ]]
+  [[ "$body" != *"--stealth"* ]]
+}
+
+@test "install_obscura preserves obscura-worker companion binary" {
+  local body
+  body=$(declare -f install_obscura)
+  [[ "$body" == *"obscura-worker"* ]]
+}
+
 @test "install_pester function is defined" {
   declare -f install_pester > /dev/null
 }

@@ -128,12 +128,12 @@ function SettingsPageContent() {
   const handleRemoveProvider = async (providerId: string) => {
     try {
       const isSet = vaultStatus[providerId];
-      
+
       if (isSet) {
         // First click: remove key
         await apiDelete(`/settings/vault/providers/${providerId}`);
         await apiPost('/models/reload');
-        
+
         // Refresh vault status
         const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
         const entries = raw.keys ?? raw;
@@ -149,7 +149,7 @@ function SettingsPageContent() {
         // Second click (or no key existed): dismiss from UI
         const provSettings = (providers as Record<string, ProviderSettings>)[providerId] || { enabled: false };
         updateProvider(providerId, provSettings, { dismissed: true });
-        
+
         await apiDelete(`/settings/vault/providers/${providerId}`).catch(() => {});
         await apiPost('/models/reload');
         reloadModels();

@@ -39,6 +39,16 @@ setup() {
   fi
 }
 
+@test "check_obscura() detects installer-managed binary" {
+  INSTALL_DIR="$BATS_TEST_TMPDIR/ostwin"
+  mkdir -p "$INSTALL_DIR/.agents/bin"
+  touch "$INSTALL_DIR/.agents/bin/obscura"
+  chmod +x "$INSTALL_DIR/.agents/bin/obscura"
+
+  result=$(check_obscura)
+  [[ "$result" == "$INSTALL_DIR/.agents/bin/obscura" || -n "$result" ]]
+}
+
 @test "check_brew() succeeds on macOS with Homebrew" {
   if command -v brew &>/dev/null; then
     run check_brew

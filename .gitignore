@@ -127,13 +127,16 @@ test_extless.ps1
 lint_output.txt
 test_results.txt
 
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+test-results/
+
 docs/plan
 docs/plan/
 docs/plan/**
 
 # Ostwin generated
-.opencode/opencode.json
-.war-rooms/
 .agents/*
 !.agents/memory/
 .memory

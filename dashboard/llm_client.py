@@ -575,7 +575,7 @@ class OllamaClient(LLMClient):
                         images.append(b64)
                     else:
                         images.append(img_url)
-                
+
                 result.append({
                     "role": msg.role,
                     "content": msg.content or "",
@@ -625,7 +625,7 @@ class OllamaClient(LLMClient):
                 options["top_p"] = self.config.top_p
             if self.config.stop is not None:
                 options["stop"] = self.config.stop
-                
+
             if options:
                 kwargs["options"] = options
 
@@ -634,7 +634,7 @@ class OllamaClient(LLMClient):
 
             response = await self._client.chat(**kwargs)
             message = response.get("message", {})
-            
+
             tool_calls = []
             if "tool_calls" in message and message["tool_calls"]:
                 for tc in message["tool_calls"]:
@@ -673,7 +673,7 @@ class OllamaClient(LLMClient):
             "messages": self._convert_messages(messages),
             "stream": True,
         }
-        
+
         options = {}
         if self.config.temperature is not None:
             options["temperature"] = self.config.temperature
@@ -681,7 +681,7 @@ class OllamaClient(LLMClient):
             options["top_p"] = self.config.top_p
         if self.config.stop is not None:
             options["stop"] = self.config.stop
-            
+
         if options:
             kwargs["options"] = options
 
@@ -691,7 +691,7 @@ class OllamaClient(LLMClient):
         try:
             async for chunk in await self._client.chat(**kwargs):
                 message = chunk.get("message", {})
-                
+
                 if "tool_calls" in message and message["tool_calls"]:
                     for tc in message["tool_calls"]:
                         func = tc.get("function", {})
@@ -701,7 +701,7 @@ class OllamaClient(LLMClient):
                                 name=func.get("name", ""),
                                 arguments=func.get("arguments", {}),
                             )
-                
+
                 content = message.get("content", "")
                 if content:
                     yield content

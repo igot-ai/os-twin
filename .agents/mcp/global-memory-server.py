@@ -119,20 +119,20 @@ def _plan_id_to_dir(plan_id: str) -> Path:
 def _get_or_create_memory_system(persist_dir: Path) -> Any:
     """Get or create an AgenticMemorySystem for the given directory."""
     global AgenticMemorySystem
-    
+
     persist_str = str(persist_dir)
-    
+
     with _memory_lock:
         if persist_str in _memory_systems:
             return _memory_systems[persist_str]
-        
+
         if AgenticMemorySystem is None:
             from agentic_memory.memory_system import AgenticMemorySystem as _AMS
             AgenticMemorySystem = _AMS
-        
+
         from agentic_memory.config import load_config
         cfg = load_config()
-        
+
         system = AgenticMemorySystem(
             model_name=cfg.embedding.model,
             embedding_backend=cfg.embedding.backend,
@@ -192,28 +192,27 @@ def global_memory_search(query: str, k: int = 10, plans: Optional[list[str]] = N
         JSON array of matching memories with plan_id, content, tags, and metadata.
     """
     logger.info("global_memory_search: query=%r k=%d plans=%s", query, k, plans)
-    
+
     all_results = []
-    
+
     # Determine which directories to search
     if plans:
         dirs_to_search = [_plan_id_to_dir(p) for p in plans]
         dirs_to_search = [d for d in dirs_to_search if d.is_dir()]
     else:
         dirs_to_search = _get_all_plan_dirs()
-    
+
     # Always include global
     global_dir = _get_global_dir()
     if global_dir.is_dir() and global_dir not in dirs_to_search:
         dirs_to_search.insert(0, global_dir)
-    
+
     for plan_dir in dirs_to_search:
         try:
             system = _get_or_create_memory_system(plan_dir)
             results = system.search(query, k=k)
-            
+
             plan_id = _dir_to_plan_id(plan_dir.name)
-            
             for r in results:
                 note = system.read(r["id"])
                 all_results.append({
@@ -228,7 +227,7 @@ def global_memory_search(query: str, k: int = 10, plans: Optional[list[str]] = N
                 })
         except Exception as e:
             logger.warning("Failed to search %s: %s", plan_dir, e)
-    
+
     # Sort by relevance (could implement cross-namespace ranking here)
     # For now, just return up to k*len(dirs) results
     return json.dumps(all_results[:k * len(dirs_to_search)], ensure_ascii=False)
@@ -246,16 +245,15 @@ def global_memory_tree() -> str:
         Tree-formatted string of all memory directories.
     """
     lines = [f"Global Memory Root: {MEMORY_BASE_DIR}"]
-    
+
     all_dirs = [_get_global_dir()] + _get_all_plan_dirs()
-    
+
     for plan_dir in sorted(all_dirs, key=lambda d: d.name):
         if not plan_dir.is_dir():
             continue
-        
         plan_id = _dir_to_plan_id(plan_dir.name)
         lines.append(f"\n[{plan_id}]")
-        
+
         try:
             system = _get_or_create_memory_system(plan_dir)
             tree = system.tree()
@@ -264,7 +262,7 @@ def global_memory_tree() -> str:
                 lines.append(f"  {line}")
         except Exception as e:
             lines.append(f"  Error: {e}")
-    
+
     return "\n".join(lines)
 
 
@@ -286,21 +284,21 @@ def global_memory_stats() -> str:
             "namespace_count": 0,
         }
     }
-    
+
     all_dirs = [_get_global_dir()] + _get_all_plan_dirs()
-    
+
     for plan_dir in all_dirs:
         if not plan_dir.is_dir():
             continue
-        
+
         plan_id = _dir_to_plan_id(plan_dir.name)
-        
+
         try:
             system = _get_or_create_memory_system(plan_dir)
             total = len(system.memories)
             links = sum(len(m.links) for m in system.memories.values())
             paths = sorted({m.path for m in system.memories.values() if m.path})
-            
+
             stats["namespaces"].append({
                 "plan_id": plan_id,
                 "total_memories": total,
@@ -315,7 +313,7 @@ def global_memory_stats() -> str:
                 "plan_id": plan_id,
                 "error": str(e),
             })
-    
+
     return json.dumps(stats, ensure_ascii=False)
 
 
@@ -330,15 +328,15 @@ def global_memory_list_plans() -> str:
         JSON array of {plan_id, memory_count, last_modified}.
     """
     plans = []
-    
+
     all_dirs = [_get_global_dir()] + _get_all_plan_dirs()
-    
+
     for plan_dir in sorted(all_dirs, key=lambda d: d.name):
         if not plan_dir.is_dir():
             continue
-        
+
         plan_id = _dir_to_plan_id(plan_dir.name)
-        
+
         try:
             system = _get_or_create_memory_system(plan_dir)
             # Get last modified from notes directory
@@ -347,7 +345,7 @@ def global_memory_list_plans() -> str:
             if notes_dir.is_dir():
                 for f in notes_dir.rglob("*.md"):
                     last_mod = max(last_mod, f.stat().st_mtime)
-            
+
             plans.append({
                 "plan_id": plan_id,
                 "memory_count": len(system.memories),
@@ -358,7 +356,7 @@ def global_memory_list_plans() -> str:
                 "plan_id": plan_id,
                 "error": str(e),
             })
-    
+
     return json.dumps(plans, ensure_ascii=False)
 
 
@@ -376,24 +374,24 @@ def global_memory_grep(pattern: str, flags: Optional[str] = None) -> str:
         Grep output with plan_id prefixes.
     """
     results = []
-    
+
     all_dirs = [_get_global_dir()] + _get_all_plan_dirs()
-    
+
     for plan_dir in all_dirs:
         if not plan_dir.is_dir():
             continue
-        
+
         plan_id = _dir_to_plan_id(plan_dir.name)
         notes_dir = plan_dir / "notes"
-        
+
         if not notes_dir.is_dir():
             continue
-        
+
         cmd = ["grep", "-r", "--include=*.md"]
         if flags:
             cmd.extend(flags.split())
         cmd.extend(["-e", pattern, "--", str(notes_dir)])
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.stdout:
@@ -405,10 +403,10 @@ def global_memory_grep(pattern: str, flags: Optional[str] = None) -> str:
             results.append(f"[{plan_id}] ERROR: grep timed out")
         except FileNotFoundError:
             results.append(f"[{plan_id}] ERROR: grep not found")
-    
+
     if not results:
         return "No matches found across all namespaces."
-    
+
     return "\n".join(results[:100])  # Limit total output
 
 
@@ -427,7 +425,7 @@ def global_memory_read(memory_id: str, plan_id: Optional[str] = None) -> str:
         JSON with full memory content and metadata.
     """
     dirs_to_search = []
-    
+
     if plan_id:
         if plan_id == "_global":
             dirs_to_search = [_get_global_dir()]
@@ -435,15 +433,15 @@ def global_memory_read(memory_id: str, plan_id: Optional[str] = None) -> str:
             dirs_to_search = [_plan_id_to_dir(plan_id)]
     else:
         dirs_to_search = [_get_global_dir()] + _get_all_plan_dirs()
-    
+
     for plan_dir in dirs_to_search:
         if not plan_dir.is_dir():
             continue
-        
+
         try:
             system = _get_or_create_memory_system(plan_dir)
             note = system.read(memory_id)
-            
+
             if note:
                 found_plan_id = plan_dir.name.replace("memory-", "") if plan_dir.name != "_global" else "_global"
                 return json.dumps({
@@ -462,13 +460,13 @@ def global_memory_read(memory_id: str, plan_id: Optional[str] = None) -> str:
                 }, ensure_ascii=False)
         except Exception as e:
             logger.debug("Failed to read from %s: %s", plan_dir, e)
-    
+
     return json.dumps({"error": f"Memory {memory_id} not found in any namespace"})
 
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--transport",
@@ -479,12 +477,12 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=6470)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    
+
     if args.transport == "sse":
         mcp.settings.host = args.host
         mcp.settings.port = args.port

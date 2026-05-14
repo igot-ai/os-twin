@@ -98,7 +98,7 @@ def _load_json_defaults() -> dict:
 
 def _find_project_root() -> Optional[Path]:
     """Find the project root by looking for .git or .agents directory.
-    
+
     Walks up from current working directory to find the project root.
     Returns None if no project root is found.
     """
@@ -123,10 +123,10 @@ def _load_json_config(config_path: Path) -> dict:
 
 def _extract_memory_settings(raw: dict) -> dict:
     """Extract and map memory settings from a flat config schema.
-    
+
     The config has a flat ``memory`` key with settings like:
         { "memory": { "llm_backend": "ollama", "llm_model": "...", ... } }
-    
+
     Returns a nested dict matching the shape of ``config.default.json``.
     """
     flat = raw.get("memory", {})
@@ -205,7 +205,7 @@ def _load_system_settings() -> dict:
     can be merged directly into the defaults dict.
     """
     result: dict = {}
-    
+
     # Layer 1: Project-level config (if running in a project context)
     project_root = _find_project_root()
     if project_root:
@@ -215,7 +215,7 @@ def _load_system_settings() -> dict:
         for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
             if section_key in project_settings:
                 result.setdefault(section_key, {}).update(project_settings[section_key])
-    
+
     # Layer 2: User-level config (dashboard settings)
     user_config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
     user_raw = _load_json_config(user_config_path)
@@ -282,4 +282,3 @@ def load_config() -> MemoryConfig:
         disabled_tools=d.get("disabled_tools", []),
     )
     return config
-

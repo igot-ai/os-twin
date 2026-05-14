@@ -82,7 +82,7 @@ describe('KnowledgePanel', () => {
 
     expect(screen.getByText('Save Knowledge Settings')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Save Knowledge Settings'));
-    
+
     await waitFor(() => {
       expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ knowledge_llm_model: 'openai/gpt-5' }));
     });
@@ -110,7 +110,7 @@ describe('KnowledgePanel', () => {
   it('calls onUpdate when the embedding input is changed and blurred with a custom id', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
-    
+
     // Switch backend to ollama to see the input. The second one is for embeddings.
     const backendBtns = screen.getAllByRole('button', { name: /Ollama \(Local\)/i });
     fireEvent.click(backendBtns[1]);
@@ -139,7 +139,7 @@ describe('KnowledgePanel', () => {
         allModels={mockModels}
       />,
     );
-    
+
     const elements = screen.getAllByText('768');
     expect(elements.length).toBeGreaterThan(0);
     expect(screen.getByText(/dimensions \(fixed\)/i)).toBeInTheDocument();

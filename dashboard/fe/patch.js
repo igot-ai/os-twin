@@ -4,7 +4,7 @@ let content = fs.readFileSync('src/components/settings/KnowledgePanel.tsx', 'utf
 // The file now has `handleEmbedModelSelect` duplicated and messed up.
 // Let's clean up lines 341-374 which contain the duplicated code.
 
-content = content.replace(/const handleLlmModelSelect = \(modelId: string\) => {[\s\S]*?const handleEmbedModelSelect = \(compositeId: string\) => {[\s\S]*?setEmbedModelInput\(modelId\);\n  };/m, 
+content = content.replace(/const handleLlmModelSelect = \(modelId: string\) => {[\s\S]*?const handleEmbedModelSelect = \(compositeId: string\) => {[\s\S]*?setEmbedModelInput\(modelId\);\n  };/m,
 `const handleLlmModelSelect = (modelId: string) => {
     updateDraft({ knowledge_llm_model: modelId });
     setLlmModelInput(modelId);

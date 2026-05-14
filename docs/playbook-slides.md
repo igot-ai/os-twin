@@ -15,7 +15,7 @@ A field guide for engineers working in an AI-first SDLC.
 # The Core Thesis
 **Code Quality = Context Quality**
 
-The quality of the AI's code is entirely determined by the quality of the EPICs, Definitions of Done, and Acceptance Criteria. 
+The quality of the AI's code is entirely determined by the quality of the EPICs, Definitions of Done, and Acceptance Criteria.
 *Not the model. Not the framework. The context.*
 
 **The 2-22 Framework:**
@@ -124,6 +124,6 @@ The 5 Pillars of Agentic Ops:
 ---
 
 # Summary
-Every technique in this playbook serves one purpose: **to make your context so precise that the agent cannot fail to understand what you want.** 
+Every technique in this playbook serves one purpose: **to make your context so precise that the agent cannot fail to understand what you want.**
 
 That is the craft of agentic engineering.
