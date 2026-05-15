@@ -109,33 +109,17 @@ class AgenticMemorySystem:
 
         # Resolve embedding settings: explicit arg > dashboard config > hardcoded default
         if cfg is not None:
-            self.model_name = (
-                model_name if model_name is not None else cfg.embedding.model
-            )
-            self.embedding_backend = (
-                embedding_backend
-                if embedding_backend is not None
-                else cfg.embedding.backend
-            )
-            self.vector_backend = (
-                vector_backend if vector_backend is not None else cfg.vector.backend
-            )
+            self.model_name = model_name if model_name is not None else cfg.embedding.model
+            self.embedding_backend = embedding_backend if embedding_backend is not None else cfg.embedding.backend
+            self.vector_backend = vector_backend if vector_backend is not None else cfg.vector.backend
             _llm_backend = llm_backend if llm_backend is not None else cfg.llm.backend
             _llm_model = llm_model if llm_model is not None else cfg.llm.model
         else:
-            self.model_name = (
-                model_name if model_name is not None else "gemini-embedding-001"
-            )
-            self.embedding_backend = (
-                embedding_backend if embedding_backend is not None else "gemini"
-            )
-            self.vector_backend = (
-                vector_backend if vector_backend is not None else "zvec"
-            )
+            self.model_name = model_name if model_name is not None else "gemini-embedding-001"
+            self.embedding_backend = embedding_backend if embedding_backend is not None else "gemini"
+            self.vector_backend = vector_backend if vector_backend is not None else "zvec"
             _llm_backend = llm_backend if llm_backend is not None else "gemini"
-            _llm_model = (
-                llm_model if llm_model is not None else "gemini-3-flash-preview"
-            )
+            _llm_model = llm_model if llm_model is not None else "gemini-3-flash-preview"
 
         self.memories = {}
         self.persist_dir = persist_dir
@@ -183,9 +167,7 @@ class AgenticMemorySystem:
         if completion_fn is not None:
             self._completion_fn = completion_fn
         else:
-            self._completion_fn = self._resolve_completion_fn(
-                llm_backend, llm_model, api_key, sglang_host, sglang_port
-            )
+            self._completion_fn = self._resolve_completion_fn(llm_backend, llm_model, api_key, sglang_host, sglang_port)
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
 
@@ -225,9 +207,7 @@ class AgenticMemorySystem:
                 embed_fn = lambda texts: _gw_embed(texts, purpose="memory")
                 logger.info("Using dashboard.ai gateway for embeddings")
             except ImportError:
-                logger.info(
-                    "dashboard.ai not available — retriever will use internal embedding"
-                )
+                logger.info("dashboard.ai not available — retriever will use internal embedding")
 
         if self.vector_backend == "zvec":
             return ZvecRetriever(
@@ -285,9 +265,7 @@ class AgenticMemorySystem:
             old_retriever = self.retriever
             self.retriever = self._create_retriever()
             # Migrate any in-memory data if possible
-            if hasattr(old_retriever, "collection") and hasattr(
-                self.retriever, "add_document"
-            ):
+            if hasattr(old_retriever, "collection") and hasattr(self.retriever, "add_document"):
                 try:
                     pass  # Vector data will be rebuilt incrementally on next sync
                 except Exception:
@@ -377,8 +355,7 @@ class AgenticMemorySystem:
                 return self._llm_resolve_conflict(note_a, note_b)
             except Exception:
                 logger.exception(
-                    "LLM conflict resolution failed for %s vs %s, "
-                    "falling back to last_modified",
+                    "LLM conflict resolution failed for %s vs %s, falling back to last_modified",
                     note_a.id,
                     note_b.id,
                 )
@@ -391,9 +368,7 @@ class AgenticMemorySystem:
             return note_a
         return note_b
 
-    def _llm_resolve_conflict(
-        self, note_a: MemoryNote, note_b: MemoryNote
-    ) -> MemoryNote:
+    def _llm_resolve_conflict(self, note_a: MemoryNote, note_b: MemoryNote) -> MemoryNote:
         """Use the LLM to merge two conflicting notes into one.
 
         The merged note keeps note_a's ID and has its ``last_modified``
@@ -480,6 +455,54 @@ class AgenticMemorySystem:
 
         # Rebuild backlinks from links (backlinks are never persisted)
         self._rebuild_backlinks()
+
+        # Rebuild vector index for any notes missing from the retriever
+        self._rebuild_missing_vectors()
+
+    def _rebuild_missing_vectors(self):
+        """Re-index notes whose vectors are missing from the retriever.
+
+        When ``vectordb/`` is deleted but ``notes/`` remains, the retriever
+        is empty while ``self.memories`` has loaded notes.  This method
+        detects the gap and re-adds them so search works immediately.
+        """
+        if not self.memories or not hasattr(self.retriever, "existing_ids"):
+            return
+
+        all_ids = list(self.memories.keys())
+        try:
+            indexed = self.retriever.existing_ids(all_ids)
+        except Exception:
+            return
+
+        missing = [mid for mid in all_ids if mid not in indexed]
+        if not missing:
+            return
+
+        logger.info(
+            "Rebuilding vector index for %d notes missing from retriever",
+            len(missing),
+        )
+        for mid in missing:
+            note = self.memories[mid]
+            try:
+                self.retriever.add_document(
+                    doc_id=note.id,
+                    document=note.content,
+                    metadata={
+                        "name": note.name,
+                        "path": note.path,
+                        "keywords": note.keywords,
+                        "tags": note.tags,
+                        "context": note.context,
+                        "summary": getattr(note, "summary", None) or "",
+                        "timestamp": note.timestamp,
+                        "last_modified": note.last_modified,
+                        "content_hash": note.content_hash,
+                    },
+                )
+            except Exception as e:
+                logger.warning("Could not re-index note %s: %s", mid, e)
 
     def _rebuild_backlinks(self):
         """Derive all backlinks from forward links. Also prunes dead links."""
@@ -571,9 +594,7 @@ class AgenticMemorySystem:
             lines.append(f"{prefix}{connector}{name}")
             if children:
                 extension = "    " if last else "│   "
-                lines.extend(
-                    AgenticMemorySystem._render_tree(children, prefix + extension)
-                )
+                lines.extend(AgenticMemorySystem._render_tree(children, prefix + extension))
         return lines
 
     def _get_existing_context(self, content: str, include_tree: bool = False) -> str:
@@ -659,9 +680,7 @@ class AgenticMemorySystem:
 
         context_section = ""
         if self.context_aware_analysis:
-            existing = self._get_existing_context(
-                content, include_tree=self.context_aware_tree
-            )
+            existing = self._get_existing_context(content, include_tree=self.context_aware_tree)
             if existing:
                 context_section = f"""
             IMPORTANT - Existing knowledge base context:
@@ -917,9 +936,7 @@ class AgenticMemorySystem:
                     )
                     imported += 1
                 except Exception as e:
-                    logger.exception(
-                        "import_docs: failed to import %s: %s", filepath, e
-                    )
+                    logger.exception("import_docs: failed to import %s: %s", filepath, e)
                     failed += 1
 
         logger.info(
@@ -1227,12 +1244,7 @@ class AgenticMemorySystem:
             memory_str = ""
             memory_ids = []
 
-            if (
-                "ids" in results
-                and results["ids"]
-                and len(results["ids"]) > 0
-                and len(results["ids"][0]) > 0
-            ):
+            if "ids" in results and results["ids"] and len(results["ids"]) > 0 and len(results["ids"][0]) > 0:
                 for i, doc_id in enumerate(results["ids"][0]):
                     # Get metadata from ChromaDB results
                     if i < len(results["metadatas"][0]):
@@ -1338,9 +1350,7 @@ class AgenticMemorySystem:
         # Update in ChromaDB
         metadata = self._build_note_metadata(note)
         self.retriever.delete_document(memory_id)
-        self.retriever.add_document(
-            document=note.content, metadata=metadata, doc_id=memory_id
-        )
+        self.retriever.add_document(document=note.content, metadata=metadata, doc_id=memory_id)
         self._save_note(note)
         self._dirty = True
 
@@ -1471,10 +1481,7 @@ class AgenticMemorySystem:
             List[Dict[str, Any]]: Raw search results from ChromaDB
         """
         results = self.retriever.search(query, k)
-        return [
-            {"id": doc_id, "score": score}
-            for doc_id, score in zip(results["ids"][0], results["distances"][0])
-        ]
+        return [{"id": doc_id, "score": score} for doc_id, score in zip(results["ids"][0], results["distances"][0])]
 
     def _compute_time_decay_score(self, similarity: float, last_accessed: str) -> float:
         """Compute combined score using time-decay re-ranking.
@@ -1522,9 +1529,7 @@ class AgenticMemorySystem:
             memory = self.memories.get(doc_id)
             if memory:
                 raw_sim = search_results["distances"][0][i]
-                combined_score = self._compute_time_decay_score(
-                    raw_sim, memory.last_accessed
-                )
+                combined_score = self._compute_time_decay_score(raw_sim, memory.last_accessed)
                 memories.append(
                     {
                         "id": doc_id,
@@ -1577,9 +1582,7 @@ class AgenticMemorySystem:
                 note = self.memories.get(m["id"])
                 raw_sim = m.get("score", 0.0)
                 if note:
-                    m["score"] = self._compute_time_decay_score(
-                        raw_sim, note.last_accessed
-                    )
+                    m["score"] = self._compute_time_decay_score(raw_sim, note.last_accessed)
                     m["similarity"] = raw_sim
 
             memories.sort(key=lambda m: m.get("score", 0), reverse=True)
@@ -1591,17 +1594,10 @@ class AgenticMemorySystem:
     @staticmethod
     def _has_valid_ids(results: dict) -> bool:
         """Check whether retriever results contain at least one ID."""
-        return (
-            "ids" in results
-            and results["ids"]
-            and len(results["ids"]) > 0
-            and len(results["ids"][0]) > 0
-        )
+        return "ids" in results and results["ids"] and len(results["ids"]) > 0 and len(results["ids"][0]) > 0
 
     @staticmethod
-    def _build_memory_dict(
-        doc_id: str, metadata: dict, results: dict, index: int
-    ) -> Dict[str, Any]:
+    def _build_memory_dict(doc_id: str, metadata: dict, results: dict, index: int) -> Dict[str, Any]:
         """Build a single result dict from retriever metadata."""
         memory_dict: Dict[str, Any] = {
             "id": doc_id,
@@ -1613,27 +1609,17 @@ class AgenticMemorySystem:
             "category": metadata.get("category", "Uncategorized"),
             "is_neighbor": False,
         }
-        if (
-            "distances" in results
-            and len(results["distances"]) > 0
-            and index < len(results["distances"][0])
-        ):
+        if "distances" in results and len(results["distances"]) > 0 and index < len(results["distances"][0]):
             memory_dict["score"] = results["distances"][0][index]
         return memory_dict
 
-    def _collect_search_results(
-        self, results: dict, k: int, memories: list, seen_ids: set
-    ) -> None:
+    def _collect_search_results(self, results: dict, k: int, memories: list, seen_ids: set) -> None:
         """Extract primary search hits from retriever results."""
         for i, doc_id in enumerate(results["ids"][0][:k]):
             if doc_id in seen_ids:
                 continue
             if i < len(results["metadatas"][0]):
-                memories.append(
-                    self._build_memory_dict(
-                        doc_id, results["metadatas"][0][i], results, i
-                    )
-                )
+                memories.append(self._build_memory_dict(doc_id, results["metadatas"][0][i], results, i))
                 seen_ids.add(doc_id)
 
     def _collect_neighbor_results(self, memories: list, seen_ids: set, k: int) -> None:
@@ -1736,9 +1722,7 @@ class AgenticMemorySystem:
             if not neighbors_text or not memory_ids:
                 return False, note
 
-            response_json = self._get_evolution_decision(
-                note, neighbors_text, memory_ids
-            )
+            response_json = self._get_evolution_decision(note, neighbors_text, memory_ids)
             should_evolve = response_json["should_evolve"]
 
             if should_evolve:
@@ -1753,9 +1737,7 @@ class AgenticMemorySystem:
             logger.exception("Error in process_memory")
             return False, note
 
-    def _get_evolution_decision(
-        self, note: MemoryNote, neighbors_text: str, memory_ids: List[str]
-    ) -> dict:
+    def _get_evolution_decision(self, note: MemoryNote, neighbors_text: str, memory_ids: List[str]) -> dict:
         """Query LLM for evolution decision and return parsed response."""
         prompt = self._evolution_system_prompt.format(
             content=note.content,
@@ -1764,14 +1746,10 @@ class AgenticMemorySystem:
             nearest_neighbors_memories=neighbors_text,
             neighbor_number=len(memory_ids),
         )
-        response = self._completion_fn(
-            prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
-        )
+        response = self._completion_fn(prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT)
         return json.loads(response)
 
-    def _apply_evolution_actions(
-        self, note: MemoryNote, response_json: dict, memory_ids: List[str]
-    ) -> None:
+    def _apply_evolution_actions(self, note: MemoryNote, response_json: dict, memory_ids: List[str]) -> None:
         """Apply evolution actions (strengthen, update_neighbor) from the LLM response."""
         for action in response_json["actions"]:
             if action == "strengthen":
@@ -1810,9 +1788,7 @@ class AgenticMemorySystem:
             self.add_link(note.id, conn_id)
         note.tags = self._coerce_str_list(response_json["tags_to_update"])
 
-    def _apply_update_neighbors(
-        self, response_json: dict, memory_ids: List[str]
-    ) -> None:
+    def _apply_update_neighbors(self, response_json: dict, memory_ids: List[str]) -> None:
         """Update neighbor memories with new context and tags."""
         new_contexts = response_json["new_context_neighborhood"]
         new_tags = response_json["new_tags_neighborhood"]
