@@ -62,12 +62,39 @@ function Build-Frontend {
     try {
         Set-Location $feDir
 
-        # Install deps if node_modules missing
+        # Install deps when node_modules is missing or stale relative to lockfile.
+        # Freshness is checked against the lockfile that matches the selected PM so
+        # that projects with multiple lockfiles (e.g. both bun.lock and pnpm-lock.yaml)
+        # don't produce false staleness signals from the wrong tool's marker file.
+        $needsInstall = $false
         if (-not (Test-Path "node_modules")) {
+            $needsInstall = $true
+        } elseif ($pm -eq "npm") {
+            $marker = "node_modules/.package-lock.json"
+            $lock   = "package-lock.json"
+            $needsInstall = -not (Test-Path $marker) -or
+                ((Test-Path $lock) -and (Get-Item $lock).LastWriteTime -gt (Get-Item $marker).LastWriteTime)
+        } elseif ($pm -eq "pnpm") {
+            $marker = "node_modules/.modules.yaml"
+            $lock   = "pnpm-lock.yaml"
+            $needsInstall = -not (Test-Path $marker) -or
+                ((Test-Path $lock) -and (Get-Item $lock).LastWriteTime -gt (Get-Item $marker).LastWriteTime)
+        } elseif ($pm -eq "bun") {
+            $lock = if (Test-Path "bun.lockb") { "bun.lockb" } elseif (Test-Path "bun.lock") { "bun.lock" } else { $null }
+            if ($lock) {
+                $needsInstall = (Get-Item $lock).LastWriteTime -gt (Get-Item "node_modules").LastWriteTime
+            } else {
+                $needsInstall = $true
+            }
+        } else {
+            # yarn or unknown — always install to be safe
+            $needsInstall = $true
+        }
+
+        if ($needsInstall) {
             Write-Step "Installing npm dependencies..."
             & $pm install --frozen-lockfile 2>$null
             if ($LASTEXITCODE -ne 0) {
-                # Fallback: install without frozen lockfile
                 & $pm install 2>$null
             }
         }

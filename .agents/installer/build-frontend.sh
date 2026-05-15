@@ -60,8 +60,36 @@ build_frontend() {
   # shellcheck disable=SC2015
   (
     cd "$fe_dir" || exit
-    # Install deps if node_modules missing
+    # Install deps when node_modules is missing or stale relative to lockfile.
+    # Freshness is checked against the lockfile that matches the selected PM so
+    # that projects with multiple lockfiles (e.g. both bun.lock and pnpm-lock.yaml)
+    # don't produce false staleness signals from the wrong tool's marker file.
+    _needs_install=false
     if [[ ! -d node_modules ]]; then
+      _needs_install=true
+    elif [[ "$pm" == "npm" ]]; then
+      if [[ ! -f node_modules/.package-lock.json ]] || \
+         { [[ -f package-lock.json ]] && [[ package-lock.json -nt node_modules/.package-lock.json ]]; }; then
+        _needs_install=true
+      fi
+    elif [[ "$pm" == "pnpm" ]]; then
+      if [[ ! -f node_modules/.modules.yaml ]] || \
+         { [[ -f pnpm-lock.yaml ]] && [[ pnpm-lock.yaml -nt node_modules/.modules.yaml ]]; }; then
+        _needs_install=true
+      fi
+    elif [[ "$pm" == "bun" ]]; then
+      if [[ -f bun.lockb ]]; then
+        [[ bun.lockb -nt node_modules ]] && _needs_install=true
+      elif [[ -f bun.lock ]]; then
+        [[ bun.lock -nt node_modules ]] && _needs_install=true
+      else
+        _needs_install=true
+      fi
+    else
+      _needs_install=true
+    fi
+
+    if [[ "$_needs_install" == true ]]; then
       step "Installing npm dependencies..."
       "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install
     fi
