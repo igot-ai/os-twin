@@ -185,10 +185,16 @@ def _detect_completion_provider(purpose: str = "knowledge") -> str | None:
         if hasattr(master, "memory") and master.memory:
             backend = getattr(master.memory, "llm_backend", "")
             if backend:
+                # Normalize: create_client expects "google" not "gemini"
+                if backend == "gemini":
+                    backend = "google"
                 return backend
     except Exception:
         pass
-    return os.environ.get("MEMORY_LLM_BACKEND") or None
+    raw = os.environ.get("MEMORY_LLM_BACKEND") or None
+    if raw == "gemini":
+        raw = "google"
+    return raw
 
 
 def _detect_completion_model(purpose: str = "knowledge") -> str | None:
