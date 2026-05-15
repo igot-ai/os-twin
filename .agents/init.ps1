@@ -320,18 +320,18 @@ if ($PlanId -and (Test-Path $ProjectOpencodeFile)) {
     Write-Ok "Bound plan_id=$PlanId to memory MCP URL"
 
     # Create centralized memory directory + symlink from project/.memory
-    # Use "memory-$PlanId" naming to match global-memory-server.py convention
-    # (it discovers directories with the "memory-" prefix).
+    # Use bare plan_id as directory name to match memory_mcp.py pool
+    # (the HTTP MCP endpoint resolves plan_id → ~/.ostwin/memory/<plan_id>/).
     $memoryBase = Join-Path $env:HOME ".ostwin" "memory"
-    $centralDir = Join-Path $memoryBase "memory-$PlanId"
+    $centralDir = Join-Path $memoryBase $PlanId
     $symlinkPath = Join-Path $TargetDir ".memory"
 
     if (-not (Test-Path $centralDir)) {
         New-Item -ItemType Directory -Path $centralDir -Force | Out-Null
     }
 
-    # ── Step 1: Migrate from old bare-name directory (without "memory-" prefix) ──
-    $legacyDir = Join-Path $memoryBase $PlanId
+    # ── Step 1: Migrate from old "memory-" prefixed directory to bare plan_id ──
+    $legacyDir = Join-Path $memoryBase "memory-$PlanId"
     if ((Test-Path $legacyDir) -and ($legacyDir -ne $centralDir)) {
         if (Get-Command rsync -ErrorAction SilentlyContinue) {
             & rsync -a "$legacyDir/" "$centralDir/" 2>$null
