@@ -54,12 +54,12 @@ install_files() {
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ and plans/ manually)
       if [[ -f "$INSTALL_DIR/.agents/roles/config.json" ]]; then
-        cp "$INSTALL_DIR/.agents/roles/config.json" "/tmp/ostwin_roles_config_backup.json"
+        cp "$INSTALL_DIR/.agents/roles/config.json" "${TMPDIR:-/tmp}/ostwin_roles_config_backup.json"
       fi
       find "$SCRIPT_DIR" -maxdepth 1 "${_find_excludes[@]}" \
         -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
-      if [[ -f "/tmp/ostwin_roles_config_backup.json" ]]; then
-        mv "/tmp/ostwin_roles_config_backup.json" "$INSTALL_DIR/.agents/roles/config.json"
+      if [[ -f "${TMPDIR:-/tmp}/ostwin_roles_config_backup.json" ]]; then
+        mv "${TMPDIR:-/tmp}/ostwin_roles_config_backup.json" "$INSTALL_DIR/.agents/roles/config.json"
       fi
     }
 

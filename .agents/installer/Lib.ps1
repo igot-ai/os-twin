@@ -71,6 +71,28 @@ function Ask-User {
     return $false
 }
 
+# ─── Venv executable resolution ─────────────────────────────────────────────
+# Resolves the Python or pip binary inside a venv, cross-platform.
+# Windows layout: Scripts/python.exe   Unix layout: bin/python
+
+function Get-VenvPython {
+    param([Parameter(Mandatory)][string]$VenvDir)
+    foreach ($rel in @("Scripts/python.exe", "bin/python3", "bin/python")) {
+        $p = Join-Path $VenvDir $rel
+        if (Test-Path $p) { return $p }
+    }
+    return "python"
+}
+
+function Get-VenvPip {
+    param([Parameter(Mandatory)][string]$VenvDir)
+    foreach ($rel in @("Scripts/pip.exe", "bin/pip3", "bin/pip")) {
+        $p = Join-Path $VenvDir $rel
+        if (Test-Path $p) { return $p }
+    }
+    return "pip"
+}
+
 # ─── Version comparison ─────────────────────────────────────────────────────
 # Returns $true if $Current >= $Minimum (semantic version comparison).
 

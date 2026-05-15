@@ -91,7 +91,7 @@ function Start-Dashboard {
 
     Write-Step "Starting dashboard on http://localhost:$($script:DashboardPort)..."
 
-    $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
+    $venvPython = Get-VenvPython $script:VenvDir
     $logFile = Join-Path $logsDir "dashboard.log"
     $errorLog = Join-Path $logsDir "dashboard-error.log"
 

@@ -88,3 +88,62 @@ Describe "Compare-VersionGte" {
     }
 }
 
+Describe "Get-VenvPython" {
+    It "Should return Windows Scripts path when it exists" {
+        $venv = Join-Path $TestDrive "venv-win-$(Get-Random)"
+        $scriptsDir = Join-Path $venv "Scripts"
+        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+        Set-Content -Path (Join-Path $scriptsDir "python.exe") -Value ""
+
+        $result = Get-VenvPython $venv
+        $result | Should -Be (Join-Path $venv "Scripts" "python.exe")
+    }
+
+    It "Should return Unix bin path when Scripts is absent" {
+        $venv = Join-Path $TestDrive "venv-unix-$(Get-Random)"
+        $binDir = Join-Path $venv "bin"
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        Set-Content -Path (Join-Path $binDir "python3") -Value ""
+
+        $result = Get-VenvPython $venv
+        $result | Should -Be (Join-Path $venv "bin" "python3")
+    }
+
+    It "Should fall back to 'python' when venv has no executable" {
+        $venv = Join-Path $TestDrive "venv-empty-$(Get-Random)"
+        New-Item -ItemType Directory -Path $venv -Force | Out-Null
+
+        $result = Get-VenvPython $venv
+        $result | Should -Be "python"
+    }
+}
+
+Describe "Get-VenvPip" {
+    It "Should return Windows Scripts pip when it exists" {
+        $venv = Join-Path $TestDrive "venv-pip-win-$(Get-Random)"
+        $scriptsDir = Join-Path $venv "Scripts"
+        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+        Set-Content -Path (Join-Path $scriptsDir "pip.exe") -Value ""
+
+        $result = Get-VenvPip $venv
+        $result | Should -Be (Join-Path $venv "Scripts" "pip.exe")
+    }
+
+    It "Should return Unix bin pip when Scripts is absent" {
+        $venv = Join-Path $TestDrive "venv-pip-unix-$(Get-Random)"
+        $binDir = Join-Path $venv "bin"
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        Set-Content -Path (Join-Path $binDir "pip3") -Value ""
+
+        $result = Get-VenvPip $venv
+        $result | Should -Be (Join-Path $venv "bin" "pip3")
+    }
+
+    It "Should fall back to 'pip' when venv has no executable" {
+        $venv = Join-Path $TestDrive "venv-pip-empty-$(Get-Random)"
+        New-Item -ItemType Directory -Path $venv -Force | Out-Null
+
+        $result = Get-VenvPip $venv
+        $result | Should -Be "pip"
+    }
+}

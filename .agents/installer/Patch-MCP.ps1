@@ -16,7 +16,7 @@ function Patch-McpConfig {
     [CmdletBinding()]
     param()
 
-    $mcpConfig = Join-Path $script:InstallDir ".agents\mcp\config.json"
+    $mcpConfig = Join-Path $script:InstallDir ".agents" "mcp" "config.json"
     $envFile = Join-Path $script:InstallDir ".env"
 
     if (-not (Test-Path $mcpConfig)) {
@@ -25,8 +25,7 @@ function Patch-McpConfig {
 
     Write-Step "Patching MCP config..."
 
-    # Windows venv Python path
-    $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
+    $venvPython = Get-VenvPython $script:VenvDir
 
     # 1. Ensure critical path env vars are set in .env
     # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} resolution
@@ -82,7 +81,7 @@ function Patch-McpConfig {
 
     $mergeScript = Join-Path $script:PatchScriptsDir "merge_mcp_to_opencode.py"
     $opencodeJson = Join-Path $opencodeHome "opencode.json"
-    $mcpModuleDir = Join-Path $script:InstallDir ".agents\mcp"
+    $mcpModuleDir = Join-Path $script:InstallDir ".agents" "mcp"
 
     if (Test-Path $mergeScript) {
         try {

@@ -166,7 +166,7 @@ function Setup-Venv {
             $reqArgsCmd += @("-r", "`"$rp`"")
         }
 
-        $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
+        $venvPython = Get-VenvPython $script:VenvDir
 
         if (Check-UV) {
             $uvExe = (Get-Command uv).Source
@@ -199,7 +199,7 @@ function Setup-Venv {
             }
         }
         else {
-            $venvPip = Join-Path $script:VenvDir "Scripts\pip.exe"
+            $venvPip = Get-VenvPip $script:VenvDir
             $pipArgs = @(
                 "install", "--quiet", "--upgrade",
                 "--extra-index-url", "https://download.pytorch.org/whl/cpu"
@@ -225,7 +225,7 @@ function Setup-Venv-PipFallback {
     $dashReqs = Join-Path $dashProject "requirements.txt"
     $dashPyproject = Join-Path $dashProject "pyproject.toml"
 
-    $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
+    $venvPython = Get-VenvPython $script:VenvDir
 
     # Prefer installing the project metadata (picks up pyproject.toml deps)
     if (Check-UV) {
@@ -275,7 +275,7 @@ function Setup-Venv-PipFallback {
     }
     else {
         # No uv at all — use raw pip
-        $venvPip = Join-Path $script:VenvDir "Scripts\pip.exe"
+        $venvPip = Get-VenvPip $script:VenvDir
         if (Test-Path $dashReqs) {
             Write-Step "Installing dashboard deps via pip (from requirements.txt)..."
             & $venvPip install --quiet --upgrade --extra-index-url https://download.pytorch.org/whl/cpu -r $dashReqs

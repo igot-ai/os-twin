@@ -81,12 +81,12 @@ start_dashboard() {
   DASH_OK=false
   for _i in $(seq 1 60); do
     if [[ -n "$OSTWIN_API_KEY" ]]; then
-      curl -v -sf "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >/tmp/ostwin_curl.log 2>&1 && DASH_OK=true
+      curl -v -sf "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >${TMPDIR:-/tmp}/ostwin_curl.log 2>&1 && DASH_OK=true
     else
-      curl -v -sf "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >/tmp/ostwin_curl.log 2>&1 && DASH_OK=true
+      curl -v -sf "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >${TMPDIR:-/tmp}/ostwin_curl.log 2>&1 && DASH_OK=true
     fi
     if $DASH_OK; then break; fi
-    echo "  [$(date +%H:%M:%S)] Health check failed (attempt $_i/60). Details: $(tail -n 1 /tmp/ostwin_curl.log)"
+    echo "  [$(date +%H:%M:%S)] Health check failed (attempt $_i/60). Details: $(tail -n 1 ${TMPDIR:-/tmp}/ostwin_curl.log)"
     sleep 1
   done
 

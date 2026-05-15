@@ -28,9 +28,7 @@ function Setup-OpenCodePermissions {
     }
     $ocConfig = Join-Path $ocDir "opencode.json"
 
-    # Find Python
-    $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
-    $pyCmd = if (Test-Path $venvPython) { $venvPython } else { "python" }
+    $pyCmd = Get-VenvPython $script:VenvDir
 
     if (-not (Get-Command $pyCmd -ErrorAction SilentlyContinue) -and -not (Test-Path $pyCmd)) {
         Write-Warn "Python not available — skipping OpenCode permission patch"

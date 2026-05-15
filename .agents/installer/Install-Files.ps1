@@ -113,13 +113,13 @@ function Seed-McpConfig {
     [CmdletBinding()]
     param()
 
-    $mcpDir = Join-Path $script:InstallDir ".agents\mcp"
+    $mcpDir = Join-Path $script:InstallDir ".agents" "mcp"
     $mcpConfig = Join-Path $mcpDir "config.json"
 
     # Find seed source
     $seedSrc = ""
-    $srcConfigJson = Join-Path $script:ScriptDir "mcp\config.json"
-    $srcMcpConfigJson = Join-Path $script:ScriptDir "mcp\mcp-config.json"
+    $srcConfigJson = Join-Path $script:ScriptDir "mcp" "config.json"
+    $srcMcpConfigJson = Join-Path $script:ScriptDir "mcp" "mcp-config.json"
 
     if (Test-Path $srcConfigJson) { $seedSrc = $srcConfigJson }
     elseif (Test-Path $srcMcpConfigJson) { $seedSrc = $srcMcpConfigJson }
@@ -142,14 +142,14 @@ function Seed-McpConfig {
     }
     else {
         # Always update the builtin template
-        $srcBuiltin = Join-Path $script:ScriptDir "mcp\mcp-builtin.json"
+        $srcBuiltin = Join-Path $script:ScriptDir "mcp" "mcp-builtin.json"
         $dstBuiltin = Join-Path $mcpDir "mcp-builtin.json"
         if (Test-Path $srcBuiltin) {
             Copy-Item -Path $srcBuiltin -Destination $dstBuiltin -Force
         }
 
         # Always update catalog
-        $srcCatalog = Join-Path $script:ScriptDir "mcp\mcp-catalog.json"
+        $srcCatalog = Join-Path $script:ScriptDir "mcp" "mcp-catalog.json"
         $dstCatalog = Join-Path $mcpDir "mcp-catalog.json"
         if (Test-Path $srcCatalog) {
             Copy-Item -Path $srcCatalog -Destination $dstCatalog -Force
@@ -158,11 +158,8 @@ function Seed-McpConfig {
         # Merge new built-in servers into config.json
         if ((Test-Path $mcpConfig) -and (Test-Path $dstBuiltin)) {
             # Prefer venv python, fall back to system python
-            $mergePy = Join-Path $script:VenvDir "Scripts\python.exe"
-            if (-not (Test-Path $mergePy)) {
-                $mergePy = $script:PythonCmd
-                if (-not $mergePy) { $mergePy = "python" }
-            }
+            $mergePy = Get-VenvPython $script:VenvDir
+            if ($mergePy -eq "python" -and $script:PythonCmd) { $mergePy = $script:PythonCmd }
             $mergeScript = Join-Path $script:InstallerScriptsDir "merge_mcp_builtin.py"
             if (Test-Path $mergeScript) {
                 try {
@@ -201,7 +198,7 @@ function Setup-McpSymlink {
     param()
 
     $mcpLink = Join-Path $script:InstallDir "mcp"
-    $mcpReal = Join-Path $script:InstallDir ".agents\mcp"
+    $mcpReal = Join-Path $script:InstallDir ".agents" "mcp"
 
     if (Test-Path $mcpLink) {
         $item = Get-Item $mcpLink -Force

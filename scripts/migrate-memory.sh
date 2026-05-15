@@ -13,8 +13,21 @@
 
 set -euo pipefail
 
-MEMORY_BASE="${HOME}/.ostwin/memory"
-PLANS_DIR="${HOME}/os-twin/.agents/plans"
+MEMORY_BASE="${OSTWIN_HOME:-${HOME}/.ostwin}/memory"
+# Resolve plans dir: use env var, or locate .agents/ by walking up from the script
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLANS_DIR="${OSTWIN_PLANS_DIR:-}"
+if [[ -z "$PLANS_DIR" ]]; then
+    _search="$_script_dir"
+    while [[ "$_search" != "/" ]]; do
+        if [[ -d "$_search/.agents/plans" ]]; then
+            PLANS_DIR="$_search/.agents/plans"
+            break
+        fi
+        _search="$(dirname "$_search")"
+    done
+fi
+WORKINGDIR="${OSTWIN_WORKINGDIR:-${HOME}/ostwin-workingdir}"
 DRY_RUN=false
 TARGET=""
 
@@ -90,10 +103,10 @@ if [ -n "$TARGET" ]; then
         exit 1
     fi
 else
-    # Migrate all projects under ~/ostwin-workingdir
-    echo "Scanning ~/ostwin-workingdir for .memory directories..."
+    # Migrate all projects under WORKINGDIR
+    echo "Scanning $WORKINGDIR for .memory directories..."
     found=0
-    for project_memory in ~/ostwin-workingdir/*/.memory; do
+    for project_memory in "$WORKINGDIR"/*/.memory; do
         [ -d "$project_memory" ] || continue
         found=$((found + 1))
         migrate_one "$project_memory"
@@ -101,5 +114,5 @@ else
     echo ""
     echo "Done. Processed $found directories."
     echo "Centralized store: $MEMORY_BASE"
-    ls -la "$MEMORY_BASE" 2>/dev/null
+    ls -la "$MEMORY_BASE" 2>/dev/null || true
 fi
