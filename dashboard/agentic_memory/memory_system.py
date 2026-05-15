@@ -162,6 +162,10 @@ class AgenticMemorySystem:
         if self.persist_dir:
             self._load_notes()
 
+        # Store LLM config as attributes so logging/debugging can read them.
+        self.llm_backend = llm_backend
+        self.llm_model = llm_model
+
         # LLM completion function — injected by caller or resolved via gateway.
         # Signature: completion_fn(prompt: str, response_format=None, ...) -> str
         if completion_fn is not None:
@@ -227,11 +231,14 @@ class AgenticMemorySystem:
             )
 
     def _reload_embedding_settings(self):
-        """Re-read embedding settings from config and refresh the embedding function.
+        """Re-read embedding settings and refresh the embedding function.
 
         This ensures that settings changes made via the dashboard UI take
         effect immediately without restarting the memory system. Called at
         the start of every public method that uses embeddings.
+
+        Reads from MasterSettings.memory first (what the user configures
+        in the dashboard), falling back to config.default.json.
 
         Skipped when ``_embed_fn`` was injected (caller controls embeddings)
         or when ``persist_dir`` is None (in-memory mode).
@@ -248,6 +255,19 @@ class AgenticMemorySystem:
 
         new_backend = cfg.embedding.backend
         new_model = cfg.embedding.model
+
+        # MasterSettings.memory overrides config.default.json
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+
+            mem = get_settings_resolver().get_master_settings().memory
+            if mem:
+                if getattr(mem, "embedding_backend", ""):
+                    new_backend = mem.embedding_backend
+                if getattr(mem, "embedding_model", ""):
+                    new_model = mem.embedding_model
+        except Exception:
+            pass
 
         if new_backend != self.embedding_backend or new_model != self.model_name:
             logger.info(

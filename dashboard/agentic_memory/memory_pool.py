@@ -141,17 +141,41 @@ class MemoryPool:
             return self._system_factory(persist_dir=persist_dir)
 
         from dashboard.agentic_memory.config import load_config
-
-        cfg = load_config()
         from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
-        # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
-        # model/provider from MasterSettings. No explicit llm_backend/llm_model
-        # params needed here.
+        # Base config from config.default.json (evolution, search, sync defaults)
+        cfg = load_config()
+
+        # Override with MasterSettings.memory (what the user actually configures
+        # in the dashboard Settings > Memory tab).  This is the source of truth
+        # for llm_backend, llm_model, embedding_backend, embedding_model, etc.
+        llm_backend = cfg.llm.backend
+        llm_model = cfg.llm.model
+        embed_backend = cfg.embedding.backend
+        embed_model = cfg.embedding.model
+        vector_backend = cfg.vector.backend
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+
+            mem = get_settings_resolver().get_master_settings().memory
+            if mem:
+                if getattr(mem, "llm_backend", ""):
+                    llm_backend = mem.llm_backend
+                if getattr(mem, "llm_model", ""):
+                    llm_model = mem.llm_model
+                if getattr(mem, "embedding_backend", ""):
+                    embed_backend = mem.embedding_backend
+                if getattr(mem, "embedding_model", ""):
+                    embed_model = mem.embedding_model
+                if getattr(mem, "vector_backend", ""):
+                    vector_backend = mem.vector_backend
+        except Exception:
+            pass
+
         return AgenticMemorySystem(
-            model_name=cfg.embedding.model,
-            embedding_backend=cfg.embedding.backend,
-            vector_backend=cfg.vector.backend,
+            model_name=embed_model,
+            embedding_backend=embed_backend,
+            vector_backend=vector_backend,
             persist_dir=persist_dir,
             context_aware_analysis=cfg.evolution.context_aware,
             context_aware_tree=cfg.evolution.context_aware_tree,
@@ -159,8 +183,8 @@ class MemoryPool:
             similarity_weight=cfg.search.similarity_weight,
             decay_half_life_days=cfg.search.decay_half_life_days,
             conflict_resolution=cfg.sync.conflict_resolution,
-            llm_model=cfg.llm.model,
-            llm_backend=cfg.llm.backend,
+            llm_model=llm_model,
+            llm_backend=llm_backend,
         )
 
     def _start_sync_thread(self, slot: MemorySlot) -> None:
@@ -201,9 +225,13 @@ class MemoryPool:
         system = self._create_system(persist_dir)
         slot = MemorySlot(system=system, persist_dir=persist_dir)
         slot.log_handler = self._create_log_handler(persist_dir)
-        # Attach the handler to memory loggers so per-slot log file gets entries
+        # Attach the handler to memory loggers so per-slot log file gets entries.
+        # Also ensure loggers accept INFO+ (default effective level is WARNING).
         for log_name in ("dashboard.agentic_memory", "dashboard.routes.memory_mcp"):
-            logging.getLogger(log_name).addHandler(slot.log_handler)
+            lgr = logging.getLogger(log_name)
+            lgr.addHandler(slot.log_handler)
+            if lgr.level == logging.NOTSET or lgr.level > logging.DEBUG:
+                lgr.setLevel(logging.DEBUG)
         self._start_sync_thread(slot)
         logger.info(
             "Created memory slot: %s (%d notes)",
@@ -216,43 +244,15 @@ class MemoryPool:
 
     @staticmethod
     def _log_slot_config(slot: MemorySlot) -> None:
-        """Log the effective configuration for a memory slot.
-
-        Reads from both the system attributes AND the settings config
-        so the log always shows what's actually configured.
-        """
+        """Log the effective configuration for a memory slot."""
         s = slot.system
-
-        # Read settings config for LLM/embedding values that the system
-        # doesn't store as attributes (they go through the gateway).
-        llm_backend = getattr(s, "llm_backend", None) or "?"
-        llm_model = getattr(s, "llm_model", None) or "?"
-        embed_backend = getattr(s, "embedding_backend", None) or "?"
-        embed_model = getattr(s, "model_name", None) or "?"
-        try:
-            from dashboard.lib.settings.resolver import get_settings_resolver
-
-            master = get_settings_resolver().get_master_settings()
-            if hasattr(master, "memory") and master.memory:
-                mem = master.memory
-                if llm_backend == "?":
-                    llm_backend = getattr(mem, "llm_backend", "") or "(gateway default)"
-                if llm_model == "?":
-                    llm_model = getattr(mem, "llm_model", "") or "(gateway default)"
-                if embed_backend in ("?", "ollama") and getattr(mem, "embedding_backend", ""):
-                    embed_backend = mem.embedding_backend
-                if not embed_model or embed_model == "?":
-                    embed_model = getattr(mem, "embedding_model", "") or embed_model
-        except Exception:
-            pass
-
         logger.info("=== Memory Slot Config ===")
         logger.info("  persist_dir:          %s", slot.persist_dir)
-        logger.info("  embedding_backend:    %s", embed_backend)
-        logger.info("  embedding_model:      %s", embed_model)
+        logger.info("  embedding_backend:    %s", getattr(s, "embedding_backend", "?"))
+        logger.info("  embedding_model:      %s", getattr(s, "model_name", "?"))
         logger.info("  vector_backend:       %s", getattr(s, "vector_backend", "?"))
-        logger.info("  llm_backend:          %s", llm_backend)
-        logger.info("  llm_model:            %s", llm_model)
+        logger.info("  llm_backend:          %s", getattr(s, "llm_backend", "?"))
+        logger.info("  llm_model:            %s", getattr(s, "llm_model", "?"))
         logger.info("  context_aware:        %s", getattr(s, "context_aware_analysis", "?"))
         logger.info("  max_links:            %s", getattr(s, "max_links", "?"))
         logger.info("  similarity_weight:    %s", getattr(s, "similarity_weight", "?"))
