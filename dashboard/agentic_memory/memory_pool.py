@@ -216,15 +216,43 @@ class MemoryPool:
 
     @staticmethod
     def _log_slot_config(slot: MemorySlot) -> None:
-        """Log the effective configuration for a memory slot."""
+        """Log the effective configuration for a memory slot.
+
+        Reads from both the system attributes AND the settings config
+        so the log always shows what's actually configured.
+        """
         s = slot.system
+
+        # Read settings config for LLM/embedding values that the system
+        # doesn't store as attributes (they go through the gateway).
+        llm_backend = getattr(s, "llm_backend", None) or "?"
+        llm_model = getattr(s, "llm_model", None) or "?"
+        embed_backend = getattr(s, "embedding_backend", None) or "?"
+        embed_model = getattr(s, "model_name", None) or "?"
+        try:
+            from dashboard.lib.settings.resolver import get_settings_resolver
+
+            master = get_settings_resolver().get_master_settings()
+            if hasattr(master, "memory") and master.memory:
+                mem = master.memory
+                if llm_backend == "?":
+                    llm_backend = getattr(mem, "llm_backend", "") or "(gateway default)"
+                if llm_model == "?":
+                    llm_model = getattr(mem, "llm_model", "") or "(gateway default)"
+                if embed_backend in ("?", "ollama") and getattr(mem, "embedding_backend", ""):
+                    embed_backend = mem.embedding_backend
+                if not embed_model or embed_model == "?":
+                    embed_model = getattr(mem, "embedding_model", "") or embed_model
+        except Exception:
+            pass
+
         logger.info("=== Memory Slot Config ===")
         logger.info("  persist_dir:          %s", slot.persist_dir)
-        logger.info("  embedding_backend:    %s", getattr(s, "embedding_backend", "?"))
-        logger.info("  embedding_model:      %s", getattr(s, "model_name", "?"))
+        logger.info("  embedding_backend:    %s", embed_backend)
+        logger.info("  embedding_model:      %s", embed_model)
         logger.info("  vector_backend:       %s", getattr(s, "vector_backend", "?"))
-        logger.info("  llm_backend:          %s", getattr(s, "llm_backend", "?"))
-        logger.info("  llm_model:            %s", getattr(s, "llm_model", "?"))
+        logger.info("  llm_backend:          %s", llm_backend)
+        logger.info("  llm_model:            %s", llm_model)
         logger.info("  context_aware:        %s", getattr(s, "context_aware_analysis", "?"))
         logger.info("  max_links:            %s", getattr(s, "max_links", "?"))
         logger.info("  similarity_weight:    %s", getattr(s, "similarity_weight", "?"))
