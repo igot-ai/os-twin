@@ -145,6 +145,27 @@ def complete(
     cfg = get_config()
     model = model or cfg.full_model(purpose)
 
+    # Purpose-specific provider overrides.
+    # When purpose="memory" and MemorySettings.llm_backend is set, use that
+    # provider (and its companion URL/key) instead of the global AIConfig.
+    # This mirrors how the embedding path already works via
+    # _detect_embed_provider(purpose).
+    from dashboard.ai import (
+        _detect_completion_provider,
+        _detect_completion_model,
+        _detect_completion_compatible_url,
+        _detect_completion_compatible_key,
+    )
+
+    purpose_provider = _detect_completion_provider(purpose)
+    purpose_model = _detect_completion_model(purpose)
+    purpose_base_url = _detect_completion_compatible_url(purpose)
+    purpose_api_key = _detect_completion_compatible_key(purpose)
+
+    effective_provider = purpose_provider or cfg.provider
+    if purpose_model:
+        model = purpose_model
+
     # Build ChatMessage list
     chat_messages: List[ChatMessage] = []
     if messages:
@@ -165,15 +186,17 @@ def complete(
             chat_messages.append(ChatMessage(role="system", content=_SYSTEM_JSON_PROMPT))
         chat_messages.append(ChatMessage(role="user", content=prompt or ""))
 
-    # Create client
+    # Create client — pass purpose-specific overrides when available
     llm_config = LLMConfig(
         max_tokens=max_tokens,
         temperature=temperature,
     )
     client = create_client(
         model=model,
-        provider=cfg.provider,
+        provider=effective_provider,
         config=llm_config,
+        base_url=purpose_base_url,
+        api_key=purpose_api_key,
     )
 
     def _call() -> CompletionResult:

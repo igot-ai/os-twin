@@ -10,7 +10,9 @@
 AGENTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$AGENTS_DIR/.venv"
 VENV_BAK="$AGENTS_DIR/.venv.bak"
+# Legacy ledger location (kept for backward compat)
 LEDGER="$AGENTS_DIR/memory/ledger.jsonl"
+# Centralized memory is at ~/.ostwin/memory/ — ledger may not exist here
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

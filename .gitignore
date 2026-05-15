@@ -11,7 +11,7 @@ gold-mining/
 .agents/.venv/
 .agents/.venv.bak/
 .agents/.zvec/**
-.agents/memory/.memory/
+# .agents/memory/ has been consolidated into dashboard/ (Plan 019)
 .agents/plans/
 .agents/plans/**
 .agents/stats_history.json
@@ -138,5 +138,5 @@ docs/plan/**
 
 # Ostwin generated
 .agents/*
-!.agents/memory/
+# .agents/memory/ removed — memory system is now in dashboard/ (Plan 019)
 .memory

@@ -80,7 +80,7 @@ setup_venv() {
   local requirements="$INSTALL_DIR/.agents/mcp/requirements.txt"
   [[ -f "$requirements" ]] && req_args+=(-r "$requirements")
 
-  local memory_reqs="$INSTALL_DIR/.agents/memory/requirements.txt"
+  local memory_reqs="$INSTALL_DIR/dashboard/requirements.txt"
   [[ -f "$memory_reqs" ]] && req_args+=(-r "$memory_reqs")
 
   # Install role-specific requirements (e.g. roles/reporter/requirements.txt)

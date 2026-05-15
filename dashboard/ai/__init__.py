@@ -83,7 +83,9 @@ def _detect_embed_provider(purpose: str = "knowledge") -> str:
         master = resolver.get_master_settings()
         # Memory-specific override
         if purpose == "memory" and hasattr(master, "memory") and master.memory:
-            mem_provider = getattr(master.memory, "embedding_backend", "") or getattr(master.memory, "embedding_provider", "")
+            mem_provider = getattr(master.memory, "embedding_backend", "") or getattr(
+                master.memory, "embedding_provider", ""
+            )
             if mem_provider:
                 return mem_provider
         # Knowledge config (shared default)
@@ -109,11 +111,15 @@ def _detect_embed_compatible_url(purpose: str = "knowledge") -> str | None:
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
         if purpose == "memory" and hasattr(master, "memory") and master.memory:
-            url = getattr(master.memory, "embedding_compatible_url", "") or getattr(master.memory, "llm_compatible_url", "")
+            url = getattr(master.memory, "embedding_compatible_url", "") or getattr(
+                master.memory, "llm_compatible_url", ""
+            )
             if url:
                 return url
         if hasattr(master, "knowledge") and master.knowledge:
-            url = getattr(master.knowledge, "knowledge_embedding_compatible_url", "") or getattr(master.knowledge, "knowledge_llm_compatible_url", "")
+            url = getattr(master.knowledge, "knowledge_embedding_compatible_url", "") or getattr(
+                master.knowledge, "knowledge_llm_compatible_url", ""
+            )
             if url:
                 return url
     except Exception:
@@ -134,11 +140,15 @@ def _detect_embed_compatible_key(purpose: str = "knowledge") -> str | None:
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
         if purpose == "memory" and hasattr(master, "memory") and master.memory:
-            key = getattr(master.memory, "embedding_compatible_key", "") or getattr(master.memory, "llm_compatible_key", "")
+            key = getattr(master.memory, "embedding_compatible_key", "") or getattr(
+                master.memory, "llm_compatible_key", ""
+            )
             if key:
                 return key
         if hasattr(master, "knowledge") and master.knowledge:
-            key = getattr(master.knowledge, "knowledge_embedding_compatible_key", "") or getattr(master.knowledge, "knowledge_llm_compatible_key", "")
+            key = getattr(master.knowledge, "knowledge_embedding_compatible_key", "") or getattr(
+                master.knowledge, "knowledge_llm_compatible_key", ""
+            )
             if key:
                 return key
     except Exception:
@@ -147,6 +157,95 @@ def _detect_embed_compatible_key(purpose: str = "knowledge") -> str | None:
 
 
 import os
+
+
+# ---------------------------------------------------------------------------
+# Purpose-aware completion provider detection
+# ---------------------------------------------------------------------------
+# Mirrors the _detect_embed_* functions above.  When purpose="memory",
+# reads MemorySettings.llm_backend / llm_model / llm_compatible_url /
+# llm_compatible_key so the completion path respects memory-specific
+# provider overrides (e.g. openai-compatible with a local endpoint).
+# ---------------------------------------------------------------------------
+
+
+def _detect_completion_provider(purpose: str = "knowledge") -> str | None:
+    """Resolve completion provider from MemorySettings when purpose='memory'.
+
+    Returns None when no purpose-specific override is configured, so the
+    caller falls back to ``AIConfig.provider`` (the global default).
+    """
+    if purpose != "memory":
+        return None
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, "memory") and master.memory:
+            backend = getattr(master.memory, "llm_backend", "")
+            if backend:
+                return backend
+    except Exception:
+        pass
+    return os.environ.get("MEMORY_LLM_BACKEND") or None
+
+
+def _detect_completion_model(purpose: str = "knowledge") -> str | None:
+    """Resolve completion model from MemorySettings when purpose='memory'.
+
+    Returns None when no override is configured.
+    """
+    if purpose != "memory":
+        return None
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, "memory") and master.memory:
+            model = getattr(master.memory, "llm_model", "")
+            if model:
+                return model
+    except Exception:
+        pass
+    return os.environ.get("MEMORY_LLM_MODEL") or None
+
+
+def _detect_completion_compatible_url(purpose: str = "knowledge") -> str | None:
+    """Resolve openai-compatible base URL for completion when purpose='memory'."""
+    if purpose != "memory":
+        return None
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, "memory") and master.memory:
+            url = getattr(master.memory, "llm_compatible_url", "")
+            if url:
+                return url
+    except Exception:
+        pass
+    return None
+
+
+def _detect_completion_compatible_key(purpose: str = "knowledge") -> str | None:
+    """Resolve openai-compatible API key for completion when purpose='memory'."""
+    if purpose != "memory":
+        return None
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, "memory") and master.memory:
+            key = getattr(master.memory, "llm_compatible_key", "")
+            if key:
+                return key
+    except Exception:
+        pass
+    return None
 
 
 def get_completion(

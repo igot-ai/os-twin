@@ -303,38 +303,22 @@ jobs:
       - name: Install memory system dependencies
         shell: bash
         run: |
-          cd .agents/memory
-          pip install -e ".[test]" 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true
+          pip install -r dashboard/requirements.txt 2>/dev/null || true
           # Ensure core deps available for unit tests (no ML needed)
-          pip install litellm mcp httpx zvec 2>/dev/null || true
+          pip install litellm mcp httpx zvec pydantic pyyaml rank-bm25 nltk scikit-learn 2>/dev/null || true
 
       - name: Run memory unit tests
         shell: bash
         run: |
-          cd .agents/memory
-          python -m unittest \
-            tests.unit.test_memory_note \
-            tests.unit.test_mcp_server \
-            tests.unit.test_time_decay \
-            tests.unit.test_merge \
-            tests.unit.test_import_docs \
-          -v
-          # -- Integration (deterministic only) ──────────────────────────
-          python -m unittest \
-            tests.unit.test_time_decay \
-            tests.unit.test_merge \
-            tests.unit.test_import_docs
+          PYTHONPATH=. pytest dashboard/tests/memory/ \
+            -k "not backend_comparison and not huggingface and not benchmark" \
+            --ignore=dashboard/tests/memory/test_retrievers.py \
+            -q
 
       - name: Run memory integration tests (mock-only, no ML)
         shell: bash
         run: |
-          cd .agents/memory
-          python -m unittest \
-            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_memory_lifecycle_with_deterministic_dependencies \
-            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_persistence_round_trip_rebuilds_backlinks \
-            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_sync_from_disk_detects_added_updated_and_removed_notes \
-            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_process_memory_applies_evolution_actions \
-            -v
+          PYTHONPATH=. pytest dashboard/tests/memory/test_memory_system_integration.py -q
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 4b: Bot tests (Linux only)
