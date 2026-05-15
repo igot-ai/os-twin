@@ -1,3 +1,9 @@
+"""AgenticMemorySystem — the core memory engine.
+
+Manages persistent notes with vector search, LLM-driven analysis and
+evolution, and multi-agent sync.
+"""
+
 from typing import List, Dict, Optional, Any, Tuple, Callable
 import uuid
 from datetime import datetime
@@ -130,6 +136,10 @@ class AgenticMemorySystem:
         self.decay_half_life_days = max(0.01, decay_half_life_days)
         self.conflict_resolution = conflict_resolution
         self._initialize_evolution_prompt()
+
+        # Dirty flag: tracks whether in-memory state has changed since
+        # last sync, so sync_to_disk() can skip no-op merges (F12).
+        self._dirty = False
 
         # Set up subdirectories for persistence
         self._notes_dir = None

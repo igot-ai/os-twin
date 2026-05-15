@@ -63,6 +63,7 @@ def _get_all_plan_dirs() -> list[Path]:
     - memory-<plan_id>  (current convention, used by init.sh/init.ps1)
     - <plan_id>         (legacy convention, from older init.ps1 versions)
 
+
     Directories starting with underscore (e.g., _global, _default) are excluded.
     """
     if not MEMORY_BASE_DIR.is_dir():
