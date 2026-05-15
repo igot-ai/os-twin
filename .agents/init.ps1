@@ -414,7 +414,6 @@ $OstwinBlock = @"
 .opencode/opencode.json
 .war-rooms/
 .agents/*
-!.agents/memory/
 .memory
 "@
 
@@ -428,7 +427,6 @@ if (Test-Path $Gitignore) {
             $_ -ne '.opencode/opencode.json' -and
             $_ -ne '.war-rooms/' -and
             $_ -ne '.agents/*' -and
-            $_ -ne '!.agents/memory/' -and
             $_ -ne '.agents/' -and
             $_ -ne '.memory'
         }
