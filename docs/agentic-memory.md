@@ -913,7 +913,7 @@ def _init_memory():
     """Initialize the memory system (runs in background thread)."""
     global _memory, _memory_init_error, AgenticMemorySystem
     try:
-        from agentic_memory.memory_system import AgenticMemorySystem as _AMS
+        from dashboard.agentic_memory.memory_system import AgenticMemorySystem as _AMS
         AgenticMemorySystem = _AMS
         with _memory_lock:
             _memory = AgenticMemorySystem(
@@ -1098,7 +1098,7 @@ ls -la <project>/.memory/vectordb/
 
 # Test vector search directly
 python -c "
-from agentic_memory.retrievers import ZvecRetriever
+from dashboard.agentic_memory.retrievers import ZvecRetriever
 r = ZvecRetriever('memories', 'gemini-embedding-001', '<project>/.memory/vectordb', 'gemini')
 print(r.search('test query', k=3))
 "

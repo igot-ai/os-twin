@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agentic_memory.memory_system import MemoryNote
+from dashboard.agentic_memory.memory_system import MemoryNote
 from tests.helpers import DeterministicLLM, EvolvingLLM, patched_memory_system
 
 

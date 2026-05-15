@@ -307,7 +307,7 @@ python mcp_server.py --transport sse --port 6463
 
 5. Or use the library directly:
 ```python
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 
 memory = AgenticMemorySystem(
     llm_backend="gemini",

@@ -134,10 +134,10 @@ def _get_or_create_memory_system(persist_dir: Path) -> Any:
             return _memory_systems[persist_str]
 
         if AgenticMemorySystem is None:
-            from agentic_memory.memory_system import AgenticMemorySystem as _AMS
+            from dashboard.agentic_memory.memory_system import AgenticMemorySystem as _AMS
             AgenticMemorySystem = _AMS
 
-        from agentic_memory.config import load_config
+        from dashboard.agentic_memory.config import load_config
         cfg = load_config()
 
         system = AgenticMemorySystem(
