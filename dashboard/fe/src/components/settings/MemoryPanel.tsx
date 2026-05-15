@@ -30,11 +30,15 @@ interface BackendOption {
 }
 
 const LLM_BACKENDS: BackendOption[] = [
+  { value: '',                   label: 'Use global provider',     description: 'Inherit from your global AI provider settings', icon: 'settings' },
+  { value: 'gemini',             label: 'Gemini (Vertex AI)',      description: 'Google Gemini via Vertex AI or API key', icon: 'auto_awesome' },
   { value: 'ollama',             label: 'Ollama (Local)',          description: 'Local Ollama server', icon: 'dns' },
   { value: 'openai-compatible',  label: 'OpenAI-Compatible',      description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
+  { value: '',                   label: 'Use global provider',     description: 'Inherit from your global AI provider settings', icon: 'settings' },
+  { value: 'gemini',             label: 'Gemini (Vertex AI)',      description: 'Google Gemini embedding via Vertex AI or API key', icon: 'auto_awesome' },
   { value: 'ollama',             label: 'Ollama (Local)',          description: 'Local Ollama embedding server', icon: 'dns' },
   { value: 'openai-compatible',  label: 'OpenAI-Compatible',      description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
@@ -47,6 +51,11 @@ const VECTOR_BACKENDS: BackendOption[] = [
 // ── Recommended models per backend (synchronised with KnowledgePanel) ────────
 
 const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
+  gemini: [
+    { model: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash (recommended)' },
+    { model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    { model: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro' },
+  ],
   ollama: [
     { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
     { model: 'mistral', label: 'Mistral' },
@@ -58,6 +67,10 @@ const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> 
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
+  gemini: [
+    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+    { model: 'text-embedding-005', label: 'Text Embedding 005 (Vertex)' },
+  ],
   ollama: [
     { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
     { model: 'embeddinggemma', label: 'Embedding Gemma' },
