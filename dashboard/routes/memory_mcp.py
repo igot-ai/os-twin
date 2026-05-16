@@ -42,34 +42,27 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# sys.path setup — same candidates as amem.py
+# Imports from the co-located agentic_memory package
 # ---------------------------------------------------------------------------
-_MEMORY_PATH_CANDIDATES = [
-    Path.home() / ".ostwin" / ".agents" / "memory",
-    Path.home() / ".ostwin" / "A-mem-sys",
-    Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
-    Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
-]
-for _p in _MEMORY_PATH_CANDIDATES:
-    if _p.is_dir() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
-
-from pool_config import PoolConfig, load_pool_config  # noqa: E402
-from memory_pool import MemoryPool  # noqa: E402
+from dashboard.agentic_memory.pool_config import PoolConfig, load_pool_config  # noqa: E402
+from dashboard.agentic_memory.memory_pool import MemoryPool  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Centralized memory storage — mirrors knowledge module pattern
 # ---------------------------------------------------------------------------
-MEMORY_BASE_DIR: Path = Path(
-    os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
-)
+MEMORY_BASE_DIR: Path = Path(os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory")))
 DEFAULT_NAMESPACE = "_global"
 
 # ---------------------------------------------------------------------------
 # Request-scoped plan_id — set by the ASGI wrapper, read by @mcp.tool()
 # ---------------------------------------------------------------------------
 _plan_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "_plan_id_ctx", default=None,
+    "_plan_id_ctx",
+    default=None,
+)
+_active_log_handler: contextvars.ContextVar[Optional[logging.Handler]] = contextvars.ContextVar(
+    "_active_log_handler",
+    default=None,
 )
 
 # ---------------------------------------------------------------------------
@@ -121,12 +114,32 @@ def _get_memory_for_plan(plan_id: Optional[str] = None):
     Reads ``plan_id`` from the request-scoped ``_plan_id_ctx`` ContextVar
     (set by ``_PlanIdInjectingApp``).  Falls back to ``_global`` when no
     plan_id is present.
+
+    Also attaches the slot's per-plan log handler so all ``agentic_memory``
+    log output for this request goes to ``<persist_dir>/memory.log``.
     """
     resolved = plan_id or _plan_id_ctx.get() or DEFAULT_NAMESPACE
     persist_dir = _resolve_persist_dir(resolved)
     pool = _get_pool()
     slot = pool.get_or_create(persist_dir)
     pool.touch(persist_dir)
+
+    # Attach per-slot log handler for this request.
+    # Attach to both "dashboard.agentic_memory" (memory_system.py logs) and
+    # the current module logger (save_memory/search_memory logs).
+    old_handler = _active_log_handler.get()
+    if old_handler:
+        for lg_name in ("dashboard.agentic_memory", __name__):
+            lg = logging.getLogger(lg_name)
+            if old_handler in lg.handlers:
+                lg.removeHandler(old_handler)
+    if slot.log_handler:
+        for lg_name in ("dashboard.agentic_memory", __name__):
+            lg = logging.getLogger(lg_name)
+            if slot.log_handler not in lg.handlers:
+                lg.addHandler(slot.log_handler)
+        _active_log_handler.set(slot.log_handler)
+
     return slot.system
 
 
@@ -435,11 +448,10 @@ async def _health_endpoint(request):
     # List active plan namespaces
     namespaces = []
     if MEMORY_BASE_DIR.is_dir():
-        namespaces = sorted(
-            d.name for d in MEMORY_BASE_DIR.iterdir() if d.is_dir()
-        )
+        namespaces = sorted(d.name for d in MEMORY_BASE_DIR.iterdir() if d.is_dir())
     stats["namespaces"] = namespaces
     return JSONResponse(stats)
+
 
 knowledge_mcp_app = Starlette(
     routes=[

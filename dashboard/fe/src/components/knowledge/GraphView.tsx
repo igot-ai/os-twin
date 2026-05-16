@@ -204,12 +204,12 @@ export default function GraphView({
         chargeForce.strength(-1500);
         chargeForce.distanceMax(3000);
       }
-      
+
       const linkForce = graphRef.current.d3Force('link');
       if (linkForce) {
         linkForce.distance(250);
       }
-      
+
       graphRef.current.d3ReheatSimulation?.();
     }
   }, [graphData, dimensions, isFullscreen]);
@@ -219,7 +219,7 @@ export default function GraphView({
     return (
       <div className="h-full w-full flex items-center justify-center">
         <div className="text-center space-y-2">
-          <div 
+          <div
             className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto"
             style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }}
           />
@@ -234,7 +234,7 @@ export default function GraphView({
     return (
       <div className="h-full w-full flex items-center justify-center">
         <div className="text-center space-y-2">
-          <span 
+          <span
             className="material-symbols-outlined text-[32px]"
             style={{ color: 'var(--color-text-muted)' }}
           >

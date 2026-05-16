@@ -25,7 +25,7 @@ export default function CameraController({ nodes, width, height, is2D = false }:
   const animating = useRef(false);
   const orthoConfigRef = useRef<{ left: number; right: number; top: number; bottom: number } | null>(null);
 
-  const frameGraph = useCallback(() => {
+  const fitToScene = useCallback(() => {
     if (nodes.length === 0) return;
 
     let cx = 0, cy = 0, cz = 0;
@@ -98,17 +98,33 @@ export default function CameraController({ nodes, width, height, is2D = false }:
     animating.current = true;
   }, [nodes, width, height, is2D, camera]);
 
-  // Only fit the graph to screen on the very first render — then user is free
+  // Fit the graph to screen ONCE — the first time nodes appear.
+  // After that the user has full manual control over the camera.
   useEffect(() => {
     if (nodes.length === 0 || initialFitDone.current) return;
     initialFitDone.current = true;
 
+    // Wait for the force simulation to settle positions before fitting
     const timer = setTimeout(() => {
-      frameGraph();
+      fitToScene();
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [nodes.length, frameGraph]);
+  }, [nodes.length, fitToScene]);
+
+  // Cancel the lerp animation the instant the user touches the camera.
+  // OrbitControls emits 'start' on any user interaction (zoom, pan, rotate).
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const cancelAnimation = () => {
+      animating.current = false;
+    };
+
+    controls.addEventListener('start', cancelAnimation);
+    return () => controls.removeEventListener('start', cancelAnimation);
+  }, []);
 
   useFrame((state) => {
     if (is2D) {

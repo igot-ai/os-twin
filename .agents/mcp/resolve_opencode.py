@@ -196,8 +196,8 @@ def _permission_key(server_name):
     """Convert MCP server name to opencode permission glob key.
 
     Examples:
-        "channel"        → "channel_*"
-        "chrome-devtools" → "chrome-devtools_*"
+        "channel"         → "channel_*"
+        "obscura-browser" → "obscura-browser_*"
     """
     return f"{server_name}_*"
 
@@ -577,4 +577,3 @@ def _main_legacy(argv):
 
 if __name__ == '__main__':
     main()
-

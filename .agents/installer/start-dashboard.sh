@@ -33,8 +33,16 @@ start_dashboard() {
     return
   fi
 
-  # Stop any existing dashboard on the port.
-  # Only kill Python/uvicorn — NOT SSH tunnels or VS Code port forwards.
+  # ╔══════════════════════════════════════════════════════════════════╗
+  # ║  DO NOT simplify this to "lsof | xargs kill" !                 ║
+  # ║                                                                ║
+  # ║  lsof returns ALL processes on the port — including SSH        ║
+  # ║  tunnels and VS Code port forwards (ESTABLISHED connections).  ║
+  # ║  Killing those drops the developer's SSH session.              ║
+  # ║                                                                ║
+  # ║  We MUST filter by process name (python/uvicorn) to only       ║
+  # ║  kill the old dashboard, not the developer's IDE connection.   ║
+  # ╚══════════════════════════════════════════════════════════════════╝
   local local_pids
   local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
   if [[ -n "$local_pids" ]]; then

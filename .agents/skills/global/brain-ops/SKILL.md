@@ -167,6 +167,36 @@ npx mcporter call knowledge.knowledge_import_folder namespace:'project_docs' fol
 npx mcporter call knowledge.knowledge_import_folder namespace:'project_docs' folder_path:'/Users/me/projects/docs' force:true
 ```
 
+### `knowledge_import_text`
+
+Ingest plain text directly into a namespace — **synchronous**, no job polling needed. Ideal for notes, design decisions, meeting summaries, or any short-form text.
+
+| Arg | Type | Required | Description |
+|-----|------|----------|-------------|
+| `namespace` | string | ✅ | Target namespace. Auto-created if it doesn't exist. |
+| `text` | string | ✅ | Plain text to ingest (1–100,000 characters). |
+| `source_label` | string | ❌ | Label identifying the text source (default: `"inline"`). Examples: `"meeting-notes"`, `"design-decision"`, `"auth-design"`. |
+
+**Returns:** `{ namespace, chunks_added, entities_added, relations_added, elapsed_seconds }` on success, or `{ error, code }` on failure.
+
+**Error codes:** `EMPTY_TEXT`, `TEXT_TOO_LONG`, `INVALID_NAMESPACE_ID`, `IMPORT_IN_PROGRESS`, `INTERNAL_ERROR`
+
+**When to use instead of `knowledge_import_folder`:**
+- Promoting a single memory finding to Knowledge (no file needed)
+- Ingesting meeting notes, design rationale, or ADRs written inline
+- Quick one-off knowledge additions during a session
+
+```bash
+# MCP
+knowledge_import_text("project_docs", "The authentication system uses JWT tokens with 24-hour expiry...", source_label="auth-design")
+
+# CLI
+npx mcporter call knowledge.knowledge_import_text \
+  namespace:'project_docs' \
+  text:'The authentication system uses JWT tokens with 24-hour expiry and refresh token rotation. Access tokens are validated via middleware on every request.' \
+  source_label:'auth-design'
+```
+
 ### `knowledge_get_import_status`
 
 Poll the status of a background import job.
@@ -432,6 +462,7 @@ Workers **MUST** write to Memory after every deliverable:
 | Discovered a gotcha | Memory | The gotcha with reproduction steps |
 | Completed an epic/task | Memory | Summary of all files, interfaces, decisions |
 | Produced a reusable artifact | Knowledge | Import the artifact folder into a namespace |
+| Made a decision worth canonizing | Knowledge | `knowledge_import_text()` with the decision + rationale |
 
 ```bash
 # After creating a model (Memory — working context)
@@ -481,11 +512,21 @@ Evaluators can **promote** findings to Knowledge when a pattern becomes a
 team-wide convention or when documentation needs updating:
 
 ```bash
-# When a QA finding should become a project convention
+# For a single finding — use knowledge_import_text (synchronous, no files needed)
+npx mcporter call knowledge.knowledge_import_text \
+  namespace:'coding-conventions' \
+  text:'Rate limiting is mandatory on all public endpoints. The middleware (src/middleware/rate_limit.py) must be applied opt-out, not opt-in. Default: 5 req/min for auth endpoints, 100 req/min for general API. This was decided after recurring gaps in EPIC-001, EPIC-003, and EPIC-005.' \
+  source_label:'convention-rate-limiting'
+
+# For bulk docs — use knowledge_import_folder (async, for folders of files)
 npx mcporter call knowledge.knowledge_import_folder \
   namespace:'coding-conventions' \
   folder_path:'/path/to/updated/conventions'
 ```
+
+**When to use which:**
+- `knowledge_import_text` — promoting a single decision, convention, or finding (most common promotion path)
+- `knowledge_import_folder` — importing generated docs, spec folders, or bulk artifacts
 
 This is the **Memory → Knowledge promotion** path: operational findings
 crystallize into trusted documentation over time.
@@ -584,6 +625,10 @@ Sprint review: Team agrees to make it official                  → Knowledge im
 - **Manager** can request promotion during retrospectives
 - **Any role** can flag a memory as "promote-worthy" via tags: `["promote-to-knowledge"]`
 
+**How to promote:**
+- **Inline promotion** (most common): `knowledge_import_text(namespace, text, source_label)` — synchronous, no files needed
+- **Bulk promotion**: `knowledge_import_folder(namespace, folder_path)` — for folders of documents
+
 ---
 
 ## Role-Specific Obligations
@@ -596,7 +641,7 @@ Sprint review: Team agrees to make it official                  → Knowledge im
 | During work | — | — |
 | After each file | `save_memory(content=full_code)` | — |
 | After each decision | `save_memory(content=decision+why)` | — |
-| After epic done | Summary `save_memory()` | `knowledge_import_folder()` if docs produced |
+| After epic done | Summary `save_memory()` | `knowledge_import_folder()` if docs produced, or `knowledge_import_text()` for decisions |
 
 ### Evaluators (QA, Auditors, etc.)
 

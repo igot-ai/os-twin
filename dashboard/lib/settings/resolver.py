@@ -445,8 +445,16 @@ class SettingsResolver:
         return self._safe_model(RuntimeSettings, runtime_data)
     
     def _extract_memory(self, config: Dict[str, Any]) -> MemorySettings:
-        """Extract memory namespace from config."""
-        return self._safe_model(MemorySettings, config.get("memory", {}))
+        """Extract memory namespace from config.
+
+        Handles backward compatibility: the legacy ``embedding_provider`` field
+        is mapped to ``embedding_backend`` when ``embedding_backend`` is not set.
+        """
+        mem_data = dict(config.get("memory", {}))
+        # Backward compat: embedding_provider → embedding_backend
+        if not mem_data.get("embedding_backend") and mem_data.get("embedding_provider"):
+            mem_data["embedding_backend"] = mem_data["embedding_provider"]
+        return self._safe_model(MemorySettings, mem_data)
     
     def _extract_channels(self, config: Dict[str, Any]) -> ChannelsNamespace:
         """Extract channels namespace from config."""

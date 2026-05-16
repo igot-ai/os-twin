@@ -209,7 +209,7 @@ while (-not $script:shuttingDown) {
             continue
         }
         $assignedRole = "engineer"
- 
+
         # If the state has a role, prefer that. Else fall back to config assignment.
         if ($stateDef -and $stateDef.role) {
             $assignedRole = $stateDef.role
@@ -220,7 +220,7 @@ while (-not $script:shuttingDown) {
             }
         }
         $baseRole = $assignedRole -replace ':.*$', ''
- 
+
         # --- Override detection (EPIC-006) ---
         $overrideDir = Join-Path $roomDir (Join-Path "overrides" $baseRole)
         $effectiveRoleDir = if (Test-Path $overrideDir) {
@@ -344,10 +344,10 @@ while (-not $script:shuttingDown) {
 
                 $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
                 $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
-                
+
                 $roleMaxRetries = $maxRetries
                 $planRoleMaxRetries = $null
-                
+
                 $rcFile = Join-Path $roomDir "config.json"
                 if (Test-Path $rcFile) {
                     try {
@@ -390,7 +390,7 @@ while (-not $script:shuttingDown) {
                     'terminal' {
                         if ($status -eq 'passed') {
                             # Guard: only fire Complete-PlanApproval once per plan
-                            $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
+                            $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')"
                             if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $planApprovedFlag)) {
                                 Complete-PlanApproval -TaskRef $taskRef
                                 "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline

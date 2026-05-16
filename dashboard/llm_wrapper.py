@@ -65,10 +65,12 @@ class BaseLLMWrapper:
         api_key: str | None = None,
         *,
         timeout: int = _DEFAULT_TIMEOUT,
+        base_url: str | None = None,
     ) -> None:
         self.model: str = model or ""
         self.provider: str | None = provider
         self._explicit_key: str | None = api_key
+        self._explicit_base_url: str | None = base_url
         self._timeout = timeout
         self._resolved: tuple[str, str, Optional[str]] | None = None
 
@@ -151,13 +153,26 @@ class BaseLLMWrapper:
         We do not cache this instance because it gets bound to the ephemeral
         event loop created by ``run_sync``. Reusing it across multiple
         ``run_sync`` calls would result in 'Event loop is closed' errors.
+
+        When ``_explicit_base_url`` is set (e.g. from memory-specific
+        compatible_url), it is passed to ``create_client`` so the
+        openai-compatible transport uses the custom endpoint instead of
+        the global provider default.
         """
         config = LLMConfig(max_tokens=max_tokens)
-        return create_client(
+        kwargs: dict[str, Any] = dict(
             model=self._clean_model(),
             provider=self._model_provider(),
             config=config,
         )
+        if self._explicit_base_url:
+            kwargs["base_url"] = self._explicit_base_url
+        # Pass the explicit API key when available (e.g. from memory-specific
+        # compatible_key) so it overrides the global provider key.
+        resolved_key = self._resolve_api_key()
+        if resolved_key:
+            kwargs["api_key"] = resolved_key
+        return create_client(**kwargs)
 
     # -- JSON extraction -------------------------------------------------
 

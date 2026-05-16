@@ -613,7 +613,7 @@ class OllamaClient(LLMClient):
                         images.append(b64)
                     else:
                         images.append(img_url)
-                
+
                 result.append({
                     "role": msg.role,
                     "content": msg.content or "",
@@ -663,7 +663,7 @@ class OllamaClient(LLMClient):
                 options["top_p"] = self.config.top_p
             if self.config.stop is not None:
                 options["stop"] = self.config.stop
-                
+
             if options:
                 kwargs["options"] = options
 
@@ -672,7 +672,7 @@ class OllamaClient(LLMClient):
 
             response = await self._client.chat(**kwargs)
             message = response.get("message", {})
-            
+
             tool_calls = []
             if "tool_calls" in message and message["tool_calls"]:
                 for tc in message["tool_calls"]:
@@ -711,7 +711,7 @@ class OllamaClient(LLMClient):
             "messages": self._convert_messages(messages),
             "stream": True,
         }
-        
+
         options = {}
         if self.config.temperature is not None:
             options["temperature"] = self.config.temperature
@@ -719,7 +719,7 @@ class OllamaClient(LLMClient):
             options["top_p"] = self.config.top_p
         if self.config.stop is not None:
             options["stop"] = self.config.stop
-            
+
         if options:
             kwargs["options"] = options
 
@@ -729,7 +729,7 @@ class OllamaClient(LLMClient):
         try:
             async for chunk in await self._client.chat(**kwargs):
                 message = chunk.get("message", {})
-                
+
                 if "tool_calls" in message and message["tool_calls"]:
                     for tc in message["tool_calls"]:
                         func = tc.get("function", {})
@@ -739,7 +739,7 @@ class OllamaClient(LLMClient):
                                 name=func.get("name", ""),
                                 arguments=func.get("arguments", {}),
                             )
-                
+
                 content = message.get("content", "")
                 if content:
                     yield content
@@ -895,6 +895,7 @@ def create_client(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
+    base_url: Optional[str] = None,
 ) -> LLMClient:
     effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
 
@@ -907,23 +908,23 @@ def create_client(
         providers = None
 
     if effective_provider in ("google", "google-vertex"):
-        base_url = _get_base_url(effective_provider)
+        resolved_base_url = base_url or _get_base_url(effective_provider)
         is_vertex = effective_provider == "google-vertex"
-        if is_vertex and base_url:
+        if is_vertex and resolved_base_url:
             region = os.environ.get("VERTEX_LOCATION", "global")
             project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            base_url = base_url.replace("{region}", region).replace("{project}", project)
+            resolved_base_url = resolved_base_url.replace("{region}", region).replace("{project}", project)
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        return GoogleClient(model=clean_model, api_key=resolved_key, base_url=base_url, config=config, vertexai=is_vertex, provider=effective_provider)
+        return GoogleClient(model=clean_model, api_key=resolved_key, base_url=resolved_base_url, config=config, vertexai=is_vertex, provider=effective_provider)
 
     if effective_provider == "ollama":
         cfg = providers.ollama if providers else None
-        base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
-        return OllamaClient(model=model, base_url=base_url, config=config)
+        resolved_base_url = base_url or (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        return OllamaClient(model=model, base_url=resolved_base_url, config=config)
 
-    base_url = _get_base_url(effective_provider)
+    resolved_base_url = base_url or _get_base_url(effective_provider)
     resolved_key = api_key or _resolve_transport_api_key(effective_provider)
-    return OpenAIClient(model=model, api_key=resolved_key, base_url=base_url, config=config, provider=effective_provider)
+    return OpenAIClient(model=model, api_key=resolved_key, base_url=resolved_base_url, config=config, provider=effective_provider)
 
 
 # ---------------------------------------------------------------------------

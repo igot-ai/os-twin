@@ -349,6 +349,7 @@ export interface FileContentResponse {
   size: number;
   mime_type: string;
   truncated: boolean;
+  download_url: string;
 }
 
 export interface GitFileChange {

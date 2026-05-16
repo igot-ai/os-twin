@@ -1390,7 +1390,7 @@ Options:
 
 Examples:
   ostwin mcp catalog
-  ostwin mcp install chrome-devtools
+  ostwin mcp install <git-url> --name custom-server
   ostwin mcp install --http https://stitch.googleapis.com/mcp --header "X-Goog-Api-Key=AIza..."
 #
 # Config format (OpenCode-compatible):

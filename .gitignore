@@ -27,6 +27,9 @@ dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 
+# ── Python mock artifacts ──────────────────────────────────────────────
+MagicMock/
+
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 **/__pycache__/
@@ -125,6 +128,16 @@ test_extless.ps1
 lint_output.txt
 test_results.txt
 
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+test-results/
+
 docs/plan
 docs/plan/
 docs/plan/**
+
+# Ostwin generated
+.agents/*
+!.agents/memory/
+.memory

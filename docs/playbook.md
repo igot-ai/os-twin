@@ -37,7 +37,7 @@ In classical software, your source code *is* the product. In agentic systems, **
 ---
 
 ## 03. Context Engineering
-Context Engineering is designing the information environment for an agent's mind. A poorly-structured context produces hallucinations and out-of-scope changes. 
+Context Engineering is designing the information environment for an agent's mind. A poorly-structured context produces hallucinations and out-of-scope changes.
 
 ### The Four Properties of Good Context
 1. **Bounded**: One context per feature. No cross-feature contamination.
@@ -89,7 +89,7 @@ Not every agent needs every tool.
 ---
 
 ## 05. Roles: Worker & Evaluator
-The fundamental unit of agentic collaboration is the **Worker / Evaluator pair**. One agent produces; another validates. 
+The fundamental unit of agentic collaboration is the **Worker / Evaluator pair**. One agent produces; another validates.
 **Self-review is a cognitive trap for both humans and LLMs.**
 
 ### Worker Agent (Engineer)
@@ -110,7 +110,7 @@ The fundamental unit of agentic collaboration is the **Worker / Evaluator pair**
 ---
 
 ## 06. English as the Embedding Layer
-When writing context consumed by an LLM — **write in English**. 
+When writing context consumed by an LLM — **write in English**.
 *   **Training data density**: ~70–80% of most LLM pretraining corpora is English.
 *   **Token efficiency**: 1 English word ≈ 1–1.5 tokens (vs. 2-4 tokens for other languages).
 *   **Instruction following**: Highest benchmark scores.
@@ -183,7 +183,7 @@ depends_on: [EPIC-000]
 Agents fail differently than humans. They hallucinate silently, get stuck in loops, or produce plausible-looking but wrong output.
 
 ### The Five Pillars of Agentic Ops
-1. **Observable**: Every action is posted to ROOM.jsonl. 
+1. **Observable**: Every action is posted to ROOM.jsonl.
 2. **Bounded**: Agents operate within scoped MCP servers.
 3. **Recoverable**: All context files are append-only.
 4. **Heartbeated**: Long-running agents post WORKING events every ~5 min.

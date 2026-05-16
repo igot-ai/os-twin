@@ -18,7 +18,9 @@ interface NexusCanvasProps {
   selectedPath: { source: string; target: string; path: string[] } | null;
   highlightedLabels?: Set<string>;
   highlightedEdges?: Set<string>;
+  neighborhoodIds?: Set<string>;
   communityLens?: boolean;
+  degreeSizing?: boolean;
 }
 
 export default function NexusCanvas(props: NexusCanvasProps) {
@@ -35,7 +37,9 @@ export default function NexusCanvas(props: NexusCanvasProps) {
         selectedPath={props.selectedPath}
         highlightedLabels={props.highlightedLabels}
         highlightedEdges={props.highlightedEdges}
+        neighborhoodIds={props.neighborhoodIds}
         communityLens={props.communityLens}
+        degreeSizing={props.degreeSizing}
       />
     </div>
   );

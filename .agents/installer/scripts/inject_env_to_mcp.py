@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Inject .env variables into MCP server environment blocks.
+"""Inject .env variables into MCP server configs.
 
 Usage: python inject_env_to_mcp.py <mcp_config_path> <env_file_path>
 
 Reads all KEY=VALUE pairs from the .env file and injects them into
-each MCP server's "environment" block where they are referenced
-(via ${VAR} or {env:VAR} patterns), or where they resolve existing
-placeholder values.
+each MCP server where referenced by ${VAR} or {env:VAR} placeholders.
+This covers local server environment blocks, local command arrays, and
+remote server headers.
 """
 
 import json
@@ -65,7 +65,8 @@ def inject_env(mcp_path: str, env_path: str) -> None:
         server_str = json.dumps(server)
         server_refs = set(re.findall(r"\$\{(\w+)(?:[:-][^}]*)?\}", server_str))
         server_refs |= set(re.findall(r"\{env:(\w+)\}", server_str))
-        # Only inject vars that this server references, or resolve existing placeholder env values
+        # Keep existing behavior for environment blocks: inject only vars the
+        # server references, and replace placeholder values already present.
         for k, v in env_vars.items():
             if k in server[env_key]:
                 cur = server[env_key][k]
@@ -73,6 +74,15 @@ def inject_env(mcp_path: str, env_path: str) -> None:
                     server[env_key][k] = v
             elif k in server_refs and v:
                 server[env_key][k] = v
+        # Builtin MCP commands can use placeholders too, e.g. obscura-browser
+        # launches with ["{env:OSTWIN_PYTHON}", "{env:AGENT_DIR}/mcp/..."].
+        if "command" in server and isinstance(server["command"], list):
+            for idx, cmd_elem in enumerate(server["command"]):
+                if isinstance(cmd_elem, str):
+                    for k, v in env_vars.items():
+                        placeholder = f"{{env:{k}}}"
+                        if placeholder in cmd_elem and v:
+                            server["command"][idx] = cmd_elem.replace(placeholder, v)
 
     with open(mcp_path, "w") as f:
         json.dump(config, f, indent=2)

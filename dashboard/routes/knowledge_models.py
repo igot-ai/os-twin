@@ -181,6 +181,64 @@ class ImportFolderResponse(BaseModel):
     )
 
 
+class ImportTextRequest(BaseModel):
+    """Request body for POST /api/knowledge/namespaces/{namespace}/import-text."""
+
+    text: str = Field(
+        ...,
+        description="Plain text to ingest directly into the namespace",
+        min_length=1,
+        max_length=100_000,
+        examples=["This is a document about machine learning algorithms."],
+    )
+    source_label: str = Field(
+        default="inline",
+        description="Label identifying the text source (used in metadata)",
+        max_length=200,
+        examples=["inline", "meeting-notes", "chat-excerpt"],
+    )
+    options: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional ingestion options (e.g., chunk_size, overlap, llm_model)",
+        examples=[{"chunk_size": 512, "overlap": 50}],
+    )
+    category: Optional[str] = Field(
+        default=None,
+        description="Optional category filter for scoped search",
+        examples=["technical", "faq", "reference"],
+    )
+
+
+class ImportTextResponse(BaseModel):
+    """Response for POST /api/knowledge/namespaces/{namespace}/import-text."""
+
+    namespace: str = Field(
+        ...,
+        description="The namespace the text was ingested into",
+        examples=["docs"],
+    )
+    chunks_added: int = Field(
+        ...,
+        description="Number of chunks created from the text",
+        examples=[3],
+    )
+    entities_added: int = Field(
+        ...,
+        description="Number of entities extracted from the text",
+        examples=[5],
+    )
+    relations_added: int = Field(
+        ...,
+        description="Number of relationships extracted from the text",
+        examples=[2],
+    )
+    elapsed_seconds: float = Field(
+        ...,
+        description="Time taken for ingestion in seconds",
+        examples=[0.42],
+    )
+
+
 class RefreshNamespaceResponse(BaseModel):
     """Response for POST /api/knowledge/namespaces/{namespace}/refresh."""
 

@@ -1,4 +1,4 @@
-from agentic_memory.memory_system import AgenticMemorySystem
+from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 import json
 
 memory_system = AgenticMemorySystem(

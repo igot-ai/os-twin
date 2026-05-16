@@ -1,0 +1,60 @@
+{
+  "mcp": {
+    "channel": {
+      "type": "local",
+      "command": [
+        "{env:OSTWIN_PYTHON}",
+        "{env:AGENT_DIR}/mcp/channel-server.py"
+      ],
+      "environment": {
+        "AGENT_OS_ROOT": "."
+      }
+    },
+    "warroom": {
+      "type": "local",
+      "command": [
+        "{env:OSTWIN_PYTHON}",
+        "{env:AGENT_DIR}/mcp/warroom-server.py"
+      ],
+      "environment": {
+        "AGENT_OS_ROOT": "."
+      }
+    },
+    "memory": {
+      "type": "remote",
+      "url": "http://localhost:3366/api/memory-pool/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
+      }
+    },
+    "obscura-browser": {
+      "type": "local",
+      "command": [
+        "{env:OSTWIN_PYTHON}",
+        "{env:AGENT_DIR}/mcp/obscura-browser-server.py"
+      ],
+      "environment": {
+        "AGENT_OS_ROOT": ".",
+        "PATH": "{env:PATH}"
+      }
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
+    },
+    "knowledge": {
+      "type": "remote",
+      "url": "http://localhost:3366/api/knowledge/mcp/",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
+      }
+    }
+  }
+}

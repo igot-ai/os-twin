@@ -720,6 +720,20 @@ class Ingestor:
         #  3. Write entities + relations to Kuzu via GraphRAGStore
         #  4. Write text chunks as ChunkNode to Kuzu (entity→chunk linkage)
         #  5. Write entity embeddings to zvec via ZvecVectorStoreAdapter
+        #
+        # Capture graph counts BEFORE insert_nodes so we can compute the
+        # delta as a fallback.  We prefer reading extractor metrics because
+        # they align with the KG_NODES_KEY / KG_RELATIONS_KEY contract —
+        # the same extractor that populates those keys also updates
+        # ExtractionMetrics.total_entities / total_relationships.
+        # However, the extractor metrics are cumulative across ALL calls to
+        # the extractor (they reset on each __call__ invocation), so for a
+        # single insert_nodes() call they should be accurate.
+        store_pre = self._get_store(namespace)
+        kg_pre = store_pre._get_graph()
+        pre_entities = kg_pre.count_entities()
+        pre_relations = kg_pre.count_relations()
+
         t_insert_start = time.monotonic()
         try:
             graph_index.insert_nodes(text_nodes)
@@ -741,6 +755,36 @@ class Ingestor:
             t_insert, file_entry.path, len(text_nodes),
         )
         get_metrics_registry().histogram("ingest_insert_nodes_seconds").observe(t_insert)
+
+        # Primary: read entity/relation counts from extractor metrics.
+        # These are populated by the same GraphRAGExtractor.__call__ that
+        # sets KG_NODES_KEY / KG_RELATIONS_KEY on the transformed nodes,
+        # so they are aligned with the llama-index contract.
+        entities_added = 0
+        relations_added = 0
+        for ext in getattr(graph_index, "kg_extractors", []):
+            m = getattr(ext, "metrics", None)
+            if m is not None:
+                entities_added += getattr(m, "total_entities", 0)
+                relations_added += getattr(m, "total_relationships", 0)
+
+        # Fallback: if extractor metrics are zero (e.g. extractor didn't
+        # run or metrics attribute missing), compute delta from Kuzu graph
+        # counts before/after insert_nodes().
+        if entities_added == 0 and relations_added == 0:
+            store_post = self._get_store(namespace)
+            kg_post = store_post._get_graph()
+            entities_added = max(0, kg_post.count_entities() - pre_entities)
+            relations_added = max(0, kg_post.count_relations() - pre_relations)
+            logger.debug(
+                "Extractor metrics were zero; using Kuzu delta: %d entities, %d relations",
+                entities_added, relations_added,
+            )
+        else:
+            logger.debug(
+                "Extractor metrics: %d entities, %d relations",
+                entities_added, relations_added,
+            )
 
         # Persist text chunks to the NamespaceVectorStore (zvec) for
         # file-hash-based idempotency tracking. The PropertyGraphIndex
@@ -788,19 +832,6 @@ class Ingestor:
             t_vstore, file_entry.path, len(store_chunks),
         )
         get_metrics_registry().histogram("ingest_vstore_write_seconds").observe(t_vstore)
-
-        # Count entities and relations from node metadata (populated by
-        # GraphRAGExtractor during the transformation step).
-        from llama_index.core.graph_stores.types import (  # noqa: WPS433
-            KG_NODES_KEY,
-            KG_RELATIONS_KEY,
-        )
-
-        entities_added = 0
-        relations_added = 0
-        for node in text_nodes:
-            entities_added += len(node.metadata.get(KG_NODES_KEY, []))
-            relations_added += len(node.metadata.get(KG_RELATIONS_KEY, []))
 
         embed_total = time.monotonic() - embed_t0
         logger.info(
@@ -1115,6 +1146,249 @@ class Ingestor:
             "elapsed_seconds": round(elapsed, 3),
         }
         return result
+
+
+    # ---- ingest_text ---------------------------------------------------
+
+    def ingest_text(
+        self,
+        namespace: str,
+        text: str,
+        *,
+        source_label: str = "inline",
+        options: IngestOptions | None = None,
+        emit: Callable[[JobEvent], None] | None = None,
+    ) -> dict:
+        """Synchronously ingest plain text into ``namespace``.
+
+        Unlike :meth:`run` (which walks a folder and parses files), this
+        method skips file-walking, MarkItDown parsing, and vision OCR
+        entirely — the text is already parsed.  It goes straight to
+        chunking → embedding → entity extraction.
+
+        A synthetic :class:`FileEntry` is created with
+        ``path="inline://{source_label}"`` so downstream metadata and
+        idempotency logic work without modification.
+
+        Returns a result summary dict matching the shape returned by
+        :meth:`run`.
+        """
+        options = options or IngestOptions()
+        emit = emit or (lambda ev: None)
+
+        if options.llm_model:
+            self._apply_llm_model_override(options.llm_model)
+
+        started_at = _utcnow()
+        run_t0 = time.monotonic()
+        metrics = get_metrics_registry()
+
+        meta = self._nm.get(namespace)
+        if meta is None:
+            raise NamespaceNotFoundError(namespace)
+
+        emit(JobEvent(
+            timestamp=_utcnow(),
+            state=JobState.RUNNING,
+            message="Ingesting text",
+            progress_current=0,
+            progress_total=1,
+        ))
+
+        text_bytes = text.encode("utf-8")
+        content_hash = _sha256(text_bytes)
+        now_ts = time.time()
+
+        fe = FileEntry(
+            path=f"inline://{source_label}",
+            size=len(text_bytes),
+            mtime=now_ts,
+            extension=".txt",
+            content_hash=content_hash,
+        )
+
+        if not options.force and content_hash and self._is_already_indexed(namespace, content_hash):
+            elapsed = time.monotonic() - run_t0
+            emit(JobEvent(
+                timestamp=_utcnow(),
+                state=JobState.RUNNING,
+                message="Skipped (already indexed)",
+                progress_current=1,
+                progress_total=1,
+                detail={"source": source_label, "status": "skipped"},
+            ))
+            return {
+                "namespace": namespace,
+                "source_label": source_label,
+                "chunks_added": 0,
+                "entities_added": 0,
+                "relations_added": 0,
+                "errors": [],
+                "elapsed_seconds": round(elapsed, 3),
+            }
+
+        if options.force and content_hash:
+            store_for_force = self._get_store(namespace)
+            try:
+                if store_for_force.has_file_hash(content_hash):
+                    old_chunk_count = 0
+                    try:
+                        old_chunk_count = store_for_force.count_by_file_hash(content_hash)
+                    except Exception as exc:
+                        logger.exception("count_by_file_hash failed for inline %s: %s", source_label, exc)
+                    try:
+                        store_for_force.delete_by_file_hash(content_hash)
+                    except Exception as exc:
+                        logger.exception("Force-delete failed for inline %s: %s", source_label, exc)
+                    if old_chunk_count > 0:
+                        try:
+                            self._nm.update_stats(
+                                namespace,
+                                files_indexed=-1,
+                                chunks=-int(old_chunk_count),
+                                vectors=-int(old_chunk_count),
+                            )
+                        except Exception as exc:
+                            logger.exception(
+                                "Could not roll back stats before force re-ingest of inline %s: %s",
+                                source_label, exc,
+                            )
+            except Exception as exc:
+                logger.exception("Force-reingest pre-cleanup failed for inline %s: %s", source_label, exc)
+
+        if not text or not text.strip():
+            elapsed = time.monotonic() - run_t0
+            return {
+                "namespace": namespace,
+                "source_label": source_label,
+                "chunks_added": 0,
+                "entities_added": 0,
+                "relations_added": 0,
+                "errors": [],
+                "elapsed_seconds": round(elapsed, 3),
+            }
+
+        t_chunk_start = time.monotonic()
+        sliding_window_threshold = options.chunk_size * 10
+        if len(text) > sliding_window_threshold:
+            chunker = SlidingWindowChunker(
+                window_size=options.sliding_window_size,
+                overlap=options.sliding_window_overlap,
+                page_chars=options.chunk_size,
+            )
+            raw_chunks = chunker.chunk(text)
+            chunks_text = [c["text"] for c in raw_chunks]
+            chunk_metas = [c["metadata"] for c in raw_chunks]
+        else:
+            chunks_text = _chunk_text(text, options.chunk_size, options.chunk_overlap)
+            chunk_metas = [{} for _ in chunks_text]
+        t_chunk = time.monotonic() - t_chunk_start
+
+        if not chunks_text:
+            elapsed = time.monotonic() - run_t0
+            return {
+                "namespace": namespace,
+                "source_label": source_label,
+                "chunks_added": 0,
+                "entities_added": 0,
+                "relations_added": 0,
+                "errors": [],
+                "elapsed_seconds": round(elapsed, 3),
+            }
+
+        chunks: list[dict] = []
+        for i, (chunk, cmeta) in enumerate(zip(chunks_text, chunk_metas)):
+            metadata = {
+                "file_path": fe.path,
+                "filename": source_label,
+                "chunk_index": i,
+                "total_chunks": len(chunks_text),
+                "file_size": fe.size,
+                "mtime": fe.mtime,
+                "extension": fe.extension,
+                "file_hash": fe.content_hash,
+                "chunk_hash": _sha256(chunk.encode("utf-8")),
+                "source_type": "inline",
+            }
+            metadata.update(cmeta)
+            chunks.append({"text": chunk, "metadata": metadata})
+
+        t_extract_start = time.monotonic()
+        try:
+            counts = self._extract_and_embed(namespace, fe, chunks, options)
+        except Exception as exc:
+            t_extract = time.monotonic() - t_extract_start
+            logger.exception("embed/extract failed for inline %s (%.3fs)", source_label, t_extract)
+            elapsed = time.monotonic() - run_t0
+            return {
+                "namespace": namespace,
+                "source_label": source_label,
+                "chunks_added": 0,
+                "entities_added": 0,
+                "relations_added": 0,
+                "errors": [f"inline://{source_label}: embed/extract failed: {exc}"],
+                "elapsed_seconds": round(elapsed, 3),
+            }
+
+        total_chunks = counts["chunks_added"]
+        total_entities = counts["entities_added"]
+        total_relations = counts["relations_added"]
+
+        try:
+            self._nm.update_stats(
+                namespace,
+                files_indexed=1,
+                chunks=total_chunks,
+                entities=total_entities,
+                relations=total_relations,
+                vectors=total_chunks,
+            )
+        except Exception as exc:
+            logger.exception("Could not update namespace stats: %s", exc)
+
+        try:
+            self._nm.append_import(
+                namespace,
+                ImportRecord(
+                    folder_path=f"inline://{source_label}",
+                    started_at=started_at,
+                    finished_at=_utcnow(),
+                    status="completed",
+                    file_count=1,
+                    error_count=0,
+                ),
+            )
+        except Exception as exc:
+            logger.exception("Could not append import record: %s", exc)
+
+        elapsed = time.monotonic() - run_t0
+        metrics.counter("ingest_files_total").inc()
+        metrics.counter("ingest_bytes_total").inc(fe.size)
+        metrics.histogram("ingest_latency_seconds").observe(elapsed)
+
+        emit(JobEvent(
+            timestamp=_utcnow(),
+            state=JobState.COMPLETED,
+            message="Text ingested",
+            progress_current=1,
+            progress_total=1,
+            detail={
+                "source": source_label,
+                "status": "processed",
+                "chunks": total_chunks,
+                "entities": total_entities,
+            },
+        ))
+
+        return {
+            "namespace": namespace,
+            "source_label": source_label,
+            "chunks_added": total_chunks,
+            "entities_added": total_entities,
+            "relations_added": total_relations,
+            "errors": [],
+            "elapsed_seconds": round(elapsed, 3),
+        }
 
 
 __all__ = [

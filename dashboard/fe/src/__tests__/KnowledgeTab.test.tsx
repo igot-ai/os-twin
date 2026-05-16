@@ -282,13 +282,13 @@ describe('KnowledgeTab', () => {
 
   it('renders the knowledge tab with sub-view tabs', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to finish loading (auto-create namespace logic)
     await waitFor(() => {
       // Check header - shows "Plan Knowledge" in plan context
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check sub-view tabs - in plan context, Namespaces is HIDDEN
     expect(screen.queryByText('Namespaces')).not.toBeInTheDocument();
     expect(screen.getByText('Import')).toBeInTheDocument();
@@ -297,26 +297,26 @@ describe('KnowledgeTab', () => {
 
   it('displays query view by default in plan context', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Should show query form (default in plan context)
     expect(screen.getByPlaceholderText('Explore knowledge...')).toBeInTheDocument();
   });
 
   it('switches to Import tab when clicked', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     fireEvent.click(screen.getByText('Import'));
-    
+
     // Since plan namespace is auto-selected, the import form is shown
     // (not "Select a Namespace" anymore)
     expect(screen.getByPlaceholderText('/absolute/path/to/folder')).toBeInTheDocument();
@@ -324,49 +324,49 @@ describe('KnowledgeTab', () => {
 
   it('switches to Query tab when clicked', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     fireEvent.click(screen.getByText('Nexus'));
-    
+
     // Since plan namespace is auto-selected, the query form is shown
     // (not "Select a Namespace" anymore)
     expect(screen.getByPlaceholderText('Explore knowledge...')).toBeInTheDocument();
   });
-  
+
   it('auto-selects plan namespace and shows it in header', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check that the plan namespace badge is shown in the header
     // (there are multiple elements with the namespace name, so use getAllByText)
     const namespaceElements = screen.getAllByText('test-plan-id');
     expect(namespaceElements.length).toBeGreaterThan(0);
   });
-  
+
   it('shows View All Knowledge button in plan context', async () => {
     render(<KnowledgeTab />);
-    
+
     // Wait for the component to load
     await waitFor(() => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
-    
+
     // Check that the View All Knowledge button is shown
     expect(screen.getByText('View All Knowledge')).toBeInTheDocument();
   });
-  
+
   it('auto-creates namespace if it does not exist', async () => {
     const { useKnowledgeNamespaces } = await import('@/hooks/use-knowledge-namespaces');
     const mockCreateNamespace = vi.fn().mockResolvedValue({});
-    
+
     // Mock namespaces without the plan namespace
     (useKnowledgeNamespaces as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       namespaces: [], // Empty namespaces
@@ -375,9 +375,9 @@ describe('KnowledgeTab', () => {
       createNamespace: mockCreateNamespace,
       refresh: vi.fn(),
     });
-    
+
     render(<KnowledgeTab />);
-    
+
     await waitFor(() => {
       expect(mockCreateNamespace).toHaveBeenCalledWith({
         name: 'test-plan-id',
@@ -465,12 +465,12 @@ describe('NamespaceList', () => {
     );
 
     fireEvent.click(screen.getByText('New'));
-    
+
     // Enter invalid name
-    fireEvent.change(screen.getByPlaceholderText('my-namespace'), { 
-      target: { value: 'Invalid Name!' } 
+    fireEvent.change(screen.getByPlaceholderText('my-namespace'), {
+      target: { value: 'Invalid Name!' }
     });
-    
+
     fireEvent.click(screen.getByText('Create'));
 
     // Should show validation error
@@ -564,7 +564,7 @@ describe('NamespaceList', () => {
 
   it('calls onDelete when delete confirmed', async () => {
     mockOnDelete.mockResolvedValueOnce(undefined);
-    
+
     const namespaces = [
       {
         schema_version: 1,
@@ -773,4 +773,3 @@ describe('ImportPanel', () => {
     expect(importButton).toBeDisabled();
   });
 });
-

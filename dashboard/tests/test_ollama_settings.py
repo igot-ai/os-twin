@@ -62,7 +62,7 @@ def test_ollama_pull_model(mock_stream):
                 yield '{"status": "success"}'
             mock_response.aiter_lines = mock_aiter_lines
             return mock_response
-            
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 

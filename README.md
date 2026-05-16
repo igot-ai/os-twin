@@ -137,7 +137,7 @@ ostwin skills install my-skill    # Install a skill
 ostwin skills list                # Show installed skills
 
 ostwin mcp catalog                # Browse MCP extensions
-ostwin mcp install chrome-devtools
+ostwin mcp install <git-url> --name custom-server
 ostwin mcp list                   # Show installed extensions
 
 ostwin dashboard start            # Launch web dashboard
@@ -165,7 +165,7 @@ All state lives in `.agents/` — plans, war-rooms, roles, skills, and the share
 | `warroom` | local | `update_status`, `report_progress`, `list_artifacts` |
 | `memory` | remote | `publish`, `query`, `search`, `get_context` |
 | `knowledge` | remote | `list_namespaces`, `query`, `search_all`, `find_relevant` |
-| `chrome-devtools` | local | Browser DevTools protocol |
+| `obscura-browser` | local | Obscura browser via CDP-compatible endpoint |
 | `playwright` | local | Browser automation |
 
 ## Data Layout

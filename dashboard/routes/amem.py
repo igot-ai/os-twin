@@ -20,20 +20,13 @@ MEMORY_BASE_DIR = Path(
     os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
 )
 
-# Reuse the canonical note parser from .agents/memory instead of duplicating the
-# YAML/frontmatter logic in the dashboard. We import from `memory_note`
+# Reuse the canonical note parser from the co-located agentic_memory package
+# instead of duplicating the YAML/frontmatter logic. We import from `memory_note`
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
 # (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
-_AMEM_PATH_CANDIDATES = [
-    Path.home() / ".ostwin" / ".agents" / "memory",
-    Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
-]
-for _p in _AMEM_PATH_CANDIDATES:
-    if _p.is_dir() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
 
 try:
-    from agentic_memory.memory_note import MemoryNote  # type: ignore
+    from dashboard.agentic_memory.memory_note import MemoryNote  # type: ignore
 except ImportError:
     MemoryNote = None  # type: ignore
 

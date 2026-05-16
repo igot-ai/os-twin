@@ -107,7 +107,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
   // Removes unused variables from the top
   const [llmModelInput, setLlmModelInput] = useState(draft.knowledge_llm_model);
   const [embedModelInput, setEmbedModelInput] = useState(draft.knowledge_embedding_model);
-  
+
   // OpenAI-compatible specific fields
   const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(draft.knowledge_llm_compatible_url ?? '');
   const [llmCompatibleKey, setLlmCompatibleKey] = useState(draft.knowledge_llm_compatible_key ?? '');
@@ -128,7 +128,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         setOllamaModels([]);
       }
     };
-    
+
     if (draft.knowledge_llm_backend === 'ollama' || draft.knowledge_embedding_backend === 'ollama') {
       fetchModels();
     }
@@ -178,11 +178,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const lines = decoder.decode(value).split('\n').filter(Boolean);
         for (const line of lines) {
           try {
@@ -204,7 +204,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           }
         }
       }
-      
+
       // Success! Re-check health
       const { apiGet } = await import('@/lib/api-client');
       const data = await apiGet<{ running: boolean; model_exists: boolean }>(`/settings/ollama/health?model=${model}`);
@@ -540,7 +540,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 />
               </div>
             )}
-            
+
             {/* OpenAI-compatible specific fields */}
             {draft.knowledge_llm_backend === 'openai-compatible' && (
               <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -739,7 +739,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 </div>
               </div>
             )}
-            
+
             <p className="text-[10px] text-slate-400 mt-3">
               All vectors are normalised to <strong>{effective.knowledge_embedding_dimension || '???'} dimensions</strong> (via{' '}
               <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">OSTWIN_EMBEDDING_DIMENSION</code>).

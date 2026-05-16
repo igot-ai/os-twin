@@ -1,1 +1,73 @@
-{"version": 1}
+{
+  "version": "0.1.0",
+  "project_name": "ostwin",
+  "memory": {
+    "enabled": true,
+    "max_summary_bytes": 4096,
+    "max_detail_bytes": 16384,
+    "max_context_entries": 15,
+    "auto_publish_on_done": true,
+    "llm_backend": "ollama",
+    "llm_model": "gemma3:4b",
+    "embedding_backend": "ollama",
+    "embedding_model": "",
+    "vector_backend": "zvec",
+    "context_aware": true,
+    "auto_sync": true,
+    "auto_sync_interval": 60,
+    "ttl_days": 30,
+    "context_aware_tree": false,
+    "max_links": 3,
+    "similarity_weight": 0.8,
+    "decay_half_life_days": 30,
+    "sync_interval_s": 60,
+    "conflict_resolution": "last_modified",
+    "pool_idle_timeout_s": 300,
+    "pool_max_instances": 10,
+    "pool_eviction_policy": "lru",
+    "pool_sync_interval_s": 60,
+    "embedding_provider": "ollama"
+  },
+  "channel": {
+    "format": "jsonl",
+    "max_message_size_bytes": 65536
+  },
+  "release": {
+    "require_signoffs": [
+      "engineer",
+      "qa",
+      "manager"
+    ],
+    "auto_draft": true
+  },
+  "runtime": {
+    "max_concurrent_rooms": 9999
+  },
+  "knowledge": {
+    "knowledge_llm_model": "",
+    "knowledge_embedding_model": "gemini-embedding-001",
+    "knowledge_embedding_dimension": 1024,
+    "knowledge_llm_backend": "",
+    "knowledge_embedding_backend": "gemini"
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "deployment_mode": "vertex",
+      "project_id": "igot-studio",
+      "vertex_location": null,
+      "vertex_auth_mode": "oauth",
+      "enabled_models": [],
+      "dismissed": false
+    },
+    "byteplus": null,
+    "custom": {},
+    "openai_compatible": null,
+    "ollama": null
+  }
+}

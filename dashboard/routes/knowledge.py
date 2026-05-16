@@ -40,6 +40,8 @@ from dashboard.routes.knowledge_models import (
     GraphCountsResponse,
     ImportFolderRequest,
     ImportFolderResponse,
+    ImportTextRequest,
+    ImportTextResponse,
     JobStatusResponse,
     NamespaceJobsResponse,
     NamespaceMetaResponse,
@@ -532,6 +534,54 @@ async def import_folder(
             actor=actor,
         )
         return ImportFolderResponse(job_id=job_id, namespace=namespace)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/import-text",
+    response_model=ImportTextResponse,
+    responses={
+        200: {"description": "Text ingested successfully"},
+        400: {"description": "Invalid request", "model": ErrorResponse},
+        401: {"description": "Authentication required"},
+        409: {"description": "Import already in progress", "model": ErrorResponse},
+    },
+    summary="Import plain text into a namespace",
+)
+async def import_text(
+    namespace: str,
+    request: ImportTextRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> ImportTextResponse:
+    """Ingest plain text directly into a namespace.
+
+    Unlike folder import (which runs as a background job), this is
+    **synchronous** — the response includes the result directly.
+    Suitable for pasting notes, chat excerpts, or other short-form text.
+
+    The namespace is auto-created if it doesn't exist.
+    """
+    try:
+        actor = _get_actor(user)
+        service = _get_service()
+        result = await asyncio.to_thread(
+            service.import_text,
+            namespace,
+            request.text,
+            request.source_label,
+            request.options,
+            actor=actor,
+        )
+        return ImportTextResponse(
+            namespace=result["namespace"],
+            chunks_added=result["chunks_added"],
+            entities_added=result["entities_added"],
+            relations_added=result["relations_added"],
+            elapsed_seconds=result["elapsed_seconds"],
+        )
     except HTTPException:
         raise
     except Exception as exc:

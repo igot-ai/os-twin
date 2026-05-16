@@ -3,9 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { NamespaceMetaResponse } from '@/hooks/use-knowledge-namespaces';
 import { QueryResultResponse } from '@/hooks/use-knowledge-query';
-import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hooks/use-knowledge-graph';
 import { GraphCountsResponse } from '@/hooks/use-knowledge-import';
-import GraphView from './GraphView';
 import BacklinkBadge from './BacklinkBadge';
 import AnswerMarkdown from './AnswerMarkdown';
 import { getNodeColor } from './constants';
@@ -62,11 +60,6 @@ interface NamespaceOverviewProps {
   queryError?: Error | null;
   onExecuteQuery?: (query: string, mode: 'raw' | 'graph' | 'summarized', topK: number) => Promise<void>;
   onClearResult?: () => void;
-  graphNodes?: GraphNodeResponse[];
-  graphEdges?: GraphEdgeResponse[];
-  graphStats?: GraphStatsResponse;
-  graphLoading?: boolean;
-  onRefreshGraph?: () => void;
   onNoteClick?: (noteId: string) => void;
 }
 
@@ -186,6 +179,7 @@ export default function NamespaceOverview({
   namespace: ns,
   graphCounts,
   onNavigateImport,
+  onNavigateQuery,
   onDelete,
   onRefresh,
   queryResult,
@@ -193,11 +187,6 @@ export default function NamespaceOverview({
   queryError,
   onExecuteQuery,
   onClearResult,
-  graphNodes = [],
-  graphEdges = [],
-  graphStats,
-  graphLoading = false,
-  onRefreshGraph,
   onNoteClick,
 }: NamespaceOverviewProps) {
   const { stats } = ns;
@@ -206,35 +195,9 @@ export default function NamespaceOverview({
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'raw' | 'graph' | 'summarized'>('summarized');
   const [topK] = useState(10);
-  const [selectedNode, setSelectedNode] = useState<GraphNodeResponse | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState<number>(-1);
-  const [graphHeight, setGraphHeight] = useState(380);
   const inputRef = useRef<HTMLInputElement>(null);
-  const resizingRef = useRef(false);
-  const startYRef = useRef(0);
-  const startHRef = useRef(0);
-
-  // Drag-resize handler for graph panel
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
-    startYRef.current = e.clientY;
-    startHRef.current = graphHeight;
-
-    const onMove = (ev: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = ev.clientY - startYRef.current;
-      setGraphHeight(Math.max(200, Math.min(800, startHRef.current + delta)));
-    };
-    const onUp = () => {
-      resizingRef.current = false;
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [graphHeight]);
 
   // Live counts from KuzuDB (fallback to manifest stats)
   const entityCount = graphCounts?.entities ?? stats.entities;
@@ -246,7 +209,6 @@ export default function NamespaceOverview({
   if (ns.name !== prevNamespace) {
     setPrevNamespace(ns.name);
     setQuery('');
-    setSelectedNode(null);
     setHistory([]);
     setActiveHistoryIdx(-1);
   }
@@ -487,36 +449,22 @@ export default function NamespaceOverview({
           {/* ── Right: Results Panel ──────────────────────────── */}
           <div className="flex-1 min-w-0 space-y-4">
             {/* Pre-query: show graph + suggestions */}
-            {!queryResult && hasContent && !showHistory && (graphNodes.length > 0 || graphLoading) && (
+            {!queryResult && hasContent && !showHistory && (
               <div
-                className="rounded-xl border overflow-hidden"
-                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', position: 'relative' }}
+                className="rounded-xl border p-6 flex flex-col items-center justify-center text-center transition-shadow hover:shadow-md cursor-pointer group"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+                onClick={onNavigateQuery}
               >
-                <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--color-border)' }}>
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>hub</span>
-                    <h3 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Knowledge Graph</h3>
-                  </div>
-                  <button onClick={onRefreshGraph} className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors" title="Refresh graph">
-                    <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
-                  </button>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform" style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}>
+                  <span className="material-symbols-outlined text-[24px]">hub</span>
                 </div>
-                <div style={{ height: graphHeight, position: 'relative', overflow: 'hidden' }}>
-                  <GraphView
-                    nodes={graphNodes} edges={graphEdges}
-                    stats={graphStats || { node_count: 0, edge_count: 0 }}
-                    isLoading={graphLoading}
-                    selectedNode={selectedNode} onSelectNode={setSelectedNode}
-                  />
-                </div>
-                {/* Resize handle */}
-                <div
-                  onMouseDown={handleResizeStart}
-                  className="h-2 cursor-row-resize flex items-center justify-center hover:bg-surface-hover transition-colors"
-                  style={{ borderTop: '1px solid var(--color-border)' }}
-                >
-                  <div className="w-8 h-0.5 rounded-full" style={{ background: 'var(--color-text-faint)' }} />
-                </div>
+                <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text-main)' }}>Explore Knowledge Graph</h3>
+                <p className="text-xs max-w-sm" style={{ color: 'var(--color-text-muted)' }}>
+                  Dive into the interactive 3D Nexus Explorer to visualize relationships, discover communities, and trace paths between entities.
+                </p>
+                <button className="mt-4 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors" style={{ background: 'var(--color-primary)' }}>
+                  Open Nexus
+                </button>
               </div>
             )}
 
@@ -564,39 +512,22 @@ export default function NamespaceOverview({
                 )}
 
                 {/* 2. Knowledge Graph (inline in results) */}
-                {(graphNodes.length > 0 || graphLoading) && (
+                {hasContent && (
                   <div
-                    className="rounded-xl border overflow-hidden"
-                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', position: 'relative' }}
+                    className="rounded-xl border p-4 flex items-center justify-between transition-colors hover:bg-surface-hover cursor-pointer"
+                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+                    onClick={onNavigateQuery}
                   >
-                    <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-primary)' }}>hub</span>
-                        <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Knowledge Graph</h4>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}>
+                        <span className="material-symbols-outlined text-[20px]">hub</span>
                       </div>
-                      <button onClick={onRefreshGraph} className="p-1 rounded hover:bg-surface-hover transition-colors">
-                        <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
-                      </button>
-                    </div>
-                    <div style={{ height: graphHeight, position: 'relative', overflow: 'hidden' }}>
-                      <GraphView
-                        nodes={graphNodes} edges={graphEdges}
-                        stats={graphStats || { node_count: 0, edge_count: 0 }}
-                        isLoading={graphLoading}
-                        selectedNode={selectedNode} onSelectNode={setSelectedNode}
-                      />
-                    </div>
-                    {selectedNode && (
-                      <div className="px-3 py-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full" style={{ background: getNodeColor(selectedNode.label) }} />
-                          <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--color-text-main)' }}>{selectedNode.name}</span>
-                          <span className="text-[10px] px-1 py-0.5 rounded shrink-0" style={{ background: 'var(--color-background)', color: 'var(--color-text-muted)' }}>
-                            {selectedNode.label}
-                          </span>
-                        </div>
+                      <div>
+                        <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Explore these results visually</h4>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>Open Nexus to see how these entities connect</p>
                       </div>
-                    )}
+                    </div>
+                    <span className="material-symbols-outlined" style={{ color: 'var(--color-text-muted)', fontSize: 20 }}>arrow_forward</span>
                   </div>
                 )}
 

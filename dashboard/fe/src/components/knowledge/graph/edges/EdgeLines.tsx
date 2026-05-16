@@ -16,10 +16,11 @@ interface EdgeLinesProps {
   ignitionSet: Set<string>;
   highlightedEdges?: Set<string>;
   highlightedLabels?: Set<string>;
+  neighborhoodIds?: Set<string>;
   simGetIsRunning: () => boolean;
 }
 
-export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, highlightedEdges, highlightedLabels, simGetIsRunning }: EdgeLinesProps) {
+export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, highlightedEdges, highlightedLabels, neighborhoodIds, simGetIsRunning }: EdgeLinesProps) {
   const linesRef = useRef<THREE.LineSegments>(null);
   const count = links.length;
 
@@ -153,19 +154,24 @@ export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, hig
 
       const sourceNode = nodeMap.get(srcId);
       const targetNode = nodeMap.get(tgtId);
-      
+
       const edgeKey = `${srcId}->${tgtId}`;
       const isPathEdge = pathEdgeSet.has(edgeKey);
       const connectsIgnited = ignitionSet.has(srcId) || ignitionSet.has(tgtId);
       const isEdgeHighlighted = highlightedEdges && highlightedEdges.size > 0 ? highlightedEdges.has(link.label || '') : false;
       const isFilteringEdges = highlightedEdges && highlightedEdges.size > 0;
-      
+
       const sourceLabel = sourceNode?.label || '';
       const targetLabel = targetNode?.label || '';
-      const isLabelHighlighted = highlightedLabels && highlightedLabels.size > 0 
+      const isLabelHighlighted = highlightedLabels && highlightedLabels.size > 0
         ? (highlightedLabels.has(sourceLabel) || highlightedLabels.has(targetLabel))
         : false;
       const isFilteringLabels = highlightedLabels && highlightedLabels.size > 0;
+      
+      const hasNeighborhood = neighborhoodIds && neighborhoodIds.size > 0;
+      const srcInNeighborhood = hasNeighborhood && neighborhoodIds.has(srcId);
+      const tgtInNeighborhood = hasNeighborhood && neighborhoodIds.has(tgtId);
+      const connectsNeighborhood = srcInNeighborhood || tgtInNeighborhood;
 
       const vi = i * 2;
 
@@ -174,6 +180,13 @@ export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, hig
         _tgtColor.set(link.color).lerp(_pathColor, 0.7);
         colAttr.setXYZ(vi, _srcColor.r, _srcColor.g, _srcColor.b);
         colAttr.setXYZ(vi + 1, _tgtColor.r, _tgtColor.g, _tgtColor.b);
+      } else if (hasNeighborhood && connectsNeighborhood) {
+        const pulse = (Math.sin(time * 5 + i * 0.1) + 1) * 0.5;
+        _srcColor.set(link.color);
+        _tgtColor.set(link.color).lerp(new THREE.Color('#ffffff'), pulse * 0.3);
+        const bright = 1.0 + pulse * 0.3;
+        colAttr.setXYZ(vi, _srcColor.r * bright, _srcColor.g * bright, _srcColor.b * bright);
+        colAttr.setXYZ(vi + 1, _tgtColor.r * bright, _tgtColor.g * bright, _tgtColor.b * bright);
       } else if (isFilteringEdges && isEdgeHighlighted) {
         // Create an animated directional pulse effect
         // We use Math.sin on time mixed with the edge index to make it feel like energy flowing
@@ -193,8 +206,8 @@ export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, hig
         _srcColor.set(link.color);
         colAttr.setXYZ(vi, _srcColor.r * 1.5, _srcColor.g * 1.5, _srcColor.b * 1.5);
         colAttr.setXYZ(vi + 1, _srcColor.r * 1.5, _srcColor.g * 1.5, _srcColor.b * 1.5);
-      } else if ((isFilteringEdges && !isEdgeHighlighted) || (isFilteringLabels && !isLabelHighlighted)) {
-        _dimLerp.copy(_dimColor).lerp(_srcColor.set(link.color), 0.05); // Severely dim unhighlighted edges
+      } else if ((isFilteringEdges && !isEdgeHighlighted) || (isFilteringLabels && !isLabelHighlighted) || (hasNeighborhood && !connectsNeighborhood)) {
+        _dimLerp.copy(_dimColor).lerp(_srcColor.set(link.color), 0.05);
         colAttr.setXYZ(vi, _dimLerp.r, _dimLerp.g, _dimLerp.b);
         colAttr.setXYZ(vi + 1, _dimLerp.r, _dimLerp.g, _dimLerp.b);
       } else {
@@ -205,7 +218,7 @@ export default function EdgeLines({ links, nodes, selectedPath, ignitionSet, hig
     }
 
     colAttr.needsUpdate = true;
-  }, [links, count, pathEdgeSet, ignitionSet, highlightedEdges, highlightedLabels, nodeMap]);
+  }, [links, count, pathEdgeSet, ignitionSet, highlightedEdges, highlightedLabels, neighborhoodIds, nodeMap]);
 
   if (count === 0) return null;
 

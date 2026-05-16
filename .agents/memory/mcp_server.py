@@ -129,7 +129,7 @@ def _find_project_root() -> str:
 
 
 _project_root = _find_project_root()
-_default_persist = os.path.join(_project_root, ".memory")
+_default_persist = os.path.realpath(os.path.join(_project_root, ".memory"))
 PERSIST_DIR = os.getenv("MEMORY_PERSIST_DIR", _default_persist)
 LOG_DIR = os.getenv("MEMORY_LOG_DIR", PERSIST_DIR)
 

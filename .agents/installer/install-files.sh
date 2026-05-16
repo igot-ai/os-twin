@@ -36,7 +36,7 @@ install_files() {
     --exclude='node_modules/'
   )
   local _find_excludes=(-not -name 'mcp' -not -name 'plans' -not -name 'docs' -not -name 'node_modules' -not -name '.')
-  
+
   if [[ -f "$INSTALL_DIR/.agents/config.json" ]]; then
     _rsync_excludes+=(--exclude='/config.json')
     _find_excludes+=(-not -name 'config.json')
@@ -49,7 +49,7 @@ install_files() {
     _rsync_excludes+=(--exclude='/roles/config.json')
     _find_excludes+=(-not -path '*/roles/config.json')
   fi
-  
+
   rsync -a "${_rsync_excludes[@]}" \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ and plans/ manually)

@@ -5,8 +5,8 @@
 .DESCRIPTION
     Phase 1 — CONFIG-DRIVEN skill_refs (what the role always needs):
       1. Plan-roles config:  ~/.ostwin/.agents/plans/{plan_id}.roles.json → $role.skill_refs
-      2. HOME role.json:     ~/.ostwin/roles/{RoleName}/role.json → skill_refs
-      3. Local role.json:    roles/{RoleName}/role.json → skill_refs
+      2. Repo/local role.json: explicit RolePath → .agents/roles/{RoleName} → contributes/roles/{RoleName}
+      3. Installed role.json: ~/.ostwin/.agents/roles/{RoleName} → ~/.ostwin/roles/{RoleName}
       First non-empty wins (no merging across sources).
 
     Phase 2a — LOCAL TASK-AWARE DISCOVERY (find skills by matching TASKS.md content):
@@ -157,31 +157,59 @@ if ($allRefs.Count -eq 0) {
     }
 }
 
-# Source 2: HOME role.json (~/.ostwin/roles/{RoleName}/role.json → skill_refs)
+# Source 2: Repo/local role.json (explicit RolePath → .agents/roles → contributes/roles)
 if ($allRefs.Count -eq 0) {
-    $homeRoleJson = Join-Path $ostwinHome "roles" $baseRole "role.json"
-    if (Test-Path $homeRoleJson) {
-        try {
-            $homeRoleData = Get-Content $homeRoleJson -Raw | ConvertFrom-Json
-            if ($homeRoleData.skill_refs -and $homeRoleData.skill_refs.Count -gt 0) {
-                $allRefs = @($homeRoleData.skill_refs)
-                Write-Verbose "Skill refs from HOME role.json: $($allRefs -join ', ')"
+    $localRoleCandidates = @()
+    if ($RolePath) {
+        $localRoleCandidates += Join-Path $RolePath "role.json"
+    }
+    $localRoleCandidates += Join-Path $PSScriptRoot ".." $baseRole "role.json"
+
+    if ($RoomDir -and (Test-Path $RoomDir)) {
+        $searchDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
+        for ($i = 0; $i -lt 6; $i++) {
+            $parentDir = Split-Path $searchDir -Parent
+            if (-not $parentDir -or $parentDir -eq $searchDir) { break }
+            if ((Split-Path $searchDir -Leaf) -eq ".war-rooms") {
+                $projectRoot = $parentDir
+                $localRoleCandidates += Join-Path $projectRoot "contributes" "roles" $baseRole "role.json"
+                break
             }
-        } catch { }
+            $searchDir = $parentDir
+        }
+    }
+
+    foreach ($localRoleJson in ($localRoleCandidates | Select-Object -Unique)) {
+        if (Test-Path $localRoleJson) {
+            try {
+                $localRoleData = Get-Content $localRoleJson -Raw | ConvertFrom-Json
+                if ($localRoleData.skill_refs -and $localRoleData.skill_refs.Count -gt 0) {
+                    $allRefs = @($localRoleData.skill_refs)
+                    Write-Verbose "Skill refs from local role.json: $($allRefs -join ', ')"
+                    break
+                }
+            } catch { }
+        }
     }
 }
 
-# Source 3: Local role.json (roles/{RoleName}/role.json → skill_refs)
+# Source 3: Installed role.json (~/.ostwin/.agents/roles/{RoleName} → ~/.ostwin/roles/{RoleName})
 if ($allRefs.Count -eq 0) {
-    $localRoleJson = Join-Path $PSScriptRoot ".." $baseRole "role.json"
-    if (Test-Path $localRoleJson) {
-        try {
-            $localRoleData = Get-Content $localRoleJson -Raw | ConvertFrom-Json
-            if ($localRoleData.skill_refs -and $localRoleData.skill_refs.Count -gt 0) {
-                $allRefs = @($localRoleData.skill_refs)
-                Write-Verbose "Skill refs from local role.json: $($allRefs -join ', ')"
-            }
-        } catch { }
+    $homeRoleCandidates = @(
+        (Join-Path $ostwinHome ".agents" "roles" $baseRole "role.json"),
+        (Join-Path $ostwinHome "roles" $baseRole "role.json")
+    )
+    foreach ($homeRoleJson in $homeRoleCandidates) {
+        if (Test-Path $homeRoleJson) {
+            try {
+                $homeRoleData = Get-Content $homeRoleJson -Raw | ConvertFrom-Json
+                if ($homeRoleData.skill_refs -and $homeRoleData.skill_refs.Count -gt 0) {
+                    $allRefs = @($homeRoleData.skill_refs)
+                    Write-Verbose "Skill refs from installed role.json: $($allRefs -join ', ')"
+                    break
+                }
+            } catch { }
+        }
     }
 }
 

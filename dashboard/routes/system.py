@@ -69,6 +69,20 @@ def _serialize_env(entries: list[dict]) -> str:
                 lines.append(f"# {key}={value}")
     return "\n".join(lines) + "\n"
 
+
+def _is_path_inside(target: Path, root: Path) -> bool:
+    """Check if target path is inside root using Path.relative_to().
+    
+    Resolves symlinks to prevent escape via symlink chains.
+    Uses Path.relative_to() instead of str.startswith() to prevent
+    prefix collision attacks (e.g., /home/user_evil matching /home/user).
+    """
+    try:
+        target.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
 @router.get("/status")
 async def get_status():
     """Get current manager run status."""
@@ -165,9 +179,22 @@ async def test_telegram_connection():
         raise HTTPException(status_code=500, detail="Failed to send test message")
     return {"status": "success"}
 
-@router.post("/shell")
-async def shell_command(command: str):
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+@router.post("/shell", deprecated=True)
+async def shell_command(command: str, user: dict = Depends(get_current_user)):
+    """Execute a shell command. DEPRECATED — will be removed in a future release.
+    
+    Security: Requires authentication. Uses subprocess list form (no shell=True)
+    to prevent shell injection. Only available for backwards compatibility.
+    """
+    # SECURITY: Never use shell=True — parse command into list to prevent injection
+    import shlex
+    try:
+        cmd_parts = shlex.split(command)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid command: {e}")
+    if not cmd_parts:
+        raise HTTPException(status_code=400, detail="Empty command")
+    result = subprocess.run(cmd_parts, capture_output=True, text=True, timeout=30)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 @router.get("/run_pytest_auth")
@@ -243,20 +270,45 @@ async def get_notifications(
 
 # ── ENV Settings (read/write ~/.ostwin/.env) ───────────────────────────
 
-@router.get("/env")
-async def get_env(user: dict = Depends(get_current_user)):
-    """Read and parse ~/.ostwin/.env into structured entries."""
-    if not _ENV_FILE.exists():
-        return {"path": str(_ENV_FILE), "entries": [], "raw": ""}
-    raw = _ENV_FILE.read_text()
-    entries = _parse_env(raw)
-    return {"path": str(_ENV_FILE), "entries": entries, "raw": raw}
-
-
 _VAULT_MANAGED_KEYS = {
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
     "TELEGRAM_BOT_TOKEN", "DISCORD_TOKEN", "NGROK_AUTHTOKEN", "OSTWIN_API_KEY",
 }
+
+
+def _mask_env_entry(entry: dict) -> dict:
+    """Mask values of vault-managed (secret) keys for safe display.
+    
+    Returns a copy of the entry with the value replaced by '••••'
+    if the key is in _VAULT_MANAGED_KEYS and has a non-empty value.
+    """
+    if entry.get("type") != "var":
+        return entry
+    key = entry.get("key", "")
+    value = entry.get("value", "")
+    if key in _VAULT_MANAGED_KEYS and value:
+        masked = dict(entry)
+        masked["value"] = "••••"
+        masked["value_masked"] = True
+        masked["has_value"] = bool(value)
+        return masked
+    return entry
+
+
+@router.get("/env")
+async def get_env(user: dict = Depends(get_current_user)):
+    """Read and parse ~/.ostwin/.env into structured entries.
+    
+    Secret values (API keys, tokens) are masked for safe display.
+    The 'raw' field is intentionally excluded to prevent secret exposure.
+    """
+    if not _ENV_FILE.exists():
+        return {"path": str(_ENV_FILE), "entries": []}
+    raw = _ENV_FILE.read_text()
+    entries = _parse_env(raw)
+    # SECURITY: Mask secret values and omit raw text to prevent credential exposure
+    masked_entries = [_mask_env_entry(e) for e in entries]
+    return {"path": str(_ENV_FILE), "entries": masked_entries}
 
 
 @router.post("/env")
@@ -368,11 +420,27 @@ async def bot_logs(limit: int = 100, user: dict = Depends(get_current_user)):
 
 @router.get("/fs/browse")
 async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_current_user)):
+    """Browse directories for file selection. Restricted to user home and project root."""
     if not path:
         path = str(Path.home())
     target = Path(path).expanduser().resolve()
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a valid directory")
+
+    # SECURITY: Restrict browsing to user home directory and project root
+    allowed_roots = [Path.home().resolve()]
+    if PROJECT_ROOT.exists():
+        allowed_roots.append(PROJECT_ROOT.resolve())
+    
+    is_allowed = any(
+        target == root or _is_path_inside(target, root)
+        for root in allowed_roots
+    )
+    if not is_allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: path is outside allowed directories",
+        )
 
     SUPPORTED_EXTS = {
         '.pdf', '.pptx', '.xlsx', '.csv', '.md', '.txt',

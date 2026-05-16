@@ -29,6 +29,9 @@ param(
     [Alias('y')]
     [switch]$Yes,
 
+    [Alias('q')]
+    [switch]$Quick,
+
     [Alias('h')]
     [switch]$Help
 )
@@ -58,24 +61,27 @@ function Invoke-Ask {
     return (-not $answer -or $answer -match '^[Yy]')
 }
 
-# ─── Idempotency check ───────────────────────────────────────────────────────
-# Fast exit when the project is already fully initialized.
-# ostwin run calls init.ps1 on every invocation — this keeps it cheap.
+# ─── Idempotency check (opt-in via --quick) ───────────────────────────────────
+# By default, init always runs to guarantee a fresh .opencode/opencode.json.
+# With --quick, fast-exits when the project is already fully initialized.
+# ostwin run uses -Force by default; --resume skips init entirely.
 
-$mcpConfigExists    = Test-Path (Join-Path $TargetAgents "mcp" "config.json")
-$opencodeFile       = Join-Path $TargetDir ".opencode" "opencode.json"
-$opencodeExists     = Test-Path $opencodeFile
+if ($Quick) {
+    $mcpConfigExists    = Test-Path (Join-Path $TargetAgents "mcp" "config.json")
+    $opencodeFile       = Join-Path $TargetDir ".opencode" "opencode.json"
+    $opencodeExists     = Test-Path $opencodeFile
 
-# Check if plan_id is already bound in the opencode.json memory URL
-$planIdBound = $true
-if ($PlanId -and $opencodeExists) {
-    $ocCheck = Get-Content $opencodeFile -Raw
-    $planIdBound = $ocCheck -match [regex]::Escape("plan_id=$PlanId")
-}
+    # Check if plan_id is already bound in the opencode.json memory URL
+    $planIdBound = $true
+    if ($PlanId -and $opencodeExists) {
+        $ocCheck = Get-Content $opencodeFile -Raw
+        $planIdBound = $ocCheck -match [regex]::Escape("plan_id=$PlanId")
+    }
 
-if ($mcpConfigExists -and $opencodeExists -and $planIdBound) {
-    Write-Host "  [OK] Project already initialized: $TargetDir"
-    exit 0
+    if ($mcpConfigExists -and $opencodeExists -and $planIdBound) {
+        Write-Host "  [OK] Project already initialized: $TargetDir"
+        exit 0
+    }
 }
 
 # ─── Banner ───────────────────────────────────────────────────────────────────
@@ -214,6 +220,14 @@ if (Test-Path $ResolveScript) {
     # Collect optional flags
     $syncArgs = @($ResolveScript, "sync")
 
+    # Pass project's config.json so project-level extensions are resolved
+    # (without this, sync only reads the global mcp-builtin.json and misses
+    # any extensions installed into the project's .agents/mcp/config.json)
+    $projectMcpConfig = Join-Path $TargetAgents "mcp" "config.json"
+    if (Test-Path $projectMcpConfig) {
+        $syncArgs += @("--config", $projectMcpConfig)
+    }
+
     # Pass env file if available
     $projectEnv = Join-Path $TargetDir ".env"
     $mcpEnv = Join-Path $TargetAgents "mcp" ".env.mcp"
@@ -230,6 +244,14 @@ if (Test-Path $ResolveScript) {
 # ─── Clone global opencode.json to project .opencode/ ────────────────────────
 # Ensures agents running in the project context (via Invoke-Agent.ps1) have the
 # full config: MCP servers, agent permissions, tools blocks, provider definitions.
+#
+# MERGE LOGIC (not simple copy):
+#   - If project .opencode/opencode.json doesn't exist → copy from global
+#   - If it DOES exist (created by mcp-extension.sh compile with project MCP
+#     servers) → merge global keys (agent permissions, tools, provider, model)
+#     while preserving the project's MCP server block.
+#   - This prevents the global sync from overwriting project-level extensions
+#     that were just compiled by the previous step.
 
 $ProjectOpencodeDir = Join-Path $TargetDir ".opencode"
 if (-not (Test-Path $ProjectOpencodeDir)) {
@@ -240,7 +262,45 @@ $GlobalOpencodeFile = Join-Path $GlobalOpencodeDir "opencode.json"
 $ProjectOpencodeFile = Join-Path $ProjectOpencodeDir "opencode.json"
 
 if (Test-Path $GlobalOpencodeFile) {
-    Copy-Item -Path $GlobalOpencodeFile -Destination $ProjectOpencodeFile -Force
+    if (-not (Test-Path $ProjectOpencodeFile)) {
+        # No project file yet — simple copy from global
+        Copy-Item -Path $GlobalOpencodeFile -Destination $ProjectOpencodeFile -Force
+        Write-Ok "Created .opencode/opencode.json from global config"
+    }
+    else {
+        # Project file exists (likely from mcp-extension.sh compile).
+        # Merge: keep project MCP servers, add global agent/tools/permission blocks.
+        try {
+            $globalJson = Get-Content $GlobalOpencodeFile -Raw | ConvertFrom-Json -AsHashtable
+            $projectJson = Get-Content $ProjectOpencodeFile -Raw | ConvertFrom-Json -AsHashtable
+
+            # Keys that the global sync is authoritative for (role permissions, tools, provider)
+            $managedKeys = @("agent", "tools", "permission", "provider", "model")
+
+            foreach ($key in $managedKeys) {
+                if ($globalJson.ContainsKey($key)) {
+                    $projectJson[$key] = $globalJson[$key]
+                }
+                elseif ($projectJson.ContainsKey($key)) {
+                    # Key exists in project but not in global — remove stale entry
+                    $projectJson.Remove($key)
+                }
+            }
+
+            # Write merged result
+            $projectJson | ConvertTo-Json -Depth 10 | Set-Content -Path $ProjectOpencodeFile -Encoding UTF8
+            Write-Ok "Merged global agent/tools/permissions into project .opencode/opencode.json"
+        }
+        catch {
+            # Fallback: if merge fails, overwrite with global (better than nothing)
+            Write-Warn "Merge failed, falling back to global copy: $_"
+            Copy-Item -Path $GlobalOpencodeFile -Destination $ProjectOpencodeFile -Force
+        }
+    }
+}
+elseif (-not (Test-Path $ProjectOpencodeFile)) {
+    # Neither global nor project file exists — leave empty (compile may have failed)
+    Write-Warn "No global or project opencode.json found"
 }
 
 # ─── Bind plan_id to memory MCP URL ──────────────────────────────────────────
@@ -260,15 +320,70 @@ if ($PlanId -and (Test-Path $ProjectOpencodeFile)) {
     Write-Ok "Bound plan_id=$PlanId to memory MCP URL"
 
     # Create centralized memory directory + symlink from project/.memory
-    $centralDir = Join-Path (Join-Path (Join-Path $env:HOME ".ostwin") "memory") $PlanId
+    # Use "memory-$PlanId" naming to match global-memory-server.py convention
+    # (it discovers directories with the "memory-" prefix).
+    $memoryBase = Join-Path $env:HOME ".ostwin" "memory"
+    $centralDir = Join-Path $memoryBase "memory-$PlanId"
     $symlinkPath = Join-Path $TargetDir ".memory"
 
     if (-not (Test-Path $centralDir)) {
         New-Item -ItemType Directory -Path $centralDir -Force | Out-Null
     }
 
-    # If .memory is a real directory (not a symlink), migrate its contents first
-    if ((Test-Path $symlinkPath) -and -not ((Get-Item $symlinkPath).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    # ── Step 1: Migrate from old bare-name directory (without "memory-" prefix) ──
+    $legacyDir = Join-Path $memoryBase $PlanId
+    if ((Test-Path $legacyDir) -and ($legacyDir -ne $centralDir)) {
+        if (Get-Command rsync -ErrorAction SilentlyContinue) {
+            & rsync -a "$legacyDir/" "$centralDir/" 2>$null
+        } else {
+            Copy-Item "$legacyDir/*" "$centralDir/" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        # Update any existing .memory symlink to point at the new location FIRST,
+        # then remove the old bare-name directory.
+        if (Test-Path $symlinkPath) {
+            try {
+                $di = [System.IO.DirectoryInfo]::new($symlinkPath)
+                if ($di.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                    # Symlink exists — repoint it to the new centralDir
+                    if (Get-Command ln -ErrorAction SilentlyContinue) {
+                        & ln -sfn $centralDir $symlinkPath
+                    } else {
+                        Remove-Item $symlinkPath -Force -ErrorAction SilentlyContinue
+                        New-Item -ItemType SymbolicLink -Path $symlinkPath -Target $centralDir -Force | Out-Null
+                    }
+                }
+            } catch {
+                # Broken symlink — will be replaced in Step 3
+            }
+        }
+        Remove-Item $legacyDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Ok "Migrated legacy memory dir: $legacyDir -> $centralDir"
+    }
+
+    # ── Step 2: If .memory is a real directory (not a symlink), migrate contents ──
+    # Use [System.IO.DirectoryInfo] instead of Get-Item because Get-Item throws
+    # on broken symlinks (target doesn't resolve) even though the link entry
+    # exists on disk and Test-Path returns $true.
+    $existingIsSymlink = $false
+    $existingIsBrokenSymlink = $false
+
+    if (Test-Path $symlinkPath) {
+        try {
+            $dirInfo = [System.IO.DirectoryInfo]::new($symlinkPath)
+            $existingIsSymlink = $dirInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+            # DirectoryInfo.Exists returns $false when the symlink target
+            # doesn't resolve (broken symlink), even though the link entry is on disk
+            if ($existingIsSymlink -and -not $dirInfo.Exists) {
+                $existingIsBrokenSymlink = $true
+            }
+        } catch {
+            # Unexpected failure — treat as a broken symlink so we replace it
+            $existingIsSymlink = $true
+            $existingIsBrokenSymlink = $true
+        }
+    }
+
+    if ((Test-Path $symlinkPath) -and -not $existingIsSymlink) {
         if (Get-Command rsync -ErrorAction SilentlyContinue) {
             & rsync -a "$symlinkPath/" "$centralDir/" 2>$null
         } else {
@@ -277,7 +392,10 @@ if ($PlanId -and (Test-Path $ProjectOpencodeFile)) {
         Remove-Item $symlinkPath -Recurse -Force
     }
 
-    if (-not (Test-Path $symlinkPath)) {
+    # ── Step 3: Create symlink if needed ──
+    # Test-Path returns $true for broken symlinks (checks link entry, not target),
+    # so we must also check $existingIsBrokenSymlink to replace dangling links.
+    if (-not (Test-Path $symlinkPath) -or $existingIsBrokenSymlink) {
         if (Get-Command ln -ErrorAction SilentlyContinue) {
             & ln -sfn $centralDir $symlinkPath
         } else {
@@ -297,6 +415,7 @@ $OstwinBlock = @"
 .war-rooms/
 .agents/*
 !.agents/memory/
+.memory
 "@
 
 if (Test-Path $Gitignore) {
@@ -310,7 +429,8 @@ if (Test-Path $Gitignore) {
             $_ -ne '.war-rooms/' -and
             $_ -ne '.agents/*' -and
             $_ -ne '!.agents/memory/' -and
-            $_ -ne '.agents/'
+            $_ -ne '.agents/' -and
+            $_ -ne '.memory'
         }
         # Remove trailing blank lines
         while ($filtered.Count -gt 0 -and [string]::IsNullOrWhiteSpace($filtered[-1])) {
