@@ -124,7 +124,7 @@ export interface AutonomySettings {
 }
 
 export type MemoryLLMBackend = 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang' | 'openai-compatible';
-export type MemoryEmbeddingBackend = 'gemini' | 'ollama' | 'vertex' | 'openai-compatible' | 'sentence-transformers';
+export type MemoryEmbeddingBackend = 'gemini' | 'ollama' | 'vertex' | 'openai-compatible';
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {

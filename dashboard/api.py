@@ -74,7 +74,7 @@ from dashboard.tasks import startup_all
 from dashboard.routes import (
     ai, agent_costs, auth, system, mcp, threads, plans, rooms, skills,
     roles, memory, amem, channels, command, tunnel,
-    files, settings, engagement, knowledge, memory_mcp
+    files, settings, engagement, knowledge, memory_mcp, chat
 )
 
 # Configure logging — file + console
@@ -144,6 +144,15 @@ async def app_lifespan(_app):
     # Migrated from the legacy @app.on_event("startup") handler. Using
     # create_task so the lifecycle doesn't block the server from accepting
     # connections.
+    # Load the persisted master model but do NOT initialize the OpenCode client yet.
+    # The client will be lazily initialized on the first brainstorm or chat call.
+    try:
+        from dashboard.master_agent import load_persisted_master_model
+
+        load_persisted_master_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load persisted master model: %s", exc)
+
     asyncio.create_task(startup_all())
     
     # Start knowledge service background tasks (retention sweeper)
@@ -388,6 +397,7 @@ app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
 app.include_router(ai.router)         # Plan 006: /api/ai/* unified gateway
 app.include_router(agent_costs.router) # Plan 015: /api/ai/agent-costs
+app.include_router(chat.router)         # /api/chat — OpenCode session-backed chat
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP
@@ -395,7 +405,7 @@ app.include_router(agent_costs.router) # Plan 015: /api/ai/agent-costs
 # REST API namespace, freeing the bare /mcp path for the frontend SPA page
 # (the MCP server registry UI at fe/src/app/mcp/page.tsx).
 # Lazy: importing dashboard.knowledge.mcp_server does NOT pull kuzu / zvec /
-# sentence_transformers / anthropic — those load on the first tool call.
+# anthropic — those load on the first tool call.
 # Auth: when OSTWIN_API_KEY is set AND OSTWIN_DEV_MODE != "1", a Starlette
 # middleware enforces ``Authorization: Bearer <key>``. Otherwise (dev mode,
 # or no key configured) anonymous access is allowed — the MCP transport's

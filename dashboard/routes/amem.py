@@ -23,7 +23,7 @@ MEMORY_BASE_DIR = Path(
 # Reuse the canonical note parser from the co-located agentic_memory package
 # instead of duplicating the YAML/frontmatter logic. We import from `memory_note`
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
-# (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
+# (chromadb, nltk, litellm) at dashboard startup.
 
 try:
     from dashboard.agentic_memory.memory_note import MemoryNote  # type: ignore
