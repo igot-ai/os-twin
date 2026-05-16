@@ -7,6 +7,7 @@ import {
   routeCommand,
   routeCallback,
   cmdHelp,
+  cmdUnknown,
   COMMAND_REGISTRY,
   COMMANDS_NO_ARGS,
   COMMANDS_WITH_ARGS,
@@ -81,6 +82,77 @@ describe('commands', () => {
     it('returns unknown command message', async () => {
       const [resp] = await routeCommand('u1', 'telegram', 'nonexistent');
       expect(resp.text).to.include('Unknown command');
+    });
+  });
+
+  describe('cmdUnknown — typo fallback', () => {
+    it('suggests the closest registered command for a 1-char typo', () => {
+      // /drafft → /draft (edit distance 1)
+      const resp = cmdUnknown('/drafft hello world', 'telegram');
+      expect(resp.text).to.include('Unknown command');
+      expect(resp.text).to.include('/drafft');
+      expect(resp.text).to.include('Did you mean');
+      expect(resp.text).to.include('/draft');
+    });
+
+    it('strips arguments and the leading slash when echoing the typo', () => {
+      const resp = cmdUnknown('/healt now please', 'telegram');
+      expect(resp.text).to.include('`/healt`');
+      // The whole command-with-args should NOT appear inside the backticks.
+      expect(resp.text).to.not.include('healt now please');
+    });
+
+    it('omits "Did you mean" when no command is within edit distance 2', () => {
+      // 7 chars different from every command — no suggestions.
+      const resp = cmdUnknown('/zzzzzzzzzz', 'telegram');
+      expect(resp.text).to.include('Unknown command');
+      expect(resp.text).to.not.include('Did you mean');
+      expect(resp.text).to.include('/help');
+    });
+
+    it('always renders the 4-category menu buttons', () => {
+      const resp = cmdUnknown('/whatever', 'telegram');
+      const labels = (resp.buttons || []).flat().map(b => b.label);
+      expect(labels).to.include('📊 Monitoring');
+      expect(labels).to.include('📝 Plans & AI');
+      expect(labels).to.include('🧠 Skills & Roles');
+      expect(labels).to.include('⚙️ System');
+      const callbacks = (resp.buttons || []).flat().map(b => b.callbackData);
+      expect(callbacks).to.deep.equal([
+        'menu:cat:monitoring',
+        'menu:cat:plans',
+        'menu:cat:skills',
+        'menu:cat:system',
+      ]);
+    });
+
+    it('matches case-insensitively (/MENU → /menu)', () => {
+      const resp = cmdUnknown('/MENU', 'telegram');
+      expect(resp.text).to.include('Did you mean');
+      expect(resp.text).to.include('/menu');
+    });
+
+    it('respects the platform filter when suggesting (discord-only commands not offered to telegram)', () => {
+      // /pingg is one char off /ping, which is discordOnly — telegram should
+      // not surface it as a suggestion. Inspect the "Did you mean" line only
+      // since `/pingg` itself contains the substring `/ping`.
+      const suggestionLine = (text: string) =>
+        text.split('\n').find(l => l.includes('Did you mean')) || '';
+
+      const tg = cmdUnknown('/pingg', 'telegram');
+      expect(suggestionLine(tg.text)).to.not.include('`/ping`');
+
+      const dc = cmdUnknown('/pingg', 'discord');
+      expect(suggestionLine(dc.text)).to.include('`/ping`');
+    });
+
+    it('limits suggestions to at most 5 commands', () => {
+      const resp = cmdUnknown('/sk', 'telegram');
+      // Each suggestion appears as `/<name>` — count those occurrences in the
+      // "Did you mean" line only.
+      const line = resp.text.split('\n').find(l => l.includes('Did you mean')) || '';
+      const matches = line.match(/`\/[a-zA-Z0-9_]+`/g) || [];
+      expect(matches.length).to.be.at.most(5);
     });
   });
 

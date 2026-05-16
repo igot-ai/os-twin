@@ -176,6 +176,49 @@ function cmdMenu(): BotResponse {
   ]);
 }
 
+function _editDistance(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+/**
+ * Build a fallback response for unknown slash commands.
+ * Suggests close matches (edit distance ≤ 2) and shows the category menu so
+ * the user can pick from defined commands instead of being routed to the LLM.
+ */
+export function cmdUnknown(input: string, platform: CommandPlatform = 'telegram'): BotResponse {
+  const cmdName = input.replace(/^\/([a-zA-Z0-9_]+).*/, '$1');
+  const available = getCommandsForPlatform(platform).map(c => c.name);
+  const suggestions = available
+    .map(n => ({ n, d: _editDistance(n.toLowerCase(), cmdName.toLowerCase()) }))
+    .filter(s => s.d <= 2)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 5)
+    .map(s => s.n);
+
+  const lines = [`⚠️ Unknown command \`/${cmdName}\`.`];
+  if (suggestions.length) {
+    lines.push('', `Did you mean: ${suggestions.map(s => `\`/${s}\``).join(', ')}?`);
+  }
+  lines.push('', 'Pick a category below or send /help for the full list.');
+
+  return menu(lines.join('\n'), [
+    [{ label: '📊 Monitoring', callbackData: 'menu:cat:monitoring' }],
+    [{ label: '📝 Plans & AI', callbackData: 'menu:cat:plans' }],
+    [{ label: '🧠 Skills & Roles', callbackData: 'menu:cat:skills' }],
+    [{ label: '⚙️ System', callbackData: 'menu:cat:system' }],
+  ]);
+}
+
 function cmdSubmenuMonitoring(): BotResponse {
   return menu('📊 *Monitoring*\nReal-time War-Room insights:', [
     [{ label: '📊 Dashboard', callbackData: 'cmd:dashboard' }],

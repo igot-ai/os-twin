@@ -2399,9 +2399,13 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     # Record the runner PID so /api/plans, /api/stats, and the slash commands
     # can derive a truthful lifecycle (running/stopped/completed/failed) on
     # each request instead of guessing from stale meta.json status.
-    from dashboard.plan_lifecycle import record_launch
+    from dashboard.plan_lifecycle import record_launch, register_runner
     try:
         record_launch(plan_id, proc.pid)
+        # Keep the Popen handle so derive_lifecycle can poll() it and reap
+        # zombies — otherwise a crashed runner stays "alive" until the
+        # dashboard restarts.
+        register_runner(proc.pid, proc)
     except Exception as e:
         logger.warning("run_plan: failed to record launch lifecycle for %s: %s", plan_id, e)
 

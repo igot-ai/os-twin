@@ -5,6 +5,7 @@ import {
   routeCommand,
   routeCallback,
   BotResponse,
+  cmdUnknown,
   getCommandsForPlatform,
   getCommandsWithArgsForPlatform,
   getCommandsWithoutArgsForPlatform,
@@ -124,7 +125,13 @@ export class TelegramConnector implements Connector {
       // Skip if it's a registered command (already handled by command handlers above)
       const registeredCmds = new Set(getCommandsForPlatform(this.platform).map(c => c.name));
       const cmdName = msgText.replace(/^\/([a-zA-Z0-9_]+).*/, '$1');
-      if (registeredCmds.has(cmdName)) return;
+      if (msgText.startsWith('/') && registeredCmds.has(cmdName)) return;
+
+      // Unknown slash command — show fallback menu instead of routing to the LLM
+      if (msgText.startsWith('/')) {
+        await this.sendResponses(ctx, [cmdUnknown(msgText, 'telegram')]);
+        return;
+      }
       {
         // Idle: use AI agent with tool-calling (can create plans, check status, etc.)
         try {

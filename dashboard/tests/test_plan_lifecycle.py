@@ -78,6 +78,39 @@ class TestPidAlive:
         monkeypatch.setattr(plan_lifecycle.os, "kill", raise_perm)
         assert plan_lifecycle._pid_alive(1) is True
 
+    def test_registered_handle_polls_zombie_dead(self, monkeypatch):
+        """An exited-but-unreaped child must report dead via poll(), not via os.kill.
+
+        ``os.kill(pid, 0)`` succeeds on zombies, which would otherwise leave
+        crashed runners looking alive forever. Once registered, the Popen
+        handle short-circuits that path.
+        """
+        class FakeProc:
+            def __init__(self, exit_code):
+                self._exit = exit_code
+            def poll(self):
+                return self._exit
+
+        # Force os.kill to "succeed" to prove the registry path is what
+        # actually reports death.
+        monkeypatch.setattr(plan_lifecycle.os, "kill", lambda pid, sig: None)
+        monkeypatch.setattr(plan_lifecycle, "_runner_handles", {})
+
+        plan_lifecycle.register_runner(7777, FakeProc(exit_code=0))
+        assert plan_lifecycle._pid_alive(7777) is False
+        # Handle should be dropped after a dead poll() so we don't leak.
+        assert 7777 not in plan_lifecycle._runner_handles
+
+    def test_registered_handle_running_stays_alive(self, monkeypatch):
+        class FakeProc:
+            def poll(self):
+                return None  # still running
+
+        monkeypatch.setattr(plan_lifecycle, "_runner_handles", {})
+        plan_lifecycle.register_runner(8888, FakeProc())
+        assert plan_lifecycle._pid_alive(8888) is True
+        assert 8888 in plan_lifecycle._runner_handles
+
 
 # ── record_launch ────────────────────────────────────────────────────
 

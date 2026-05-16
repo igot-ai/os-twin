@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -41,17 +42,51 @@ logger = logging.getLogger(__name__)
 # before we declare a plan stopped.
 HEARTBEAT_TIMEOUT_S = 60
 
+# In-process registry of Popen handles for runners we spawned. Keyed by pid.
+# We need this so ``_pid_alive`` can call ``poll()`` and reap zombies of our
+# own children — ``os.kill(pid, 0)`` returns success for unreaped zombies,
+# which would otherwise make crashed runners look alive forever.
+_runner_handles: Dict[int, subprocess.Popen] = {}
+
+
+def register_runner(pid: int, proc: subprocess.Popen) -> None:
+    """Track a Popen handle so ``_pid_alive`` can reap it via ``poll()``.
+
+    Call from ``/api/run`` right after spawning the ostwin subprocess. After
+    a dashboard restart the handle is gone — but then the child is reparented
+    to init (PID 1), which reaps it automatically, so the zombie window only
+    matters for the lifetime of the spawning process.
+    """
+    if pid and pid > 0:
+        _runner_handles[int(pid)] = proc
+
 
 def _pid_alive(pid: Optional[int]) -> bool:
-    """Return True if ``pid`` is a running process on this host.
+    """Return True if ``pid`` is a running (non-zombie) process on this host.
 
-    Uses ``os.kill(pid, 0)`` (POSIX) — sends signal 0 which performs the
-    permission/existence check without actually delivering a signal.
-    A ``PermissionError`` means the process exists but we lack signal
-    rights, which still counts as alive.
+    For PIDs we spawned ourselves, ``poll()`` the stored Popen handle first —
+    this both detects exit and reaps the zombie. ``os.kill(pid, 0)`` succeeds
+    on unreaped zombies, so the signal-0 check alone is not enough to call a
+    crashed child dead.
+
+    For PIDs without a registered handle (e.g. after a dashboard restart, when
+    the child has been reparented to init and is reaped automatically), fall
+    back to ``os.kill(pid, 0)`` — sends signal 0, which performs the
+    permission/existence check without actually delivering a signal. A
+    ``PermissionError`` means the process exists but we lack signal rights,
+    which still counts as alive.
     """
     if not pid or pid <= 0:
         return False
+
+    proc = _runner_handles.get(int(pid))
+    if proc is not None:
+        if proc.poll() is not None:
+            # Child exited; reap completed by poll(). Drop the handle.
+            _runner_handles.pop(int(pid), None)
+            return False
+        return True
+
     try:
         os.kill(pid, 0)
         return True
