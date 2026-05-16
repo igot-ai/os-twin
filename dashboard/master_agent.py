@@ -38,7 +38,12 @@ from dashboard.llm_client import ChatMessage, LLMConfig, ToolCall
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
-DEFAULT_PROVIDER = "google-vertex"
+# OpenCode-style provider ID. The old direct-LLM path used "google-vertex",
+# but OpenCode's generated config and the persistence path emit short IDs
+# ("google", "openai", "anthropic"). Sending "google-vertex" as providerID to
+# /session/{id}/message on a fresh install would target a provider OpenCode
+# doesn't know about until the user explicitly saved a model.
+DEFAULT_PROVIDER = "google"
 
 OPENCODE_BASE_URL = os.environ.get("OPENCODE_BASE_URL", "http://127.0.0.1:4096")
 OPENCODE_SERVER_PASSWORD = os.environ.get("OPENCODE_SERVER_PASSWORD", "")
@@ -72,6 +77,12 @@ class MasterAgentConfig:
 
 
 _master_config = MasterAgentConfig()
+
+
+# Legacy direct-LLM provider IDs that OpenCode does not recognise. If one of
+# these slips through (e.g. from a stale persisted runtime setting), we
+# re-infer the OpenCode-style ID from the model name.
+_LEGACY_PROVIDER_IDS: frozenset[str] = frozenset({"google-vertex", "google-genai", "google_gemini"})
 
 
 def _infer_provider_for_model(model: str) -> str | None:
@@ -180,6 +191,11 @@ def _resolve_model_provider(
         resolved_model,
         resolved_provider,
     )
+    # This block might cause problems in the future, but it's a quick fix for the current issue.
+    if resolved_provider in _LEGACY_PROVIDER_IDS:
+        inferred = _infer_provider_for_model(resolved_model)
+        if inferred:
+            resolved_provider = inferred
     return (resolved_model, resolved_provider or DEFAULT_PROVIDER)
 
 

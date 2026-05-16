@@ -375,6 +375,82 @@ class TestRoundTripAcrossRestart:
         assert body["model"]["modelID"] == "gemini-3.1-pro"
         assert body["model"]["providerID"] == "google"
 
+    @pytest.mark.asyncio
+    async def test_fresh_install_sends_opencode_style_provider_to_chat(
+        self, tmp_config_resolver
+    ):
+        """Regression: on a fresh install (no persisted runtime model), the
+        provider sent to OpenCode must be the OpenCode-style ``google`` —
+        not the legacy direct-LLM ``google-vertex``. Without this, every
+        connector ``/api/chat`` call on a brand-new dashboard targets a
+        provider OpenCode doesn't know about until the user opens settings
+        and explicitly saves a model."""
+        from dashboard import master_agent as ma
+        from dashboard.llm_client import ChatMessage
+
+        # Empty config — nothing persisted.
+        tmp_config_resolver.write_text(json.dumps({}))
+        ma._master_config.model = ma.DEFAULT_MODEL
+        ma._master_config.provider = ma.DEFAULT_PROVIDER
+        ma._master_config.is_explicit = False
+
+        ma.load_persisted_master_model()  # no-op, but mirrors the startup path
+
+        mock_client = MagicMock()
+        mock_client.session.create = AsyncMock(return_value=MagicMock(id="sess-fresh"))
+        mock_client.post = AsyncMock()
+
+        with (
+            patch("dashboard.master_agent.get_opencode_client", return_value=mock_client),
+            patch(
+                "dashboard.master_agent.read_session_text",
+                new_callable=AsyncMock,
+                return_value="ok",
+            ),
+        ):
+            await ma.master_chat(
+                [ChatMessage(role="user", content="hello")],
+                conversation_id="fresh-install-chat",
+            )
+
+        body = mock_client.post.call_args.kwargs["body"]
+        assert body["model"]["providerID"] == "google"
+        assert body["model"]["providerID"] != "google-vertex"
+
+    @pytest.mark.asyncio
+    async def test_stale_google_vertex_runtime_is_normalised_for_chat(
+        self, tmp_config_resolver
+    ):
+        """Regression: if a previously persisted value still has the legacy
+        ``google-vertex`` prefix (e.g. from before this fix), the chat body
+        sent to OpenCode must still use ``google``."""
+        from dashboard import master_agent as ma
+        from dashboard.llm_client import ChatMessage
+
+        ma._master_config.model = "gemini-3.1-pro-preview"
+        ma._master_config.provider = "google-vertex"  # stale legacy value
+        ma._master_config.is_explicit = True
+
+        mock_client = MagicMock()
+        mock_client.session.create = AsyncMock(return_value=MagicMock(id="sess-legacy"))
+        mock_client.post = AsyncMock()
+
+        with (
+            patch("dashboard.master_agent.get_opencode_client", return_value=mock_client),
+            patch(
+                "dashboard.master_agent.read_session_text",
+                new_callable=AsyncMock,
+                return_value="ok",
+            ),
+        ):
+            await ma.master_chat(
+                [ChatMessage(role="user", content="hello")],
+                conversation_id="legacy-vertex-chat",
+            )
+
+        body = mock_client.post.call_args.kwargs["body"]
+        assert body["model"]["providerID"] == "google"
+
 
 # ── 4. Lifespan startup hydrates before background tasks ───────────────────
 

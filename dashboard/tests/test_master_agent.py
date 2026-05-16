@@ -47,6 +47,15 @@ class TestMasterAgentConfig:
         assert cfg.max_tokens == 8192
         assert cfg.is_explicit is False
 
+    def test_default_provider_is_opencode_style(self):
+        """DEFAULT_PROVIDER must be an OpenCode-style ID, not the legacy
+        ``google-vertex`` from the old direct-LLM path. Otherwise fresh
+        installs send an unknown providerID to /session/{id}/message."""
+        from dashboard.master_agent import DEFAULT_PROVIDER
+
+        assert DEFAULT_PROVIDER == "google"
+        assert DEFAULT_PROVIDER not in {"google-vertex", "google-genai", "google_gemini"}
+
     def test_to_llm_config(self):
         from dashboard.master_agent import MasterAgentConfig
 
@@ -55,6 +64,66 @@ class TestMasterAgentConfig:
         assert isinstance(llm_cfg, LLMConfig)
         assert llm_cfg.max_tokens == 2048
         assert llm_cfg.temperature == 0.5
+
+
+class TestResolveModelProvider:
+    """``_resolve_model_provider`` must always return an OpenCode-style provider
+    so /session/{id}/message reaches a provider OpenCode knows about — even on
+    a fresh install or with a stale legacy value persisted on disk."""
+
+    def test_fresh_install_returns_opencode_style_provider(self):
+        """No model ever saved → defaults must already be OpenCode-compatible."""
+        from dashboard import master_agent as ma
+
+        # Simulate a brand-new singleton (matches what __init__ would produce).
+        ma._master_config.model = ma.DEFAULT_MODEL
+        ma._master_config.provider = ma.DEFAULT_PROVIDER
+        ma._master_config.is_explicit = False
+
+        model, provider = ma.get_model_and_provider()
+        assert model == ma.DEFAULT_MODEL
+        assert provider == "google"
+
+    def test_legacy_google_vertex_is_re_inferred(self):
+        """A stale ``google-vertex`` persisted from the old direct-LLM path
+        must be re-inferred to the OpenCode-style ``google`` rather than
+        forwarded verbatim into the OpenCode chat body."""
+        from dashboard import master_agent as ma
+
+        ma._master_config.model = "gemini-3.1-pro-preview"
+        ma._master_config.provider = "google-vertex"
+
+        _, provider = ma.get_model_and_provider()
+        assert provider == "google"
+
+    def test_legacy_google_genai_is_re_inferred(self):
+        from dashboard import master_agent as ma
+
+        ma._master_config.model = "gemini-3.1-pro-preview"
+        ma._master_config.provider = "google-genai"
+
+        _, provider = ma.get_model_and_provider()
+        assert provider == "google"
+
+    def test_explicit_call_provider_wins_over_singleton(self):
+        from dashboard import master_agent as ma
+
+        ma._master_config.model = "gemini-3.1-pro-preview"
+        ma._master_config.provider = "google-vertex"  # legacy on singleton
+
+        _, provider = ma._resolve_model_provider(model="claude-3-opus", provider="anthropic")
+        assert provider == "anthropic"
+
+    def test_unrecognised_model_with_no_provider_falls_through_to_default(self):
+        """If we can't infer and nothing is set, the OpenCode-style default
+        provider must still be returned — never the legacy id."""
+        from dashboard import master_agent as ma
+
+        ma._master_config.model = "totally-custom-model"
+        ma._master_config.provider = None
+
+        _, provider = ma.get_model_and_provider()
+        assert provider == ma.DEFAULT_PROVIDER == "google"
 
 
 class TestGetSetMasterModel:
