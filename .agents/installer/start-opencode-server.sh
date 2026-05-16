@@ -83,7 +83,7 @@ start_opencode_server() {
     fi
   fi
 
-  local project_dir="${OSTWIN_PROJECT_DIR:-${PROJECT_ROOT:-$INSTALL_DIR}}"
+  local project_dir="${OSTWIN_PROJECT_DIR:-${PROJECT_ROOT:-$server_dir}}"
   step "Generating OpenCode tools in ${project_dir}..."
   if [[ -x "$INSTALL_DIR/.venv/bin/python" ]]; then
     "$INSTALL_DIR/.venv/bin/python" -m dashboard.opencode_tools \

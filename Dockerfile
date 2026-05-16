@@ -6,6 +6,7 @@ ENV OSTWIN_HOME=/root/.ostwin
 ENV PATH="/root/.local/bin:/root/.cargo/bin:/root/.ostwin/.venv/bin:/root/.ostwin/.agents/bin:$PATH"
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV OPENCODE_BASE_URL=http://127.0.0.1:4096
 ENV LARK_WEBHOOK_URL ""
 
 # Set the working directory
@@ -55,23 +56,25 @@ RUN TMPDIR=/tmp UV_PROJECT_ENVIRONMENT=/root/.ostwin/.venv \
         --prerelease=allow
 
 # 6. Cache Node Dependencies (Frontend)
-COPY dashboard/fe/package.json /app/dashboard/fe/package.json
-RUN cd /app/dashboard/fe && npm install
+RUN npm install -g pnpm@10.26.0
+COPY dashboard/fe/package.json dashboard/fe/pnpm-lock.yaml /app/dashboard/fe/
+RUN cd /app/dashboard/fe && pnpm install --frozen-lockfile
 
 # 7. Build Frontend
 COPY dashboard/fe /app/dashboard/fe
-RUN cd /app/dashboard/fe && npm run build
+RUN cd /app/dashboard/fe && pnpm run build
 
 # 8. Copy remaining source
 COPY . /app
 
 # 9. Run Installer (Full install to enable agent orchestration)
-# The installer supports --yes to skip prompts
-RUN bash .agents/install.sh --yes --dir /root/.ostwin
+# Build-time installs files/deps/config only. Runtime services are supervised
+# by .agents/docker-entrypoint.sh so OpenCode is alive in the final container.
+RUN bash .agents/install.sh --yes --dir /root/.ostwin --no-start
 
 # Expose the default port (Cloud Run will override this via $PORT)
 EXPOSE 3366
 
-# Start the dashboard using the virtual environment
-# Respect the PORT environment variable injected by Cloud Run
-CMD ["sh", "-c", "uvicorn dashboard.api:app --host 0.0.0.0 --port ${PORT:-3366}"]
+# Start OpenCode and the dashboard together at container runtime.
+# Respect the PORT environment variable injected by Cloud Run.
+CMD ["bash", ".agents/docker-entrypoint.sh"]

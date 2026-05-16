@@ -137,7 +137,4 @@ docs/plan
 docs/plan/
 docs/plan/**
 
-# Ostwin generated
-.agents/*
-!.agents/memory/
 .memory
