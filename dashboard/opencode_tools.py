@@ -352,7 +352,7 @@ def _tool_create_plan() -> str:
             epicCount = (planContent.match(/EPIC-\\d{3}/g) || []).length
           } catch {}
 
-          return `Plan created: ${planId}\\n  Title: ${args.idea}\\n  Status: draft\\n  Epic count: ${epicCount}\\n  Worker summary: ${summary}`
+          return `{"plan_id":${JSON.stringify(planId)}}\\nPlan created: ${planId}\\n  Title: ${args.idea}\\n  Status: draft\\n  Epic count: ${epicCount}\\n  Worker summary: ${summary}`
         } catch (e: any) {
           return `Error creating plan: ${e.message || e}`
         }
@@ -427,7 +427,7 @@ def _tool_launch_plan() -> str:
           const runRes = await api("/api/run", "POST", { plan_id: args.plan_id, plan: planContent })
           if (runRes._error || runRes.error) return `Error launching plan: ${runRes._error || runRes.error}`
           const n = runRes.rooms?.length || 0
-          let out = `Plan "${args.plan_id}" has been launched. War-rooms are being created for each epic.`
+          let out = `{"plan_id":${JSON.stringify(args.plan_id)}}\\nPlan "${args.plan_id}" has been launched. War-rooms are being created for each epic.`
           if (n > 0) {
             out += `\\n  Rooms created: ${n}`
             for (const rm of runRes.rooms)
@@ -462,7 +462,7 @@ def _tool_resume_plan() -> str:
           const runRes = await api("/api/run", "POST", { plan_id: args.plan_id, plan: planContent })
           if (runRes._error || runRes.error) return `Error resuming plan: ${runRes._error || runRes.error}`
           const n = runRes.rooms?.length || 0
-          let out = `Plan "${args.plan_id}" is being resumed. Existing war-rooms will continue from where they left off.`
+          let out = `{"plan_id":${JSON.stringify(args.plan_id)}}\\nPlan "${args.plan_id}" is being resumed. Existing war-rooms will continue from where they left off.`
           if (n > 0) {
             out += `\\n  War-rooms continuing: ${n}`
             for (const rm of runRes.rooms)
