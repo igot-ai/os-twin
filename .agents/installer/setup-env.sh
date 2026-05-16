@@ -104,15 +104,34 @@ if command -v gcloud >/dev/null 2>&1; then
   export VERTEX_API_KEY
 fi
 
-# Auto-promote memory backend to Gemini when a Google API key is available
-# and the user hasn't explicitly overridden the LLM backend.
-# This gives cloud-connected installs faster, higher-quality memory analysis
-# while keeping the default local-first for offline/privacy-sensitive setups.
-if [ -n "${GOOGLE_API_KEY:-}" ] && [ "${MEMORY_LLM_BACKEND:-huggingface}" = "huggingface" ]; then
-  export MEMORY_LLM_BACKEND=gemini
-  export MEMORY_LLM_MODEL=gemini-3-flash-preview
-  export MEMORY_EMBEDDING_BACKEND=gemini
-  export MEMORY_EMBEDDING_MODEL=gemini-embedding-001
+# Memory backend defaults — ollama-first.
+# Only promote to Gemini when the user has NOT explicitly set a backend
+# in config.json AND a Google API key is available.
+if [ "${MEMORY_LLM_BACKEND:-}" = "" ]; then
+  _mem_backend=""
+  if command -v python3 >/dev/null 2>&1; then
+    _mem_backend="$(python3 -c "
+import json, pathlib
+p = pathlib.Path.home() / '.ostwin' / '.agents' / 'config.json'
+if p.exists():
+    c = json.loads(p.read_text())
+    m = c.get('memory', {})
+    print(m.get('llm_backend', ''))
+" 2>/dev/null || true)"
+  fi
+  if [ -n "$_mem_backend" ]; then
+    export MEMORY_LLM_BACKEND="$_mem_backend"
+  elif [ -n "${GOOGLE_API_KEY:-}" ]; then
+    export MEMORY_LLM_BACKEND=gemini
+    export MEMORY_LLM_MODEL=gemini-3-flash-preview
+    export MEMORY_EMBEDDING_BACKEND=gemini
+    export MEMORY_EMBEDDING_MODEL=gemini-embedding-001
+  else
+    export MEMORY_LLM_BACKEND=ollama
+    export MEMORY_LLM_MODEL=llama3.2
+    export MEMORY_EMBEDDING_BACKEND=ollama
+    export MEMORY_EMBEDDING_MODEL=leoipulsar/harrier-0.6b
+  fi
 fi
 ENVSHEOF
     chmod 600 "$env_sh"

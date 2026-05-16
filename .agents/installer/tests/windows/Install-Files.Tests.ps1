@@ -150,6 +150,65 @@ Describe "Load-ContributedRoles" {
     }
 }
 
+Describe "Ensure-RuntimeConfigDefaults" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-runtime-config-$(Get-Random)"
+        $scriptDir = Join-Path $testDir "source"
+        $installDir = Join-Path $testDir "install"
+
+        New-Item -ItemType Directory -Path (Join-Path $scriptDir ".agents") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $installDir ".agents") -Force | Out-Null
+
+        $script:ScriptDir = Join-Path $scriptDir ".agents"
+        $script:InstallDir = $installDir
+    }
+
+    It "Should backfill missing master_agent_model from source config" {
+        Set-Content -Path (Join-Path $script:ScriptDir "config.json") -Value @'
+{
+  "runtime": {
+    "master_agent_model": "google-vertex/gemini-3.1-pro-preview"
+  }
+}
+'@
+        Set-Content -Path (Join-Path $script:InstallDir ".agents\config.json") -Value @'
+{
+  "manager": {
+    "max_concurrent_rooms": 42
+  }
+}
+'@
+
+        Ensure-RuntimeConfigDefaults
+
+        $config = Get-Content (Join-Path $script:InstallDir ".agents\config.json") -Raw | ConvertFrom-Json
+        $config.runtime.master_agent_model | Should -Be "google-vertex/gemini-3.1-pro-preview"
+        $config.manager.max_concurrent_rooms | Should -Be 42
+    }
+
+    It "Should preserve an explicit saved master_agent_model" {
+        Set-Content -Path (Join-Path $script:ScriptDir "config.json") -Value @'
+{
+  "runtime": {
+    "master_agent_model": "google-vertex/gemini-3.1-pro-preview"
+  }
+}
+'@
+        Set-Content -Path (Join-Path $script:InstallDir ".agents\config.json") -Value @'
+{
+  "runtime": {
+    "master_agent_model": "google/gemini-3-flash-preview"
+  }
+}
+'@
+
+        Ensure-RuntimeConfigDefaults
+
+        $config = Get-Content (Join-Path $script:InstallDir ".agents\config.json") -Raw | ConvertFrom-Json
+        $config.runtime.master_agent_model | Should -Be "google/gemini-3-flash-preview"
+    }
+}
+
 Describe "MCP file sync" {
     BeforeEach {
         $testDir = Join-Path $TestDrive "test-mcp-sync-$(Get-Random)"
@@ -232,4 +291,3 @@ Describe "Sync-Bot" {
         { Sync-Bot } | Should -Not -Throw
     }
 }
-

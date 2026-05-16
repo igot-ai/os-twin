@@ -111,10 +111,21 @@ class BaseLLMWrapper:
     # -- Capability ------------------------------------------------------
 
     def is_available(self) -> bool:
-        """True iff a model is configured AND an API key can be resolved."""
+        """True iff a model is configured AND an API key can be resolved.
+
+        Ollama and local-first providers don't require an API key by default.
+        If a key is explicitly configured, it will be used; otherwise the
+        local endpoint is assumed available without authentication.
+        """
         if not self.model:
             return False
-        return bool(self._resolve_api_key())
+        key = self._resolve_api_key()
+        if key:
+            return True
+        provider = self._effective_provider()
+        if provider in ("ollama",):
+            return True
+        return False
 
     # -- API key resolution ----------------------------------------------
 

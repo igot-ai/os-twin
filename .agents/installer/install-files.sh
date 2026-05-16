@@ -63,6 +63,10 @@ install_files() {
       fi
     }
 
+  # Backfill runtime defaults into preserved installs without overwriting any
+  # explicit user selection already saved in config.json.
+  _ensure_runtime_config_defaults
+
   # Seed plans/ on first install (or if PLAN.template.md is missing) — never overwrite
   mkdir -p "$INSTALL_DIR/.agents/plans"
   if [[ ! -f "$INSTALL_DIR/.agents/plans/PLAN.template.md" ]] \
@@ -96,6 +100,59 @@ install_files() {
 }
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
+
+_ensure_runtime_config_defaults() {
+  local installed_cfg="$INSTALL_DIR/.agents/config.json"
+  local source_cfg="$SCRIPT_DIR/config.json"
+  local _json_py="${PYTHON_CMD:-python3}"
+  [[ -x "$VENV_DIR/bin/python" ]] && _json_py="$VENV_DIR/bin/python"
+
+  "$_json_py" - "$installed_cfg" "$source_cfg" <<'PY' 2>/dev/null || {
+import json
+import sys
+from pathlib import Path
+
+installed_path = Path(sys.argv[1])
+source_path = Path(sys.argv[2])
+default_model = "google-vertex/gemini-3.1-pro-preview"
+
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    raw = path.read_text().strip()
+    if not raw:
+        return {}
+    data = json.loads(raw)
+    return data if isinstance(data, dict) else {}
+
+source_cfg = load_json(source_path)
+source_runtime = source_cfg.get("runtime")
+if isinstance(source_runtime, dict):
+    source_default = str(source_runtime.get("master_agent_model") or "").strip()
+    if source_default:
+        default_model = source_default
+
+installed_cfg = load_json(installed_path)
+runtime_cfg = installed_cfg.get("runtime")
+if not isinstance(runtime_cfg, dict):
+    runtime_cfg = {}
+
+current_model = str(runtime_cfg.get("master_agent_model") or "").strip()
+if current_model:
+    raise SystemExit(0)
+
+runtime_cfg["master_agent_model"] = default_model
+installed_cfg["runtime"] = runtime_cfg
+
+installed_path.parent.mkdir(parents=True, exist_ok=True)
+tmp_path = installed_path.with_suffix(".tmp")
+tmp_path.write_text(json.dumps(installed_cfg, indent=2) + "\n")
+tmp_path.replace(installed_path)
+PY
+    warn "Could not backfill runtime.master_agent_model in $installed_cfg"
+    return 0
+  }
+}
 
 _seed_mcp_config() {
   # Source of truth file was renamed mcp-config.json → config.json during the

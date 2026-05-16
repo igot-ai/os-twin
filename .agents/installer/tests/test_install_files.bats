@@ -23,11 +23,87 @@ setup() {
 }
 
 @test "internal helpers are defined" {
+  declare -f _ensure_runtime_config_defaults > /dev/null
   declare -f _seed_mcp_config > /dev/null
   declare -f _setup_mcp_symlink > /dev/null
   declare -f _migrate_mcp_config > /dev/null
   declare -f _sync_dashboard > /dev/null
   declare -f _load_contributed_roles > /dev/null
+}
+
+# ─── _ensure_runtime_config_defaults tests ──────────────────────────────────
+
+@test "_ensure_runtime_config_defaults: backfills missing master_agent_model from source config" {
+  local tmp_install="$(mktemp -d)"
+  local tmp_script="$(mktemp -d)"
+
+  mkdir -p "$tmp_install/.agents"
+  cat > "$tmp_install/.agents/config.json" <<'EOF'
+{
+  "manager": {
+    "max_concurrent_rooms": 42
+  }
+}
+EOF
+
+  cat > "$tmp_script/config.json" <<'EOF'
+{
+  "runtime": {
+    "master_agent_model": "google-vertex/gemini-3.1-pro-preview"
+  }
+}
+EOF
+
+  SCRIPT_DIR="$tmp_script"
+  INSTALL_DIR="$tmp_install"
+  VENV_DIR="/tmp/fake-venv"
+  PYTHON_CMD="python3"
+
+  run _ensure_runtime_config_defaults
+  [ "$status" -eq 0 ]
+
+  local cfg_content
+  cfg_content="$(cat "$tmp_install/.agents/config.json")"
+  [[ "$cfg_content" == *'"master_agent_model": "google-vertex/gemini-3.1-pro-preview"'* ]]
+  [[ "$cfg_content" == *'"max_concurrent_rooms": 42'* ]]
+
+  rm -rf "$tmp_install" "$tmp_script"
+}
+
+@test "_ensure_runtime_config_defaults: preserves explicit saved master model" {
+  local tmp_install="$(mktemp -d)"
+  local tmp_script="$(mktemp -d)"
+
+  mkdir -p "$tmp_install/.agents"
+  cat > "$tmp_install/.agents/config.json" <<'EOF'
+{
+  "runtime": {
+    "master_agent_model": "google/gemini-3-flash-preview"
+  }
+}
+EOF
+
+  cat > "$tmp_script/config.json" <<'EOF'
+{
+  "runtime": {
+    "master_agent_model": "google-vertex/gemini-3.1-pro-preview"
+  }
+}
+EOF
+
+  SCRIPT_DIR="$tmp_script"
+  INSTALL_DIR="$tmp_install"
+  VENV_DIR="/tmp/fake-venv"
+  PYTHON_CMD="python3"
+
+  run _ensure_runtime_config_defaults
+  [ "$status" -eq 0 ]
+
+  local cfg_content
+  cfg_content="$(cat "$tmp_install/.agents/config.json")"
+  [[ "$cfg_content" == *'"master_agent_model": "google/gemini-3-flash-preview"'* ]]
+
+  rm -rf "$tmp_install" "$tmp_script"
 }
 
 # ─── _seed_mcp_config tests ─────────────────────────────────────────────────────

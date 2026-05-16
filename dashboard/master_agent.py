@@ -43,6 +43,70 @@ _master_config = MasterAgentConfig()
 _master_client: Optional[LLMClient] = None
 
 
+def init_master_from_config() -> None:
+    """Load persisted settings from config.json on startup.
+
+    Restores:
+    - ``runtime.master_agent_model`` → in-memory ``_master_config``
+    - ``memory.*`` → env vars (so subprocesses inherit config.json values)
+    - ``knowledge.*`` → env vars (so subprocesses inherit config.json values)
+
+    This ensures user choices made in the settings UI survive process
+    restarts and are not silently overridden by .env.sh defaults.
+    """
+    try:
+        from dashboard.lib.settings import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        settings = resolver.get_master_settings()
+
+        # ── Master agent model ──────────────────────────────────────────
+        stored = settings.runtime.master_agent_model
+        if stored:
+            set_master_model(stored)
+            logger.info(
+                "[MASTER_AGENT] Restored from config.json: %s",
+                stored,
+            )
+
+        # ── Memory settings → env vars for agent subprocesses ──────────
+        mem = settings.memory
+        if mem.llm_backend:
+            os.environ.setdefault("MEMORY_LLM_BACKEND", mem.llm_backend)
+        if mem.llm_model:
+            os.environ.setdefault("MEMORY_LLM_MODEL", mem.llm_model)
+        if mem.embedding_backend:
+            os.environ.setdefault("MEMORY_EMBEDDING_BACKEND", mem.embedding_backend)
+        if mem.embedding_model:
+            os.environ.setdefault("MEMORY_EMBEDDING_MODEL", mem.embedding_model)
+        logger.info(
+            "[MASTER_AGENT] Memory settings from config.json: llm=%s/%s embed=%s/%s",
+            mem.llm_backend, mem.llm_model,
+            mem.embedding_backend, mem.embedding_model,
+        )
+
+        # ── Knowledge settings → env vars for agent subprocesses ───────
+        know = settings.knowledge
+        if know.knowledge_llm_backend:
+            os.environ.setdefault("OSTWIN_KNOWLEDGE_LLM_PROVIDER", know.knowledge_llm_backend)
+        if know.knowledge_llm_model:
+            os.environ.setdefault("OSTWIN_KNOWLEDGE_LLM_MODEL", know.knowledge_llm_model)
+        if know.knowledge_embedding_backend:
+            os.environ.setdefault("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", know.knowledge_embedding_backend)
+        if know.knowledge_embedding_model:
+            os.environ.setdefault("OSTWIN_KNOWLEDGE_EMBED_MODEL", know.knowledge_embedding_model)
+        logger.info(
+            "[MASTER_AGENT] Knowledge settings from config.json: llm=%s/%s embed=%s/%s",
+            know.knowledge_llm_backend, know.knowledge_llm_model,
+            know.knowledge_embedding_backend, know.knowledge_embedding_model,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[MASTER_AGENT] Could not load settings from config.json: %s",
+            exc,
+        )
+
+
 def is_master_model_explicit() -> bool:
     return _master_config.is_explicit
 
