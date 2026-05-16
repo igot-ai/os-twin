@@ -1086,7 +1086,6 @@ _KNOWN_EMBEDDING_DIMENSIONS: dict[str, int] = {
     "text-embedding-005": DEFAULT_EMBEDDING_DIMENSION,
     "text-embedding-3-small": DEFAULT_EMBEDDING_DIMENSION,
     "text-embedding-3-large": DEFAULT_EMBEDDING_DIMENSION,
-    # Ollama embedding models
     "leoipulsar/harrier-0.6b": DEFAULT_EMBEDDING_DIMENSION,
     "embeddinggemma": DEFAULT_EMBEDDING_DIMENSION,
     "qwen3-embedding:0.6b": DEFAULT_EMBEDDING_DIMENSION,

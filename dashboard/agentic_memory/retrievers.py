@@ -342,6 +342,12 @@ class ChromaRetriever:
         self.collection = None
         self.client = None
 
+    def start_batch(self):
+        """No-op — ChromaDB does not require batch optimization."""
+
+    def end_batch(self):
+        """No-op — ChromaDB does not require batch optimization."""
+
     def add_document(self, document: str, metadata: Dict, doc_id: str):
         """Add a document to ChromaDB with enhanced embedding using metadata.
 
@@ -492,6 +498,8 @@ class ZvecRetriever:
         self._collection_path = os.path.abspath(collection_path)
         self._collection_name = collection_name
 
+        self._batch_mode = False
+
         # Deferred initialization: collection is None until first use.
         self.collection = None
 
@@ -589,6 +597,19 @@ class ZvecRetriever:
             ],
         )
 
+    def start_batch(self):
+        """Enter batch mode — defer ``optimize()`` until ``end_batch()``."""
+        self._batch_mode = True
+
+    def end_batch(self):
+        """Exit batch mode and run a single ``optimize()``."""
+        self._batch_mode = False
+        if self.collection is not None:
+            try:
+                self.collection.optimize()
+            except Exception:
+                logger.exception("end_batch optimize failed")
+
     def close(self):
         """Release the collection handle and embedding function reference.
 
@@ -639,14 +660,16 @@ class ZvecRetriever:
         )
 
         self.collection.insert(doc)
-        self.collection.optimize()
+        if not self._batch_mode:
+            self.collection.optimize()
 
     def delete_document(self, doc_id: str):
         """Delete a document from Zvec."""
         if self.collection is None:
             return
         self.collection.delete(ids=doc_id)
-        self.collection.optimize()
+        if not self._batch_mode:
+            self.collection.optimize()
 
     # --- Read operations (read-only, no exclusive lock) ---------------
 

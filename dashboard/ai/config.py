@@ -153,7 +153,7 @@ def _load_from_settings() -> AIConfig:
     completion_model = (
         (ai_ns.completion_model if ai_ns and ai_ns.completion_model else None)
         or google.default_model
-        or "gemini-3-flash-preview"
+        or "gemini-3.1-flash-lite"
     )
     knowledge_model = ai_ns.knowledge_model if ai_ns else None
     memory_model = ai_ns.memory_model if ai_ns else None
