@@ -130,7 +130,7 @@ class InMemoryRetriever:
         collection_name: str = "memories",
         model_name: str = "microsoft/harrier-oss-v1-270m",
         persist_dir: str | None = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
         embed_fn=None,
     ):
         del collection_name, model_name, persist_dir, embedding_backend, embed_fn

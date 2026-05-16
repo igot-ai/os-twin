@@ -8,7 +8,7 @@ Run with: python mcp_server.py
 # --- Self-healing interpreter check (must run BEFORE heavy imports) ---
 # Various MCP launchers (deepagents, opencode, codex) invoke this script with
 # whatever `python` resolves to in their own environment, which often lacks
-# the heavy deps (`requests`, `litellm`, `chromadb`, `sentence-transformers`).
+# the heavy deps (`requests`, `litellm`, `chromadb`).
 # If the current interpreter can't import a required dep, re-exec ourselves
 # with the venv shipped next to this script.
 def _ensure_correct_interpreter() -> None:

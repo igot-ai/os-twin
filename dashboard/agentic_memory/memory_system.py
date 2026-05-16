@@ -535,11 +535,8 @@ class AgenticMemorySystem:
                                 }}
                                 """
 
-    # Approximate word count threshold for generating summary.
-    # all-MiniLM-L6-v2 supports 256 tokens; enhanced_document appends
-    # gemini embedding truncates to 512 tokens. To leave room for metadata like
-    # context/keywords/tags, so we reserve ~100 tokens for metadata
-    # and use ~250 words as the content threshold.
+    # Approximate word count threshold for generating summary. Leave room for
+    # metadata appended by enhanced_document, such as context/keywords/tags.
     SUMMARY_WORD_THRESHOLD = 250
 
     def tree(self) -> str:

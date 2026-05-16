@@ -11,6 +11,6 @@ The suite is intentionally deterministic:
 - no network calls
 - no API keys
 - no real Ollama, OpenAI, or SGLang servers
-- no sentence-transformer downloads during test execution
+- no embedding-model downloads during test execution
 
 Core test doubles live in [`helpers.py`](./helpers.py).

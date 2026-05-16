@@ -16,7 +16,8 @@ print("PHASE 1: Creating memories with persistence")
 print("=" * 60)
 
 ms = AgenticMemorySystem(
-    model_name="all-MiniLM-L6-v2",
+    model_name="leoipulsar/harrier-0.6b",
+    embedding_backend="ollama",
     llm_backend="gemini",
     llm_model="gemini-3-flash-preview",
     persist_dir=PERSIST_DIR,
@@ -59,7 +60,8 @@ print("PHASE 2: Reloading from disk (new instance)")
 print("=" * 60)
 
 ms2 = AgenticMemorySystem(
-    model_name="all-MiniLM-L6-v2",
+    model_name="leoipulsar/harrier-0.6b",
+    embedding_backend="ollama",
     llm_backend="gemini",
     llm_model="gemini-3-flash-preview",
     persist_dir=PERSIST_DIR,
@@ -104,7 +106,8 @@ print(
 del ms2
 
 ms3 = AgenticMemorySystem(
-    model_name="all-MiniLM-L6-v2",
+    model_name="leoipulsar/harrier-0.6b",
+    embedding_backend="ollama",
     llm_backend="gemini",
     llm_model="gemini-3-flash-preview",
     persist_dir=PERSIST_DIR,

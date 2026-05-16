@@ -182,7 +182,7 @@ Tools can be selectively disabled via the `MEMORY_DISABLED_TOOLS` environment va
 
 ### Server Initialization
 
-The server uses **background initialization** to start fast. Heavy imports (sentence-transformers, vector DB) load in a background thread while the MCP handshake completes. The first tool call waits for initialization to finish (up to 60 seconds).
+The server uses **background initialization** to start fast. Heavy imports (vector DB and provider SDKs) load in a background thread while the MCP handshake completes. The first tool call waits for initialization to finish (up to 60 seconds).
 
 It also includes a **self-healing interpreter check**: if the current Python interpreter lacks required dependencies, the server re-execs itself using the project's virtual environment.
 
@@ -223,7 +223,7 @@ All configuration is via environment variables:
 | `MEMORY_LLM_BACKEND` | `gemini` | LLM backend: openai, ollama, sglang, openrouter, gemini |
 | `MEMORY_LLM_MODEL` | `gemini-3-flash-preview` | LLM model name |
 | `MEMORY_EMBEDDING_MODEL` | `gemini-embedding-001` | Embedding model name |
-| `MEMORY_EMBEDDING_BACKEND` | `gemini` | Embedding backend: sentence-transformer, gemini |
+| `MEMORY_EMBEDDING_BACKEND` | `gemini` | Embedding backend: ollama, gemini, google-vertex, openai-compatible |
 | `MEMORY_VECTOR_BACKEND` | `zvec` | Vector store: zvec, chroma |
 | `MEMORY_CONTEXT_AWARE` | `true` | Include similar memories when analyzing new content |
 | `MEMORY_CONTEXT_AWARE_TREE` | `false` | Include full directory tree in analysis context |

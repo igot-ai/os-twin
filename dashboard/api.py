@@ -405,7 +405,7 @@ app.include_router(chat.router)         # /api/chat — OpenCode session-backed 
 # REST API namespace, freeing the bare /mcp path for the frontend SPA page
 # (the MCP server registry UI at fe/src/app/mcp/page.tsx).
 # Lazy: importing dashboard.knowledge.mcp_server does NOT pull kuzu / zvec /
-# sentence_transformers / anthropic — those load on the first tool call.
+# anthropic — those load on the first tool call.
 # Auth: when OSTWIN_API_KEY is set AND OSTWIN_DEV_MODE != "1", a Starlette
 # middleware enforces ``Authorization: Bearer <key>``. Otherwise (dev mode,
 # or no key configured) anonymous access is allowed — the MCP transport's

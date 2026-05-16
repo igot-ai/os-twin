@@ -75,7 +75,7 @@ class TestChatMessage:
 class TestLLMConfig:
     def test_default_config(self):
         config = LLMConfig()
-        assert config.max_tokens == 4096
+        assert config.max_tokens is None
         assert config.temperature is None
         assert config.top_p is None
         assert config.stop is None
@@ -670,12 +670,10 @@ class TestDetectEmbeddingProvider:
         assert _detect_embedding_provider_from_model("qwen3-embedding:0.6b") == "ollama"
         assert _detect_embedding_provider_from_model("nomic-embed-text") == "ollama"
 
-    def test_former_sentence_transformer_names_route_to_ollama(self):
-        # ST is removed — these names no longer have a dedicated branch and
-        # must fall through to the ollama default (the user runs them via
-        # Ollama or replaces them with a supported model).
-        assert _detect_embedding_provider_from_model("all-MiniLM-L6-v2") == "ollama"
-        assert _detect_embedding_provider_from_model("BAAI/bge-small-en-v1.5") == "ollama"
+    @pytest.mark.parametrize("model", ["all-MiniLM-L6-v2", "BAAI/bge-small-en-v1.5"])
+    def test_legacy_sentence_transformer_names_are_rejected(self, model):
+        with pytest.raises(ValueError, match="legacy sentence-transformer embedding models are no longer supported"):
+            _detect_embedding_provider_from_model(model)
 
 
 class TestCreateEmbeddingClient:
@@ -749,16 +747,28 @@ class TestCreateEmbeddingClient:
         )
         assert isinstance(client, OllamaEmbeddingClient)
 
-    def test_sentence_transformers_provider_falls_back_to_ollama(self):
-        # ``sentence-transformers`` is no longer a supported provider — the
-        # factory must route to the ollama fallback rather than error or
-        # construct an ST client (which no longer exists).
-        client = create_embedding_client(
-            model="all-MiniLM-L6-v2",
-            provider="sentence-transformers",
-            shared=False,
-        )
-        assert isinstance(client, OllamaEmbeddingClient)
+    @pytest.mark.parametrize("provider", ["sentence-transformer", "sentence-transformers", "sentence_transformers"])
+    def test_sentence_transformers_provider_is_rejected(self, provider):
+        with pytest.raises(ValueError, match="sentence-transformers embeddings are no longer supported"):
+            create_embedding_client(
+                model="all-MiniLM-L6-v2",
+                provider=provider,
+                shared=False,
+            )
+
+    @pytest.mark.parametrize("model", [
+        "sentence-transformer/all-MiniLM-L6-v2",
+        "sentence-transformers/all-MiniLM-L6-v2",
+        "sentence_transformers/all-MiniLM-L6-v2",
+    ])
+    def test_sentence_transformers_model_prefix_is_rejected(self, model):
+        with pytest.raises(ValueError, match="sentence-transformers embeddings are no longer supported"):
+            create_embedding_client(model=model, shared=False)
+
+    @pytest.mark.parametrize("model", ["all-MiniLM-L6-v2", "BAAI/bge-small-en-v1.5"])
+    def test_legacy_sentence_transformer_model_ids_are_rejected(self, model):
+        with pytest.raises(ValueError, match="legacy sentence-transformer embedding models are no longer supported"):
+            create_embedding_client(model=model, shared=False)
 
     def test_shared_cache_returns_same_instance(self):
         # The factory caches by (provider, model, dimension); two shared

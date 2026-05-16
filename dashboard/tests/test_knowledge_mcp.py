@@ -2,8 +2,8 @@
 
 Validates:
 
-1. ``mcp_server`` module imports cheaply (no kuzu / zvec / sentence_transformers
-   / markitdown / anthropic loaded eagerly).
+1. ``mcp_server`` module imports cheaply (no kuzu / zvec / markitdown /
+   anthropic loaded eagerly).
 2. All 6 tools are registered on the FastMCP instance.
 3. The ``/api/knowledge/mcp`` endpoint is mounted on the FastAPI app.
 4. Each tool's body works when invoked directly (bypassing the JSON-RPC
@@ -64,7 +64,7 @@ def test_mcp_server_module_imports_cheaply() -> None:
     code = (
         "import sys\n"
         "from dashboard.knowledge.mcp_server import mcp\n"
-        "heavy = ['kuzu', 'zvec', 'sentence_transformers', 'markitdown', 'anthropic', 'chromadb']\n"
+        "heavy = ['kuzu', 'zvec', 'markitdown', 'anthropic', 'chromadb']\n"
         "loaded = [m for m in heavy if m in sys.modules]\n"
         "print('LOADED:' + ','.join(loaded))\n"
     )

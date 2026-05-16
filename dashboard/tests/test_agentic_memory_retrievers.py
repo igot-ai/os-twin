@@ -1,4 +1,4 @@
-"""Unit tests for the current dashboard-backed retriever shims."""
+"""Tests for current agentic-memory retriever embedding behavior."""
 
 import inspect
 
@@ -14,7 +14,7 @@ from dashboard.agentic_memory.retrievers import (
 
 
 @pytest.mark.parametrize("backend", ["sentence-transformer", "sentence-transformers", "sentence_transformers"])
-def test_legacy_sentence_transformer_backends_are_rejected(backend):
+def test_sentence_transformer_embedding_backends_are_rejected(backend):
     with pytest.raises(ValueError, match="sentence-transformers embeddings are no longer supported"):
         _create_embedding_function(backend, "all-MiniLM-L6-v2", shared=False)
 
@@ -25,7 +25,7 @@ def test_legacy_sentence_transformer_model_ids_are_rejected(model):
         _create_embedding_function("ollama", model, shared=False)
 
 
-def test_factory_returns_centralized_embedding_function_for_ollama():
+def test_embedding_function_factory_uses_centralized_client():
     fn = _create_embedding_function("ollama", "leoipulsar/harrier-0.6b", shared=False)
 
     assert isinstance(fn, CentralizedEmbeddingFunction)
@@ -34,14 +34,14 @@ def test_factory_returns_centralized_embedding_function_for_ollama():
 
 
 @pytest.mark.parametrize("retriever_cls", [ChromaRetriever, ZvecRetriever])
-def test_retriever_defaults_use_supported_local_embeddings(retriever_cls):
+def test_retriever_defaults_no_longer_point_at_sentence_transformers(retriever_cls):
     sig = inspect.signature(retriever_cls)
 
     assert sig.parameters["embedding_backend"].default == "ollama"
     assert sig.parameters["model_name"].default == "leoipulsar/harrier-0.6b"
 
 
-def test_known_dimensions_drop_legacy_sentence_transformer_models():
+def test_known_dimensions_do_not_include_legacy_sentence_transformer_models():
     legacy_models = {
         "all-MiniLM-L6-v2",
         "all-MiniLM-L12-v2",

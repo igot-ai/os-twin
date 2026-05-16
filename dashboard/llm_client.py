@@ -773,9 +773,60 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "google_gemini": "google",
 }
 
+_UNSUPPORTED_EMBEDDING_PROVIDERS = frozenset({
+    "sentence-transformer",
+    "sentence-transformers",
+})
+
+_LEGACY_SENTENCE_TRANSFORMER_MODELS = frozenset({
+    "all-minilm-l6-v2",
+    "all-minilm-l12-v2",
+    "all-mpnet-base-v2",
+    "paraphrase-minilm-l6-v2",
+    "paraphrase-multilingual-minilm-l12-v2",
+    "baai/bge-small-en-v1.5",
+    "baai/bge-base-en-v1.5",
+    "baai/bge-large-en-v1.5",
+})
+
 
 def _normalize_provider(provider: str) -> str:
     return _PROVIDER_ALIASES.get(provider, provider)
+
+
+def _is_sentence_transformer_provider(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    return value.lower().replace("_", "-") in _UNSUPPORTED_EMBEDDING_PROVIDERS
+
+
+def _is_legacy_sentence_transformer_model(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    model = value.lower().replace("_", "-")
+    return model in _LEGACY_SENTENCE_TRANSFORMER_MODELS
+
+
+def _reject_sentence_transformer_embeddings(model: str, provider: Optional[str]) -> None:
+    if _is_sentence_transformer_provider(provider):
+        raise ValueError(
+            "sentence-transformers embeddings are no longer supported; "
+            "use ollama, google, google-vertex, or openai-compatible instead."
+        )
+
+    if "/" in model:
+        prefix = model.split("/", 1)[0]
+        if _is_sentence_transformer_provider(prefix):
+            raise ValueError(
+                "sentence-transformers embeddings are no longer supported; "
+                "use ollama, google, google-vertex, or openai-compatible instead."
+            )
+
+    if _is_legacy_sentence_transformer_model(model):
+        raise ValueError(
+            "legacy sentence-transformer embedding models are no longer supported; "
+            "use an Ollama, Google, Vertex, or OpenAI-compatible embedding model instead."
+        )
 
 
 def _detect_provider_from_model(model: str) -> str:
@@ -1246,6 +1297,11 @@ def _detect_embedding_provider_from_model(model: str) -> str:
     """
     if not model:
         return "ollama"
+    if _is_legacy_sentence_transformer_model(model):
+        raise ValueError(
+            "legacy sentence-transformer embedding models are no longer supported; "
+            "use an Ollama, Google, Vertex, or OpenAI-compatible embedding model instead."
+        )
     model_lower = model.lower()
     if "gemini" in model_lower or "text-embedding" in model_lower:
         if "vertex" in model_lower:
@@ -1288,6 +1344,7 @@ def create_embedding_client(
     Returns:
         An ``EmbeddingClient`` instance.
     """
+    _reject_sentence_transformer_embeddings(model, provider)
     effective_provider, clean_model, model_provider = resolve_provider_and_model(model, provider)
 
     # model_provider (from "provider/model" prefix) is the strongest signal —

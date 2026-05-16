@@ -2,7 +2,8 @@ from dashboard.agentic_memory.memory_system import AgenticMemorySystem
 import json
 
 memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
+    model_name='leoipulsar/harrier-0.6b',
+    embedding_backend='ollama',
     llm_backend='gemini',
     llm_model='gemini-3-flash-preview'
 )

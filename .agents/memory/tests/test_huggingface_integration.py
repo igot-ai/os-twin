@@ -147,8 +147,8 @@ def test_full_memory_stack():
     print(f"\n  Initializing AgenticMemorySystem with {MODEL_ID}...")
     t0 = time.time()
     mem = AgenticMemorySystem(
-        model_name="all-MiniLM-L6-v2",
-        embedding_backend="sentence-transformer",
+        model_name="leoipulsar/harrier-0.6b",
+        embedding_backend="ollama",
         vector_backend="zvec",
         llm_backend="huggingface",
         llm_model=MODEL_ID,

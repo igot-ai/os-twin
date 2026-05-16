@@ -366,8 +366,8 @@ def run_backend(backend_name: str, llm_backend: str, llm_model: str,
     print(f"\n  Initializing {backend_name}...")
     t0 = time.time()
     mem = AgenticMemorySystem(
-        model_name="all-MiniLM-L6-v2",
-        embedding_backend="sentence-transformer",
+        model_name="leoipulsar/harrier-0.6b",
+        embedding_backend="ollama",
         vector_backend="zvec",
         llm_backend=llm_backend,
         llm_model=llm_model,

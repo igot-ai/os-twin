@@ -325,7 +325,7 @@ async def startup_all():
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in the background thread to prevent slow imports
-        # (torch, sentence_transformers) from blocking the main loop.
+        # from blocking the main loop.
 
         # Force re-index if requested via CLI flag
         if os.environ.get("OSTWIN_REINDEX") == "true":
