@@ -59,9 +59,12 @@ export interface RoomsSummary {
   passed?: number;
   failed_final?: number;
   pending?: number;
+  developing?: number;
+  review?: number;
+  fixing?: number;
+  // Legacy aliases — older deployments report these names; kept so we sum both.
   engineering?: number;
   qa_review?: number;
-  fixing?: number;
 }
 
 export interface StatsValue {
@@ -533,6 +536,7 @@ export async function askOpenCode(params: {
   platform?: string;
   working_dir?: string;
   attachments?: Array<{ name: string; contentType?: string }>;
+  images?: Array<{ url: string; name: string; contentType: string }>;
   referenced_message_content?: string;
 }): Promise<ChatResponse> {
   return fetchJSON('/api/chat', {
@@ -544,7 +548,29 @@ export async function askOpenCode(params: {
       platform: params.platform || 'unknown',
       working_dir: params.working_dir,
       attachments: params.attachments,
+      images: params.images,
       referenced_message_content: params.referenced_message_content,
+    }),
+  });
+}
+
+export async function askOpenCodeCommand(params: {
+  command: string;
+  arguments?: string;
+  conversation_id?: string;
+  user_id?: string;
+  platform?: string;
+  agent?: string;
+}): Promise<ChatResponse> {
+  return fetchJSON('/api/chat/command', {
+    method: 'POST',
+    body: JSON.stringify({
+      command: params.command,
+      arguments: params.arguments || '',
+      conversation_id: params.conversation_id,
+      user_id: params.user_id || 'unknown',
+      platform: params.platform || 'unknown',
+      agent: params.agent || 'ostwin',
     }),
   });
 }
@@ -603,6 +629,7 @@ const api = {
   fetchJSON,
   fetchBinary,
   askOpenCode,
+  askOpenCodeCommand,
   endConversation,
 };
 

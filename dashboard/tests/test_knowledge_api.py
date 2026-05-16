@@ -64,7 +64,7 @@ def mock_service() -> MagicMock:
             self.updated_at = datetime.now(timezone.utc)
             self.language = language
             self.description = description
-            self.embedding_model = "BAAI/bge-small-en-v1.5"
+            self.embedding_model = "qwen3-embedding:0.6b"
             self.embedding_dimension = 1024
             self.stats = stats
             self.imports = []

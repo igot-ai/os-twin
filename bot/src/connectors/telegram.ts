@@ -110,20 +110,21 @@ export class TelegramConnector implements Connector {
       const data = (cbQuery as any).data as string | undefined;
       if (!userId || !data) return;
 
-      await ctx.answerCbQuery(); // stop loading spinner
+      await ctx.answerCbQuery();
 
       const responses = await routeCallback(userId, 'telegram', data);
       await this.sendResponsesChat(userId, responses);
     });
 
-    // ── Free text (stateful editing OR agent Q&A with tool-calling) ──
+    // ── Free text ──
     this.bot.on('text', async (ctx) => {
       const userId = String(ctx.chat.id);
       const msgText = ctx.message.text.trim();
 
-      // Skip if it's a command
-      if (msgText.startsWith('/')) return;
-
+      // Skip if it's a registered command (already handled by command handlers above)
+      const registeredCmds = new Set(getCommandsForPlatform(this.platform).map(c => c.name));
+      const cmdName = msgText.replace(/^\/([a-zA-Z0-9_]+).*/, '$1');
+      if (registeredCmds.has(cmdName)) return;
       {
         // Idle: use AI agent with tool-calling (can create plans, check status, etc.)
         try {
@@ -160,7 +161,6 @@ export class TelegramConnector implements Connector {
       }
     });
 
-    // ── EPIC-005: File/Document handling (with staging support) ────
     const handleTelegramFiles = async (ctx: Context) => {
       if (!ctx.chat) return;
       const userId = String(ctx.chat.id);

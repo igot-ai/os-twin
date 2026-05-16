@@ -115,6 +115,7 @@ CLAUDE.md
 
 # ── Dev tooling / IDE config (auto-generated, never commit) ───────────────────
 **/.opencode/
+opencode.json
 **/scratch/
 test_extless
 test_extless.ps1

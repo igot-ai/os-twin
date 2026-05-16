@@ -15,7 +15,7 @@
  */
 
 import api from './api';
-import { getSession, setPlan, clearSession, clearChatHistory } from './sessions';
+import { getSession, setPlan, clearSession, clearChatHistory, getStagedImages } from './sessions';
 import { type AttachmentMeta } from './connectors/base';
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -71,6 +71,9 @@ export async function askAgent(
   const session = getSession(agentCtx.userId, agentCtx.platform);
 
   const convId = `connector:${agentCtx.platform}:${agentCtx.userId}`;
+  
+  console.log("75 Conversation ID: " + convId);
+  console.log("76 Session ID: " + session);
 
   // Fast-path: skip API call for trivial messages when no active plan
   const hasAttachments = agentCtx.attachments && agentCtx.attachments.length > 0;
@@ -94,7 +97,13 @@ export async function askAgent(
     session.pendingContext = [];
   }
 
+  // Inject active plan context so the OpenCode agent knows which plan to refine
+  if (hasActivePlan) {
+    message = `[Context: User is editing plan ${session.activePlanId}. Use ostwin_refine_plan with plan_id="${session.activePlanId}" for any modifications.]\n\n${message}`;
+  }
+
   try {
+    const stagedImages = getStagedImages(agentCtx.userId, agentCtx.platform);
     const result = await api.askOpenCode({
       message,
       conversation_id: convId,
@@ -102,6 +111,7 @@ export async function askAgent(
       platform: agentCtx.platform,
       working_dir: session.workingDir || undefined,
       attachments: agentCtx.attachments?.map(a => ({ name: a.name, contentType: a.contentType || undefined })),
+      images: stagedImages.length > 0 ? stagedImages : undefined,
       referenced_message_content: agentCtx.referencedMessageContent,
     });
 

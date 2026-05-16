@@ -17,6 +17,18 @@
 [[ -n "${_START_OPENCODE_SERVER_SH_LOADED:-}" ]] && return 0
 _START_OPENCODE_SERVER_SH_LOADED=1
 
+_is_opencode_serve_process() {
+  local pid="$1"
+  local comm
+  comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+  local args
+  args=$(ps -p "$pid" -o args= 2>/dev/null || true)
+  case "$comm $args" in
+    *opencode*"serve"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Parse host:port out of OPENCODE_BASE_URL; default 127.0.0.1:4096
 _opencode_host_port() {
   local url="${OPENCODE_BASE_URL:-http://127.0.0.1:4096}"
@@ -59,9 +71,7 @@ start_opencode_server() {
   if [[ -n "$existing" ]]; then
     local oc_pids=""
     for p in $existing; do
-      local comm
-      comm=$(ps -p "$p" -o comm= 2>/dev/null || true)
-      case "$comm" in *opencode*) oc_pids="$oc_pids $p" ;; esac
+      _is_opencode_serve_process "$p" && oc_pids="$oc_pids $p"
     done
     if [[ -n "$oc_pids" ]]; then
       step "Stopping existing opencode server on :$port..."
@@ -73,6 +83,19 @@ start_opencode_server() {
     fi
   fi
 
+  local project_dir="${OSTWIN_PROJECT_DIR:-${PROJECT_ROOT:-$INSTALL_DIR}}"
+  step "Generating OpenCode tools in ${project_dir}..."
+  if [[ -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+    "$INSTALL_DIR/.venv/bin/python" -m dashboard.opencode_tools \
+      --project-root "$project_dir" \
+      --dashboard-port "${DASHBOARD_PORT:-3366}" \
+      2>/dev/null || true
+  elif command -v python3 &>/dev/null; then
+    python3 -m dashboard.opencode_tools \
+      --project-root "$project_dir" \
+      --dashboard-port "${DASHBOARD_PORT:-3366}" \
+      2>/dev/null || true
+  fi
   step "Starting opencode server (workdir: $server_dir, listen: $host:$port)..."
   (
     cd "$server_dir"

@@ -74,7 +74,7 @@ class AgenticMemorySystem:
 
         Args:
             model_name: Name of the embedding model. If None, loads from dashboard config.
-            llm_backend: LLM provider (openai/ollama/gemini/openai-compatible/etc.). If None, loads from config.
+            llm_backend: LLM provider (ollama/gemini/openai-compatible/etc.). If None, loads from config.
             llm_model: Name of the LLM model. If None, loads from config.
             evo_threshold: Number of memories before triggering evolution
             api_key: API key for the LLM service (deprecated: gateway resolves

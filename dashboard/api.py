@@ -144,6 +144,8 @@ async def app_lifespan(_app):
     # Migrated from the legacy @app.on_event("startup") handler. Using
     # create_task so the lifecycle doesn't block the server from accepting
     # connections.
+    # Load the persisted master model but do NOT initialize the OpenCode client yet.
+    # The client will be lazily initialized on the first brainstorm or chat call.
     try:
         from dashboard.master_agent import load_persisted_master_model
 

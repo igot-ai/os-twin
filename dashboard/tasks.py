@@ -365,17 +365,15 @@ async def startup_all():
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
 
-                # ── Initialize master agent (OpenCode SDK) ────────────────────
+                # ── Generate OpenCode custom tools ──────────────────────────
                 try:
-                    from dashboard.master_agent import get_opencode_client
+                    from dashboard.opencode_tools import generate_all
 
-                    # The persisted model is re-hydrated in the FastAPI
-                    # lifespan before requests can be served. This background
-                    # path only initializes the OpenCode client.
-                    get_opencode_client()
-                    logger.info("Master agent OpenCode client initialized")
+                    port = os.environ.get("DASHBOARD_PORT", "3366")
+                    generate_all(dashboard_port=port)
+                    logger.info("OpenCode custom tools generated (port=%s)", port)
                 except Exception as e:
-                    logger.warning("Master agent init failed (will retry on first use): %s", e)
+                    logger.warning("OpenCode tool generation failed: %s", e)
                 
                 # Initialization (slow — loads 600MB model)
                 global_state.store.ensure_collections()

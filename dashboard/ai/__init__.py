@@ -57,7 +57,7 @@ def _detect_embed_model() -> str:
                 return know_cfg.knowledge_embedding_model
     except Exception:
         pass
-    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_MODEL", "qwen3-embedding:0.6b")
 
 
 def _detect_embed_provider() -> str:
@@ -73,7 +73,7 @@ def _detect_embed_provider() -> str:
                 return know_cfg.knowledge_embedding_backend
     except Exception:
         pass
-    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "sentence-transformers")
+    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "ollama")
 
 
 import os
@@ -103,12 +103,13 @@ def get_embedding(
     from .monitor import record_embedding
 
     embedder = _get_embedder()
+    model_label = _embedder_model(embedder)
     t0 = _time.time()
     try:
         result = embedder.embed(texts)
         latency_ms = (_time.time() - t0) * 1000
         record_embedding(
-            model=f"{embedder.provider}/{embedder.model_name}",
+            model=model_label,
             text_count=len(texts),
             latency_ms=latency_ms,
         )
@@ -116,13 +117,17 @@ def get_embedding(
     except Exception as exc:
         latency_ms = (_time.time() - t0) * 1000
         record_embedding(
-            model=f"{embedder.provider}/{embedder.model_name}",
+            model=model_label,
             text_count=len(texts),
             latency_ms=latency_ms,
             success=False,
             error=str(exc),
         )
         raise
+
+
+def _embedder_model(embedder) -> str:
+    return getattr(embedder, "model_name", None) or getattr(embedder, "model", "unknown")
 
 
 def embed(

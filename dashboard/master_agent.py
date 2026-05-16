@@ -46,6 +46,15 @@ OPENCODE_SERVER_USERNAME = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode"
 
 MAX_SESSIONS = int(os.environ.get("OPENCODE_MAX_SESSIONS", "1000"))
 
+# POST /session/{id}/message appends a new user turn server-side, so it is
+# NOT idempotent — a retry on a transient transport error duplicates the
+# message. We disable SDK auto-retries entirely and instead give the HTTP
+# transport a generous read timeout so slow LLM completions don't trip the
+# retry path in the first place. Stale-session recovery is handled
+# explicitly in _opencode_chat / _opencode_command.
+OPENCODE_HTTP_READ_TIMEOUT = float(os.environ.get("OPENCODE_HTTP_READ_TIMEOUT", "600.0"))
+OPENCODE_HTTP_CONNECT_TIMEOUT = float(os.environ.get("OPENCODE_HTTP_CONNECT_TIMEOUT", "10.0"))
+
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
@@ -182,16 +191,28 @@ def get_model_and_provider() -> tuple[str, str]:
 
 
 def _build_opencode_client() -> "AsyncOpencode":
+    import httpx
     from opencode_ai import AsyncOpencode
 
-    kwargs: dict = {"base_url": OPENCODE_BASE_URL}
-    if OPENCODE_SERVER_PASSWORD:
-        import httpx
+    timeout = httpx.Timeout(
+        OPENCODE_HTTP_READ_TIMEOUT,
+        connect=OPENCODE_HTTP_CONNECT_TIMEOUT,
+    )
 
+    kwargs: dict = {
+        "base_url": OPENCODE_BASE_URL,
+        "max_retries": 0,
+        "timeout": timeout,
+    }
+    if OPENCODE_SERVER_PASSWORD:
         kwargs["http_client"] = httpx.AsyncClient(
             auth=httpx.BasicAuth(OPENCODE_SERVER_USERNAME, OPENCODE_SERVER_PASSWORD),
+            timeout=timeout,
         )
-    logger.info("[MASTER_AGENT] Building OpenCode client: base_url=%s", OPENCODE_BASE_URL)
+    logger.info(
+        "[MASTER_AGENT] Building OpenCode client: base_url=%s read_timeout=%.1fs retries=0",
+        OPENCODE_BASE_URL, OPENCODE_HTTP_READ_TIMEOUT,
+    )
     return AsyncOpencode(**kwargs)
 
 
@@ -215,12 +236,21 @@ def reset_master_client() -> None:
 # ── Session registry ──────────────────────────────────────────────────────
 
 
+_SESSION_REGISTRY_FILE = os.path.join(os.path.expanduser("~"), ".ostwin", "session_registry.json")
+_SESSION_REGISTRY_DEBOUNCE = 2.0
+
+
 class _SessionRegistry:
     """Maps conversation_id → opencode_session_id with locking and LRU eviction.
 
     Per-conversation asyncio locks make get_or_create() race-free, so two
     concurrent first-hits for the same conversation_id share a single
     session.create() call instead of orphaning one server-side session.
+
+    Mappings are persisted to ~/.ostwin/session_registry.json so they survive
+    dashboard restarts.  When a mapping points to a session that no longer
+    exists on the OpenCode server (e.g. server restart), get_or_create()
+    transparently creates a new one.
     """
 
     def __init__(self, max_size: int = MAX_SESSIONS) -> None:
@@ -228,6 +258,46 @@ class _SessionRegistry:
         self._has_system_set: set[str] = set()
         self._locks: dict[str, asyncio.Lock] = {}
         self._max_size = max_size
+        self._persist_timer: asyncio.TimerHandle | None = None
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> None:
+        try:
+            if not os.path.exists(_SESSION_REGISTRY_FILE):
+                return
+            with open(_SESSION_REGISTRY_FILE) as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return
+            for conv_id, sess_id in data.items():
+                if isinstance(conv_id, str) and isinstance(sess_id, str):
+                    self._sessions[conv_id] = sess_id
+            if self._sessions:
+                logger.info("[MASTER_AGENT] Restored %d session mapping(s) from disk", len(self._sessions))
+        except Exception as exc:
+            logger.warning("[MASTER_AGENT] Failed to load session registry: %s", exc)
+
+    def _schedule_persist(self) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._persist_timer is not None:
+            self._persist_timer.cancel()
+        self._persist_timer = loop.call_later(_SESSION_REGISTRY_DEBOUNCE, self._flush_to_disk)
+
+    def _flush_to_disk(self) -> None:
+        self._persist_timer = None
+        try:
+            d = os.path.dirname(_SESSION_REGISTRY_FILE)
+            if not os.path.exists(d):
+                os.makedirs(d, exist_ok=True)
+            tmp = _SESSION_REGISTRY_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(dict(self._sessions), f)
+            os.replace(tmp, _SESSION_REGISTRY_FILE)
+        except Exception as exc:
+            logger.warning("[MASTER_AGENT] Failed to persist session registry: %s", exc)
 
     def _lock_for(self, conversation_id: str) -> asyncio.Lock:
         lock = self._locks.get(conversation_id)
@@ -237,28 +307,77 @@ class _SessionRegistry:
         return lock
 
     async def get_or_create(self, conversation_id: str) -> str:
+        print("Currently in get_or_create function, with conversation_id:", conversation_id)
         existing = self._sessions.get(conversation_id)
+        print("312 Checked, if the session is present or not")
         if existing:
-            self._sessions.move_to_end(conversation_id)
-            return existing
+            if await self._session_still_exists(existing):
+                print("315 Session still exists, moving to end")
+                self._sessions.move_to_end(conversation_id)
+                return existing
+            logger.warning(
+                "[MASTER_AGENT] Stale mapping %s→%s; will recreate",
+                conversation_id, existing,
+            )
+            self._sessions.pop(conversation_id, None)
+            self._has_system_set.discard(conversation_id)
+
         async with self._lock_for(conversation_id):
             existing = self._sessions.get(conversation_id)
             if existing:
-                self._sessions.move_to_end(conversation_id)
-                return existing
+                if await self._session_still_exists(existing):
+                    self._sessions.move_to_end(conversation_id)
+                    return existing
+                self._sessions.pop(conversation_id, None)
+                self._has_system_set.discard(conversation_id)
+
             client = get_opencode_client()
             session = await client.session.create()
             self._sessions[conversation_id] = session.id
             self._sessions.move_to_end(conversation_id)
             self._evict_if_needed()
+            self._schedule_persist()
             logger.info("[MASTER_AGENT] New session %s for conversation %s", session.id, conversation_id)
             return session.id
+
+    async def _session_still_exists(self, session_id: str) -> bool:
+        """Validate that an OpenCode session still exists server-side.
+
+        The opencode-ai SDK has no ``client.session.get(id)`` method — the
+        available endpoints scoped to an id are ``messages`` / ``abort`` /
+        ``delete`` etc.  ``messages`` is the cheapest read-only probe: it
+        GETs ``/session/{id}/message`` and raises ``NotFoundError`` (HTTP
+        404) when the session is gone.
+
+        Be conservative on transient failures (network blip, server restart
+        mid-flight, auth hiccup): treat them as "still alive" rather than
+        evicting and recreating, because ``_opencode_chat`` already has a
+        one-shot recover-on-NotFound path on the actual POST. Falsely
+        treating a session as stale here churns through fresh sessions on
+        every turn and silently breaks conversation continuity (the bug
+        that made every Telegram turn create a new session).
+        """
+        NotFoundError = _not_found_exc()
+        try:
+            client = get_opencode_client()
+            await client.session.messages(session_id)
+            return True
+        except NotFoundError:
+            return False
+        except Exception as exc:
+            logger.warning(
+                "[MASTER_AGENT] session.messages(%s) failed transiently (%s); "
+                "treating session as alive",
+                session_id, exc,
+            )
+            return True
 
     def _evict_if_needed(self) -> None:
         while len(self._sessions) > self._max_size:
             evicted, _ = self._sessions.popitem(last=False)
             self._has_system_set.discard(evicted)
             self._locks.pop(evicted, None)
+            self._schedule_persist()
             logger.info("[MASTER_AGENT] LRU evicted conversation %s", evicted)
 
     def get(self, conversation_id: str) -> str | None:
@@ -268,11 +387,13 @@ class _SessionRegistry:
         self._sessions.pop(conversation_id, None)
         self._has_system_set.discard(conversation_id)
         self._locks.pop(conversation_id, None)
+        self._schedule_persist()
 
     def clear(self) -> None:
         self._sessions.clear()
         self._has_system_set.clear()
         self._locks.clear()
+        self._schedule_persist()
 
     def mark_system_set(self, conversation_id: str) -> None:
         self._has_system_set.add(conversation_id)
@@ -287,15 +408,62 @@ _session_registry = _SessionRegistry()
 # ── Session content reading ───────────────────────────────────────────────
 
 
+def _get_obj_field(obj, key: str):
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
+def _json_error_detail(raw: str) -> str:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(parsed, dict):
+        return raw
+    detail = (
+        parsed.get("error_description")
+        or parsed.get("message")
+        or parsed.get("error")
+    )
+    code = parsed.get("error")
+    if detail and code and code not in str(detail):
+        return f"{code}: {detail}"
+    return str(detail or raw)
+
+
+def _format_opencode_error(error) -> str:
+    """Convert OpenCode message ``info.error`` into user-visible text."""
+    if not error:
+        return ""
+    name = _get_obj_field(error, "name") or _get_obj_field(error, "code") or "error"
+    data = _get_obj_field(error, "data")
+    detail = (
+        _get_obj_field(data, "message")
+        or _get_obj_field(error, "message")
+        or _get_obj_field(data, "error")
+        or str(error)
+    )
+    if isinstance(detail, str):
+        detail = _json_error_detail(detail)
+    return f"OpenCode error ({name}): {detail}"
+
+
 async def read_session_text(session_id: str) -> str:
-    """Read the latest assistant message text from a session."""
+    """Read the latest assistant message text or provider error from a session."""
     client = get_opencode_client()
     messages = await client.session.messages(session_id)
     for item in reversed(messages):
         if item.info.role != "assistant":
             continue
         text_parts = [p.text for p in item.parts if p.type == "text" and p.text]
-        return "\n".join(text_parts)
+        text = "\n".join(text_parts)
+        if text:
+            return text
+        error_text = _format_opencode_error(_get_obj_field(item.info, "error"))
+        if error_text:
+            return error_text
+        return ""
     return ""
 
 
@@ -358,6 +526,27 @@ def strip_tool_blocks(text: str) -> str:
 # ── Message → OpenCode parts conversion ───────────────────────────────────
 
 
+_IMAGE_MIME_BY_EXT = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
+
+def _guess_image_mime(url_or_path: str) -> str:
+    lowered = (url_or_path or "").split("?", 1)[0].lower()
+    for ext, mime in _IMAGE_MIME_BY_EXT.items():
+        if lowered.endswith(ext):
+            return mime
+    return "image/png"
+
+
 def _msg_to_parts(msg: ChatMessage) -> list[dict]:
     parts: list[dict] = []
 
@@ -379,7 +568,12 @@ def _msg_to_parts(msg: ChatMessage) -> list[dict]:
     if msg.role == "user":
         if msg.images:
             for img_url in msg.images:
-                parts.append({"type": "file", "file": {"url": img_url}})
+                # OpenCode FilePartInputParam requires {type, mime, url} at top level.
+                parts.append({
+                    "type": "file",
+                    "mime": _guess_image_mime(img_url),
+                    "url": img_url,
+                })
         if msg.content:
             parts.append({"type": "text", "text": msg.content})
         return parts
@@ -536,6 +730,68 @@ async def _opencode_chat(
     return await read_session_text(session_id)
 
 
+async def _opencode_command(
+    session_id: str,
+    command: str,
+    arguments: str,
+    *,
+    conversation_id: str | None = None,
+    agent: str | None = None,
+    model_id: str | None = None,
+    provider_id: str | None = None,
+) -> str:
+    """Invoke an OpenCode slash command (POST /session/{id}/command).
+
+    The server resolves ``command`` against ``.opencode/commands/<name>.md``,
+    substitutes ``$ARGUMENTS`` / ``$1`` / ``$2`` from ``arguments``, runs
+    ``!`` bash injections, and submits the rendered prompt to the configured
+    agent — all server-side. Use this when the connector receives a literal
+    slash command from a user; it avoids re-injecting the command's result
+    into the session as a fake user message (which is what happened with the
+    bot-side ``askAgent('Create a plan for: ...')`` wrapper).
+
+    Recovers from a stale ``NotFoundError`` by recreating the session once.
+    """
+    NotFoundError = _not_found_exc()
+
+    client = get_opencode_client()
+    m, p = _resolve_model_provider(model_id, provider_id)
+
+    def _body() -> dict:
+        body: dict = {
+            "command": command,
+            "arguments": arguments,
+            "model": {"providerID": p, "modelID": m},
+        }
+        if agent:
+            body["agent"] = agent
+        return body
+
+    async def _post(sid: str):
+        return await client.post(
+            f"/session/{sid}/command",
+            body=_body(),
+            cast_to=object,
+        )
+
+    try:
+        resp = await _post(session_id)
+    except NotFoundError:
+        if not conversation_id:
+            raise
+        logger.warning(
+            "[MASTER_AGENT] Stale session %s for %s; recreating once",
+            session_id, conversation_id,
+        )
+        _session_registry.remove(conversation_id)
+        session_id = await _session_registry.get_or_create(conversation_id)
+        resp = await _post(session_id)
+
+    _log_post_response_error(resp, m, p)
+
+    return await read_session_text(session_id)
+
+
 def _log_post_response_error(resp, model_id: str, provider_id: str) -> None:
     """Surface ``info.error`` from the POST response so model/key failures
     don't silently degrade to an empty completion.
@@ -553,7 +809,7 @@ def _log_post_response_error(resp, model_id: str, provider_id: str) -> None:
         return
     logger.error(
         "[MASTER_AGENT] OpenCode rejected %s/%s: %s",
-        provider_id, model_id, error,
+        provider_id, model_id, _format_opencode_error(error) or error,
     )
 
 
@@ -762,20 +1018,6 @@ async def master_complete(
     messages.append(ChatMessage(role="user", content=prompt))
     response = await master_chat(messages, conversation_id=conversation_id)
     return response.content or ""
-
-
-async def master_complete_stream(
-    prompt: str,
-    system_prompt: str | None = None,
-    conversation_id: str | None = None,
-) -> AsyncIterator[str]:
-    messages = []
-    if system_prompt:
-        messages.append(ChatMessage(role="system", content=system_prompt))
-    messages.append(ChatMessage(role="user", content=prompt))
-    async for chunk in master_chat_stream(messages, conversation_id=conversation_id):
-        if isinstance(chunk, str):
-            yield chunk
 
 
 # ── LLMClient-compatible shim ─────────────────────────────────────────────

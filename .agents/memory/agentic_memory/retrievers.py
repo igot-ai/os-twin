@@ -18,7 +18,9 @@ from typing import List, Dict, Any, Optional, Union, Protocol, runtime_checkable
 import os
 import json
 import logging
+import shutil
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -469,8 +471,12 @@ class ZvecRetriever:
         if os.path.exists(collection_path):
             try:
                 self.collection = _zvec.open(path=self._collection_path)
-            except Exception:
+            except Exception as exc:
                 self.collection = None
+                logger.warning(
+                    "ZvecRetriever: failed to open existing collection at %s: %s",
+                    self._collection_path, exc,
+                )
 
     # --- Embedding property (lazy, cached) --------------------------------
 
@@ -519,6 +525,38 @@ class ZvecRetriever:
 
     # --- Collection management ----------------------------------------
 
+    _LOCK_RETRY_ATTEMPTS = 6
+    _LOCK_RETRY_BASE_SEC = 0.5
+
+    def _is_lock_busy_error(self, exc: Exception) -> bool:
+        """Heuristic: does *exc* look like a lock-contention failure?"""
+        msg = str(exc).lower()
+        return any(tok in msg for tok in ("lock", "busy", "in use", "already open", "timeout"))
+
+    def _recover_corrupt_collection(self, reason: str) -> None:
+        """Back up an un-openable collection dir and reset ``self.collection``.
+
+        The corrupt directory is moved to ``<path>.corrupt.<timestamp>`` so it
+        can be inspected later.  A fresh ``create_and_open`` will be attempted
+        on the next call to ``_ensure_collection``.
+        """
+        src = self._collection_path
+        backup = f"{src}.corrupt.{int(time.time())}"
+        logger.error(
+            "ZvecRetriever: collection at %s is un-recoverable (%s). "
+            "Backing up to %s and will recreate.",
+            src, reason, backup,
+        )
+        try:
+            shutil.move(src, backup)
+        except OSError as move_err:
+            logger.error("ZvecRetriever: failed to back up corrupt dir: %s", move_err)
+            try:
+                shutil.rmtree(src, ignore_errors=True)
+            except OSError:
+                pass
+        self.collection = None
+
     def _ensure_collection(self):
         """Create or open the zvec collection if not already open."""
         if self.collection is not None:
@@ -532,9 +570,38 @@ class ZvecRetriever:
                 path=self._collection_path,
                 schema=self._build_schema(self._zvec, self._collection_name, dim),
             )
-        else:
-            self.collection = self._zvec.open(path=self._collection_path)
+            return self.collection
 
+        # Directory exists — try to open, retrying on lock contention,
+        # and recovering from corruption / schema mismatch.
+        last_exc = None
+        for attempt in range(self._LOCK_RETRY_ATTEMPTS):
+            try:
+                self.collection = self._zvec.open(path=self._collection_path)
+                return self.collection
+            except Exception as exc:
+                last_exc = exc
+                if self._is_lock_busy_error(exc):
+                    wait = self._LOCK_RETRY_BASE_SEC * (2 ** attempt)
+                    logger.info(
+                        "ZvecRetriever: lock busy opening %s (attempt %d/%d), "
+                        "retrying in %.1fs",
+                        self._collection_path,
+                        attempt + 1, self._LOCK_RETRY_ATTEMPTS, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                break
+
+        # All retries exhausted or non-lock error — treat as corrupt/unrecoverable.
+        self._recover_corrupt_collection(str(last_exc))
+
+        # Recreate fresh collection.
+        os.makedirs(os.path.dirname(self._collection_path), exist_ok=True)
+        self.collection = self._zvec.create_and_open(
+            path=self._collection_path,
+            schema=self._build_schema(self._zvec, self._collection_name, dim),
+        )
         return self.collection
 
     def _build_schema(self, _zvec, collection_name: str, dimension: int = None):

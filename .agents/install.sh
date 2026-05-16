@@ -157,6 +157,8 @@ fi
 
 header "8. Verification"
 verify_components
+header "8a. Generating OpenCode tools"
+generate_opencode_tools
 header "9. Starting OpenCode server"
 start_opencode_server
 header "9a. Starting dashboard"

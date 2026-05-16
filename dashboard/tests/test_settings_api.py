@@ -575,13 +575,13 @@ def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
     """PUT /api/settings/knowledge persists and broadcasts."""
     payload = {
         "knowledge_llm_model": "claude-haiku-4-5",
-        "knowledge_embedding_model": "BAAI/bge-base-en-v1.5",
+        "knowledge_embedding_model": "qwen3-embedding:0.6b",
     }
     r = client.put("/api/settings/knowledge", json=payload)
     assert r.status_code == 200
     body = r.json()
     assert body["knowledge_llm_model"] == "claude-haiku-4-5"
-    assert body["knowledge_embedding_model"] == "BAAI/bge-base-en-v1.5"
+    assert body["knowledge_embedding_model"] == "qwen3-embedding:0.6b"
     # Dimension is read-only (ignored on write, always reflects env var).
     assert body["knowledge_embedding_dimension"] == 1024
 

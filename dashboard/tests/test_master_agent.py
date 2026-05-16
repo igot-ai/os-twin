@@ -121,9 +121,14 @@ class TestSessionRegistry:
         _session_registry._sessions["conv-1"] = "sess-existing"
         _session_registry.mark_system_set("conv-1")
 
-        sid = await _session_registry.get_or_create("conv-1")
-        assert sid == "sess-existing"
-        assert _session_registry.has_system("conv-1")
+        with patch("dashboard.master_agent.get_opencode_client") as mock_oc:
+            mock_client = MagicMock()
+            mock_client.session.messages = AsyncMock(return_value=MagicMock())
+            mock_oc.return_value = mock_client
+
+            sid = await _session_registry.get_or_create("conv-1")
+            assert sid == "sess-existing"
+            assert _session_registry.has_system("conv-1")
 
     def test_remove_clears_session(self):
         from dashboard.master_agent import _session_registry
@@ -143,6 +148,74 @@ class TestSessionRegistry:
         _session_registry.clear()
         assert len(_session_registry._sessions) == 0
         assert not _session_registry.has_system("a")
+
+
+class TestReadSessionText:
+    @pytest.mark.asyncio
+    async def test_returns_assistant_text_before_error(self):
+        from dashboard.master_agent import read_session_text
+
+        item = MagicMock()
+        item.info.role = "assistant"
+        item.info.error = {"name": "ProviderError", "message": "hidden"}
+        text_part = MagicMock()
+        text_part.type = "text"
+        text_part.text = "Visible reply"
+        item.parts = [text_part]
+
+        with patch("dashboard.master_agent.get_opencode_client") as mock_oc:
+            mock_client = MagicMock()
+            mock_client.session.messages = AsyncMock(return_value=[item])
+            mock_oc.return_value = mock_client
+
+            text = await read_session_text("sess-text")
+
+        assert text == "Visible reply"
+
+    @pytest.mark.asyncio
+    async def test_returns_assistant_error_when_no_text_parts(self):
+        from dashboard.master_agent import read_session_text
+
+        item = MagicMock()
+        item.info.role = "assistant"
+        item.info.error = {
+            "name": "UnknownError",
+            "data": {
+                "message": (
+                    '{"error":"invalid_grant",'
+                    '"error_description":"reauth related error (invalid_rapt)"}'
+                ),
+            },
+        }
+        item.parts = []
+
+        with patch("dashboard.master_agent.get_opencode_client") as mock_oc:
+            mock_client = MagicMock()
+            mock_client.session.messages = AsyncMock(return_value=[item])
+            mock_oc.return_value = mock_client
+
+            text = await read_session_text("sess-error")
+
+        assert "OpenCode error (UnknownError)" in text
+        assert "invalid_grant: reauth related error" in text
+
+    @pytest.mark.asyncio
+    async def test_returns_plain_assistant_error_message(self):
+        from dashboard.master_agent import read_session_text
+
+        item = MagicMock()
+        item.info.role = "assistant"
+        item.info.error = {"name": "ProviderError", "message": "quota exceeded"}
+        item.parts = []
+
+        with patch("dashboard.master_agent.get_opencode_client") as mock_oc:
+            mock_client = MagicMock()
+            mock_client.session.messages = AsyncMock(return_value=[item])
+            mock_oc.return_value = mock_client
+
+            text = await read_session_text("sess-error")
+
+        assert text == "OpenCode error (ProviderError): quota exceeded"
 
 
 class TestGetMasterClient:
@@ -194,6 +267,7 @@ class TestDeltaMessaging:
              patch("dashboard.master_agent.read_session_text", new_callable=AsyncMock, return_value="First reply"):
             mock_client = MagicMock()
             mock_client.post = AsyncMock()
+            mock_client.session.messages = AsyncMock(return_value=MagicMock())
             mock_oc.return_value = mock_client
 
             msgs = [
@@ -280,7 +354,8 @@ class TestMsgToParts:
         parts = _msg_to_parts(ChatMessage(role="user", content="look", images=["data:image/png;base64,abc"]))
         assert len(parts) == 2
         assert parts[0]["type"] == "file"
-        assert parts[0]["file"]["url"] == "data:image/png;base64,abc"
+        assert parts[0]["url"] == "data:image/png;base64,abc"
+        assert parts[0]["mime"] == "image/png"
         assert parts[1] == {"type": "text", "text": "look"}
 
     def test_tool_result(self):
@@ -377,6 +452,7 @@ class TestSystemPromptTracking:
              patch("dashboard.master_agent.read_session_text", new_callable=AsyncMock, return_value="reply"):
             mock_client = MagicMock()
             mock_client.post = AsyncMock()
+            mock_client.session.messages = AsyncMock(return_value=MagicMock())
             mock_oc.return_value = mock_client
 
             msgs = [
@@ -426,6 +502,7 @@ class TestMasterComplete:
              patch("dashboard.master_agent.read_session_text", new_callable=AsyncMock, return_value="Done"):
             mock_client = MagicMock()
             mock_client.session.create = AsyncMock(return_value=MagicMock(id="sess-persist"))
+            mock_client.session.messages = AsyncMock(return_value=MagicMock())
             mock_client.post = AsyncMock()
             mock_oc.return_value = mock_client
 
