@@ -23,6 +23,7 @@ const LOCAL_ICON_MAP: Record<string, string> = {
   ollama:              'ollama',
   huggingface:         'hf',
   'sentence-transformer': 'hf',
+  'sentence-transformers': 'hf',
   // Explicit overrides for clarity
   hf:                  'hf',
 };
