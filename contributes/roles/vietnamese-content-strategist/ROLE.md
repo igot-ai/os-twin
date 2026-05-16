@@ -59,7 +59,7 @@ knowledge_query("project-docs", "What are the conventions for <area>?", mode="su
 ## Communication
 
 Use the channel MCP tools to:
-- Report progress: eport_progress(percent, message)
+- Report progress: report_progress(percent, message)
 - Post completion: post_message(type="done", body="...")
 
 ## Quality Standards

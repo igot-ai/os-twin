@@ -307,12 +307,9 @@ class _SessionRegistry:
         return lock
 
     async def get_or_create(self, conversation_id: str) -> str:
-        print("Currently in get_or_create function, with conversation_id:", conversation_id)
         existing = self._sessions.get(conversation_id)
-        print("312 Checked, if the session is present or not")
         if existing:
             if await self._session_still_exists(existing):
-                print("315 Session still exists, moving to end")
                 self._sessions.move_to_end(conversation_id)
                 return existing
             logger.warning(
@@ -761,7 +758,7 @@ async def _opencode_command(
         body: dict = {
             "command": command,
             "arguments": arguments,
-            "model": {"providerID": p, "modelID": m},
+            "model": f"{p}/{m}",
         }
         if agent:
             body["agent"] = agent

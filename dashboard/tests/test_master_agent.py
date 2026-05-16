@@ -479,6 +479,42 @@ class TestSystemPromptTracking:
             assert "system" not in second_call_body
 
 
+class TestOpenCodeCommand:
+    @pytest.mark.asyncio
+    async def test_command_uses_string_model_payload(self):
+        """OpenCode /command expects model as provider/model, not chat's object shape."""
+        from dashboard.master_agent import _opencode_command
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch("dashboard.master_agent.get_opencode_client", return_value=mock_client),
+            patch(
+                "dashboard.master_agent.read_session_text",
+                new_callable=AsyncMock,
+                return_value="ok",
+            ),
+        ):
+            result = await _opencode_command(
+                "sess-command",
+                "draft",
+                "build a todo app",
+                agent="build",
+                model_id="gemini-3.1-pro",
+                provider_id="google",
+            )
+
+        assert result == "ok"
+        body = mock_client.post.call_args.kwargs["body"]
+        assert body == {
+            "command": "draft",
+            "arguments": "build a todo app",
+            "model": "google/gemini-3.1-pro",
+            "agent": "build",
+        }
+
+
 class TestMasterComplete:
     @pytest.mark.asyncio
     async def test_returns_content(self):

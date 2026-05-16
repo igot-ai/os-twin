@@ -71,9 +71,6 @@ export async function askAgent(
   const session = getSession(agentCtx.userId, agentCtx.platform);
 
   const convId = `connector:${agentCtx.platform}:${agentCtx.userId}`;
-  
-  console.log("75 Conversation ID: " + convId);
-  console.log("76 Session ID: " + session);
 
   // Fast-path: skip API call for trivial messages when no active plan
   const hasAttachments = agentCtx.attachments && agentCtx.attachments.length > 0;
