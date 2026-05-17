@@ -712,7 +712,8 @@
     },
     {
       "name": "security-engineer",
-      "description": "Security Engineer — shift-left security: threat modeling, secure code review, vulnerability management, security architecture, and compliance mapping",
+      "description": "Security Engineer — shift-left security: threat modeling, risk-based secure code review, OWASP Top 10 validation, vulnerability management, security architecture, and compliance mapping",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
       "definition": "roles/security-engineer/role.json",
       "prompt": "roles/security-engineer/ROLE.md",
       "default_assignment": false,
@@ -723,21 +724,24 @@
         "epic"
       ],
       "capabilities": [
+        "security",
         "threat-modeling",
         "secure-code-review",
-        "vulnerability-management",
+        "dependency-vulnerability",
         "security-architecture",
-        "compliance-mapping",
-        "penetration-testing",
-        "security-automation"
+        "compliance-mapping"
       ],
       "quality_gates": [
         "threat-model-complete",
+        "owasp-a1-a10-reviewed",
+        "source-to-sink-traced",
+        "security-metrics-considered",
         "vulnerabilities-triaged",
         "compliance-mapped",
         "no-critical-findings"
       ],
-      "default_model": "google-vertex/zai-org/glm-5-maas"
+      "default_model": "google-vertex/zai-org/glm-5-maas",
+      "timeout": 3600
     },
     {
       "name": "vietnamese-content-strategist",
@@ -880,8 +884,8 @@
       "terraform": "infrastructure-as-code",
       "api-governance": "api-governance",
       "threat-model": "threat-modeling",
-      "cve": "vulnerability-management",
-      "vulnerability": "vulnerability-management",
+      "cve": "dependency-vulnerability",
+      "vulnerability": "dependency-vulnerability",
       "soc2": "compliance-mapping",
       "gdpr": "compliance-mapping",
       "hipaa": "compliance-mapping",
