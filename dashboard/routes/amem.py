@@ -1,6 +1,6 @@
 """Dashboard API routes for Agentic Memory.
 
-Reads memory data from the centralized ~/.ostwin/memory/memory-{plan_id}/
+Reads memory data from the centralized ~/.ostwin/memory/{plan_id}/
 directory to serve graph snapshots, memory notes, and search results to the frontend.
 """
 
@@ -17,9 +17,7 @@ import sys
 from dashboard.api_utils import PLANS_DIR, GLOBAL_PLANS_DIR, find_plan_file
 from dashboard.auth import get_current_user
 
-MEMORY_BASE_DIR = Path(
-    os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
-)
+MEMORY_BASE_DIR = Path(os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory")))
 
 # Reuse the canonical note parser from the co-located agentic_memory package
 # instead of duplicating the YAML/frontmatter logic. We import from `memory_note`
@@ -725,7 +723,7 @@ async def export_namespace(
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        tar.add(str(ns_dir), arcname=f"memory-{plan_id}")
+        tar.add(str(ns_dir), arcname=plan_id)
     buf.seek(0)
 
     return StreamingResponse(
