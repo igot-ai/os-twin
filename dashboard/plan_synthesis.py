@@ -117,9 +117,20 @@ async def synthesize_plan_from_thread(
 
                     for ep in OSTwinStore._parse_plan_epics(content, plan_id):
                         try:
-                            store.index_epic(plan_id=plan_id, **ep)
+                            store.index_epic(
+                                epic_ref=ep["epic_ref"],
+                                plan_id=plan_id,
+                                title=ep["title"],
+                                body=ep["body"],
+                                room_id=ep["room_id"],
+                                working_dir=ep.get("working_dir", "."),
+                                status=ep.get("status", "pending"),
+                            )
                         except Exception as ee:
-                            logger.warning("Failed to index epic for %s: %s", plan_id, ee)
+                            logger.warning(
+                                "Failed to index epic %s for %s: %s",
+                                ep.get("epic_ref"), plan_id, ee,
+                            )
                 except Exception as e:
                     logger.warning("Failed to parse/index epics for %s: %s", plan_id, e)
             except Exception as e:

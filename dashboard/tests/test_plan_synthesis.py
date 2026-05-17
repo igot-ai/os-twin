@@ -254,6 +254,66 @@ async def test_synthesize_raises_and_cleans_up_on_session_create_failure(fake_pl
 
 
 @pytest.mark.asyncio
+async def test_synthesize_indexes_epics_with_supported_kwargs_only(fake_plans_dir, monkeypatch):
+    """Regression: index_epic only accepts (epic_ref, plan_id, title, body, room_id,
+    working_dir, status). Splatting the full dict from _parse_plan_epics — which
+    also contains task_ref/depends_on — raises TypeError that gets swallowed by
+    the per-epic try/except, so the plan ends up with zero indexed epics.
+    Lock the call shape so the bug can't sneak back.
+    """
+    from dashboard import plan_synthesis as ps
+    import dashboard.global_state as global_state
+    import inspect
+
+    plan_id = "p_idx_epics"
+    plan_file = fake_plans_dir / f"{plan_id}.md"
+
+    def fake_create(**_kwargs):
+        plan_file.write_text("skel")
+        return _skel_dict(plan_id, fake_plans_dir, working_dir="/tmp/proj")
+
+    async def fake_post(path, **kwargs):
+        if path == "/session":
+            return {"id": "ses_idx"}
+        plan_file.write_text(
+            "# Plan: Indexing test\n\n"
+            "## Config\n\nworking_dir: /tmp/proj\n\n"
+            "## Epic: EPIC-001 — Foundations\n\nbody one\ndepends_on: []\n\n"
+            "## Epic: EPIC-002 — Auth\n\nbody two\ndepends_on: []\n"
+        )
+        return {"parts": [{"type": "text", "text": "ok"}]}
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=fake_post)
+
+    # Use a real spec so unsupported kwargs (task_ref, depends_on) raise TypeError.
+    from dashboard.zvec_store import OSTwinStore
+    mock_store = MagicMock()
+    mock_store.index_epic = MagicMock(spec=OSTwinStore.index_epic)
+    monkeypatch.setattr(global_state, "store", mock_store)
+
+    with patch("dashboard.plan_synthesis.create_plan_on_disk", side_effect=fake_create), \
+         patch("dashboard.plan_synthesis.get_opencode_client", return_value=mock_client), \
+         patch("dashboard.plan_synthesis.get_system_prompt", return_value="P"):
+        result = await ps.synthesize_plan_from_thread(
+            thread_id="pt-1", chat_history=[], title="Indexing test",
+        )
+
+    assert result["epic_count"] == 2
+    # Both epics must have been indexed (not silently dropped by swallowed TypeError).
+    assert mock_store.index_epic.call_count == 2
+
+    # Verify call kwargs match index_epic's signature exactly — no task_ref, no depends_on.
+    accepted = set(inspect.signature(OSTwinStore.index_epic).parameters) - {"self"}
+    for call in mock_store.index_epic.call_args_list:
+        passed_keys = set(call.kwargs)
+        unsupported = passed_keys - accepted
+        assert not unsupported, f"index_epic called with unsupported kwargs: {unsupported}"
+        assert call.kwargs["plan_id"] == plan_id
+        assert call.kwargs["epic_ref"].startswith("EPIC-")
+
+
+@pytest.mark.asyncio
 async def test_synthesize_cleanup_removes_zvec_entry_and_assets(fake_plans_dir, monkeypatch):
     """On failure, the zvec index entry inserted by create_plan_on_disk must be
     removed (else a phantom draft lingers in plan lists/search), and any copied
