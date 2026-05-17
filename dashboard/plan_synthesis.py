@@ -137,6 +137,13 @@ async def synthesize_plan_from_thread(
 
 
 def _cleanup_skeleton(plan_id: str) -> None:
+    """Mirror dashboard.routes.plans.delete_plan so a failed synthesis doesn't
+    leave a phantom draft visible in plan lists / zvec search. We must undo
+    all three side effects of ``create_plan_on_disk``: the on-disk files,
+    the copied thread assets, and the zvec index entry.
+    """
+    import shutil
+
     for suffix in (".md", ".meta.json", ".roles.json"):
         p = PLANS_DIR / f"{plan_id}{suffix}"
         if p.exists():
@@ -144,3 +151,17 @@ def _cleanup_skeleton(plan_id: str) -> None:
                 p.unlink()
             except Exception as e:
                 logger.warning("Failed to delete %s: %s", p, e)
+
+    assets_dir = PLANS_DIR / "assets" / plan_id
+    if assets_dir.exists() and assets_dir.is_dir():
+        try:
+            shutil.rmtree(assets_dir)
+        except Exception as e:
+            logger.warning("Failed to remove plan assets dir %s: %s", assets_dir, e)
+
+    store = global_state.store
+    if store:
+        try:
+            store.delete_plan(plan_id)
+        except Exception as e:
+            logger.warning("Failed to remove plan %s from zvec index: %s", plan_id, e)

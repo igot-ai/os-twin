@@ -254,6 +254,55 @@ async def test_synthesize_raises_and_cleans_up_on_session_create_failure(fake_pl
 
 
 @pytest.mark.asyncio
+async def test_synthesize_cleanup_removes_zvec_entry_and_assets(fake_plans_dir, monkeypatch):
+    """On failure, the zvec index entry inserted by create_plan_on_disk must be
+    removed (else a phantom draft lingers in plan lists/search), and any copied
+    thread-asset directory must be deleted too.
+    """
+    from dashboard import plan_synthesis as ps
+    import dashboard.global_state as global_state
+
+    plan_id = "p_phantom"
+    plan_file = fake_plans_dir / f"{plan_id}.md"
+    meta_file = fake_plans_dir / f"{plan_id}.meta.json"
+    assets_dir = fake_plans_dir / "assets" / plan_id
+
+    def fake_create(**_kwargs):
+        plan_file.write_text("skel")
+        meta_file.write_text("{}")
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        (assets_dir / "uploaded.png").write_bytes(b"fake-image-bytes")
+        return _skel_dict(plan_id, fake_plans_dir)
+
+    async def fake_post(path, **kwargs):
+        if path == "/session":
+            return {"id": "ses_phantom"}
+        # Worker doesn't touch the file — synthesis must raise + cleanup
+        return {"parts": [{"type": "text", "text": "I gave up"}]}
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(side_effect=fake_post)
+
+    mock_store = MagicMock()
+    monkeypatch.setattr(global_state, "store", mock_store)
+
+    with patch("dashboard.plan_synthesis.create_plan_on_disk", side_effect=fake_create), \
+         patch("dashboard.plan_synthesis.get_opencode_client", return_value=mock_client), \
+         patch("dashboard.plan_synthesis.get_system_prompt", return_value="P"):
+        with pytest.raises(RuntimeError, match="no epics"):
+            await ps.synthesize_plan_from_thread(
+                thread_id="pt-1", chat_history=[], title="T",
+            )
+
+    # Disk: files + asset dir gone
+    assert not plan_file.exists()
+    assert not meta_file.exists()
+    assert not assets_dir.exists()
+    # Zvec: phantom draft must be removed so it doesn't linger in plan lists/search
+    mock_store.delete_plan.assert_called_once_with(plan_id)
+
+
+@pytest.mark.asyncio
 async def test_synthesize_aggregates_text_parts_into_worker_summary(fake_plans_dir):
     """Multiple text parts in the worker response must be joined into worker_summary."""
     from dashboard import plan_synthesis as ps
