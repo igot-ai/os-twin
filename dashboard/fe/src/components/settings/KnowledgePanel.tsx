@@ -28,7 +28,6 @@ const LLM_BACKENDS: BackendOption[] = [
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
-  { value: 'sentence-transformers', label: 'HuggingFace (Local)',  description: 'Native Python — no server needed, runs offline', icon: 'model_training' },
   { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
   { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
@@ -47,15 +46,6 @@ const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> 
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  'sentence-transformers': [
-    { model: 'all-MiniLM-L6-v2', label: 'all-MiniLM-L6-v2 (recommended)' },
-    { model: 'all-mpnet-base-v2', label: 'all-mpnet-base-v2' },
-    { model: 'BAAI/bge-base-en-v1.5', label: 'BAAI/bge-base-en-v1.5' },
-    { model: 'BAAI/bge-small-en-v1.5', label: 'BAAI/bge-small-en-v1.5' },
-    { model: 'BAAI/bge-large-en-v1.5', label: 'BAAI/bge-large-en-v1.5' },
-    { model: 'paraphrase-MiniLM-L6-v2', label: 'paraphrase-MiniLM-L6-v2' },
-    { model: 'paraphrase-multilingual-MiniLM-L12-v2', label: 'paraphrase-multilingual-MiniLM-L12-v2' },
-  ],
   ollama: [
     { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
     { model: 'embeddinggemma', label: 'Embedding Gemma' },

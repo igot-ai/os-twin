@@ -9,7 +9,7 @@ All tools return JSON-serialisable dicts. Errors come back as
 exception, so the MCP transport always sees a well-formed response.
 
 Lazy-import discipline: importing this module must NOT pull in
-``kuzu``/``zvec``/``sentence_transformers``/``markitdown``/``anthropic``.
+``kuzu``/``zvec``/``markitdown``/``anthropic``.
 The :class:`KnowledgeService` is constructed on the first tool call (or
 the first call to :func:`get_mcp_app`), so dashboard cold-boot stays fast.
 
@@ -32,7 +32,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 logger = logging.getLogger(__name__)
 
 # Singleton KnowledgeService — lazy-init on first tool call so module
-# import stays cheap (no kuzu / zvec / sentence-transformers / markitdown /
+# import stays cheap (no kuzu / zvec / markitdown /
 # anthropic loaded at startup).
 _service: Optional[Any] = None
 _service_lock = threading.Lock()

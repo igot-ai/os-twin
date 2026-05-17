@@ -4,8 +4,8 @@ Provides ChromaDB and Zvec retriever implementations with pluggable
 embedding functions.
 
 Embedding is handled via an injected ``embed_fn`` callable or, when
-no function is injected, via KnowledgeEmbedder which supports multiple
-backends (sentence-transformer, gemini, ollama, vertex).
+no function is injected, via the centralized embedding client
+(ollama, google, google-vertex, or openai-compatible).
 The legacy per-class embedding logic has been consolidated.
 
 Memory-management design:
@@ -107,11 +107,6 @@ except ImportError:
 # Native model dimensions (before truncation) — used as a fast path
 # to avoid test-embedding calls (F9).
 _KNOWN_DIMENSIONS: Dict[str, int] = {
-    "all-MiniLM-L6-v2": 384,
-    "all-MiniLM-L12-v2": 384,
-    "all-mpnet-base-v2": 1024,
-    "paraphrase-MiniLM-L6-v2": 384,
-    "paraphrase-multilingual-MiniLM-L12-v2": 384,
     "gemini-embedding-001": 1024,
     "gemini/gemini-embedding-001": 1024,
     "text-embedding-004": 1024,
@@ -120,6 +115,30 @@ _KNOWN_DIMENSIONS: Dict[str, int] = {
     "qwen3-embedding:0.6b": 896,
     "text-embedding-005": 1024,
 }
+
+_UNSUPPORTED_EMBEDDING_BACKENDS = frozenset({
+    "sentence-transformer",
+    "sentence-transformers",
+})
+
+_LEGACY_SENTENCE_TRANSFORMER_MODELS = frozenset({
+    "all-minilm-l6-v2",
+    "all-minilm-l12-v2",
+    "all-mpnet-base-v2",
+    "paraphrase-minilm-l6-v2",
+    "paraphrase-multilingual-minilm-l12-v2",
+    "baai/bge-small-en-v1.5",
+    "baai/bge-base-en-v1.5",
+    "baai/bge-large-en-v1.5",
+})
+
+
+def _normalize_embedding_backend(backend: str) -> str:
+    return (backend or "").lower().replace("_", "-")
+
+
+def _normalize_embedding_model(model: str) -> str:
+    return (model or "").lower().replace("_", "-")
 
 
 class CentralizedEmbeddingFunction:
@@ -186,6 +205,17 @@ def _create_embedding_function(
     Delegates to ``CentralizedEmbeddingFunction`` which wraps the
     centralized ``dashboard.llm_client.EmbeddingClient``.
     """
+    if _normalize_embedding_backend(embedding_backend) in _UNSUPPORTED_EMBEDDING_BACKENDS:
+        raise ValueError(
+            "sentence-transformers embeddings are no longer supported; "
+            "use ollama, gemini, google-vertex, or openai-compatible instead."
+        )
+    if _normalize_embedding_model(model_name) in _LEGACY_SENTENCE_TRANSFORMER_MODELS:
+        raise ValueError(
+            "legacy sentence-transformer embedding models are no longer supported; "
+            "use an Ollama, Gemini, Vertex, or OpenAI-compatible embedding model instead."
+        )
+
     cache_key = (embedding_backend, model_name)
 
     if fresh and shared:
@@ -271,9 +301,9 @@ class ChromaRetriever:
     def __init__(
         self,
         collection_name: str = "memories",
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "leoipulsar/harrier-0.6b",
         persist_dir: str = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
         embed_fn: Optional[Any] = None,
     ):
         """Initialize ChromaDB retriever.
@@ -282,7 +312,7 @@ class ChromaRetriever:
             collection_name: Name of the ChromaDB collection
             model_name: Name of the embedding model
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
-            embedding_backend: "sentence-transformer" or "gemini"
+            embedding_backend: "ollama", "gemini", "google-vertex", or "openai-compatible"
             embed_fn: Optional external embedding function (from gateway)
         """
         import chromadb
@@ -440,9 +470,9 @@ class ZvecRetriever:
     def __init__(
         self,
         collection_name: str = "memories",
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "leoipulsar/harrier-0.6b",
         persist_dir: str = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
         embed_fn: Optional[Any] = None,
     ):
         import zvec as _zvec
